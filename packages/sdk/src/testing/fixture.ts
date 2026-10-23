@@ -19,7 +19,7 @@ import { createSuretyClient, type SuretyClient } from "../client.js";
 import type { MarketParams, SuretyDeployment } from "../deployments/types.js";
 import { auctionPrice, BPS, collateralValue, WAD } from "../math.js";
 import { marketIdOf } from "../reads.js";
-import { createMockChain, mockLog, MockRevert, type MockChain } from "./mock.js";
+import { createMockChain, mockLog, MockRevert, type MockChain, type RpcLog } from "./mock.js";
 
 /** Deterministic fake address `0x5e7e…{n}`. */
 export function fakeAddress(n: number): Address {
@@ -159,7 +159,13 @@ export interface FixtureState {
     cohorts: Record<string, bigint>;
     /** `${tokenId}:${lineId}:${epoch}` -> claimed. */
     claimed: Record<string, boolean>;
+    /** Loss a `checkpoint(lineId)` would record now. */
+    pendingLoss: bigint[];
   };
+  /** Ballots cast, as `Voted` logs: token, voter, block. */
+  votes: { tokenId: bigint; voter: Address; block: bigint }[];
+  /** More logs for the mocked `eth_getLogs`. */
+  extraLogs: RpcLog[];
   nfts: Record<string, { owner: Address; lock: FixtureLock; escrowType: number; grantManager: Address; voted: boolean }>;
   loans: FixtureLoan[];
 }
@@ -263,7 +269,13 @@ export function defaultFixtureState(): FixtureState {
       lossCovered: [0n, 0n],
       cohorts: { [`1:${prev}`]: e18(20), [`0:${matured}`]: e18(25) },
       claimed: {},
+      pendingLoss: [0n, 0n],
     },
+    votes: [
+      { tokenId: 9n, voter: ALICE, block: 16_305_000n },
+      { tokenId: 7n, voter: ALICE, block: 16_320_000n },
+    ],
+    extraLogs: [],
     nfts: {
       "7": {
         owner: ALICE,
@@ -366,15 +378,35 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
     get timestamp() {
       return s.now;
     },
-    logs: s.loans.map((l, i) =>
-      mockLog({
-        abi: veBTCCreditLineAbi,
-        eventName: "Opened",
-        args: { loanId: BigInt(i + 1), borrower: l.borrower, tokenId: l.tokenId, amount: l.amount },
-        address: c.veBTCLine,
-        blockNumber: l.openedAtBlock,
+    logs: [
+      ...s.loans.map((l, i) =>
+        mockLog({
+          abi: veBTCCreditLineAbi,
+          eventName: "Opened",
+          args: { loanId: BigInt(i + 1), borrower: l.borrower, tokenId: l.tokenId, amount: l.amount },
+          address: c.veBTCLine,
+          blockNumber: l.openedAtBlock,
+        }),
+      ),
+      ...s.votes.map((v) => {
+        const b = s.ballots[v.tokenId.toString()];
+        return mockLog({
+          abi: creditVoterAbi,
+          eventName: "Voted",
+          args: {
+            epoch: b?.epochCast ?? 0n,
+            tokenId: v.tokenId,
+            voter: v.voter,
+            power: 1n,
+            lineIds: b?.lineIds ?? [],
+            weightsBps: b?.weightsBps ?? [],
+          },
+          address: c.creditVoter,
+          blockNumber: v.block,
+        });
       }),
-    ),
+      ...s.extraLogs,
+    ],
     contracts: [
       {
         address: c.creditVoter,
@@ -416,6 +448,13 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
         abi: suretyPoolAbi,
         functions: {
           SEASON: () => s.season,
+          checkpoint: (l: bigint) => s.pool.pendingLoss[Number(l)] ?? 0n,
+          cover: (l: bigint) => {
+            const n = Number(l);
+            const uncovered = (s.pool.lossRecorded[n] ?? 0n) - (s.pool.lossCovered[n] ?? 0n) + (s.pool.pendingLoss[n] ?? 0n);
+            const capacity = s.pool.coverCapacity[n] ?? 0n;
+            return uncovered < capacity ? uncovered : capacity;
+          },
           incentiveShares: (l: bigint, e: bigint) => s.pool.incentiveShares[`${l}:${e}`] ?? 0n,
           coverCapacity: (l: bigint) => s.pool.coverCapacity[Number(l)] ?? 0n,
           uncoveredLoss: (l: bigint) => (s.pool.lossRecorded[Number(l)] ?? 0n) - (s.pool.lossCovered[Number(l)] ?? 0n),
