@@ -16,6 +16,9 @@ import { useChainNow, useStress } from "@/lib/queries";
 
 import styles from "./Board.module.css";
 
+/** A WAD price as dollars, or "stale" when the feed refuses to quote. */
+const usd = (v: bigint | null) => (v === null ? "stale" : `$${formatUsdWad(v)}`);
+
 const DURATIONS = ["600", "1800", "3600", "7200"] as const;
 
 /** Testnet only: shock the BTC price the lines use, to watch liquidations, auctions and first loss happen. */
@@ -40,8 +43,8 @@ export function StressPanel({ env }: { env: ReadyEnv }) {
       title: "Shock the BTC price (testnet)",
       summary: `Every Surety line on testnet values BTC ${pct}% lower for ${formatDuration(Number(duration))}. Use it to watch enforcement happen on chain.`,
       rows: [
-        { label: "BTC price now", value: `$${formatUsdWad(s.priceWad)}` },
-        { label: "BTC price during the shock", value: `$${formatUsdWad(shocked)}` },
+        { label: "BTC price now", value: usd(s.priceWad) },
+        { label: "BTC price during the shock", value: usd(shocked) },
         { label: "Lasts", value: formatDuration(Number(duration)) },
       ],
       notes: [
@@ -72,8 +75,8 @@ export function StressPanel({ env }: { env: ReadyEnv }) {
           <KeyValues
             label="Price source"
             items={[
-              { label: "BTC price the lines use", value: `$${formatUsdWad(s.priceWad)}` },
-              { label: "Unstressed (Skip) price", value: `$${formatUsdWad(s.basePriceWad)}` },
+              { label: "BTC price the lines use", value: usd(s.priceWad) },
+              { label: "Unstressed (Skip) price", value: usd(s.basePriceWad) },
               {
                 label: "Shock",
                 value: active
@@ -109,7 +112,7 @@ export function StressPanel({ env }: { env: ReadyEnv }) {
             options={durations.map((d) => ({ value: d, label: formatDuration(Number(d)) }))}
           />
           <p className={styles.preview}>
-            ${formatUsdWad(base)} → ${formatUsdWad(shocked)}
+            {usd(base)} → {usd(shocked)}
           </p>
           <Button variant="secondary" onClick={review}>
             Review shock

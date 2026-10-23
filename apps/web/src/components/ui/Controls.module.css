@@ -452,6 +452,10 @@
     text-align: left;
   }
 
+  .table td[data-label=""] {
+    justify-content: flex-end;
+  }
+
   .table td[data-label=""]::before {
     content: none;
   }

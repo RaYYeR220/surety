@@ -1,7 +1,7 @@
 "use client";
 
 import { auctionPrice, type AuctionView } from "@surety/sdk";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Stack } from "@/components/layout/Layout";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
@@ -66,11 +66,36 @@ function AuctionsView({ env }: { env: ReadyEnv }) {
 
 /* ---------- Curve ---------- */
 
-const W = 640;
-const H = 260;
-const PAD = { l: 64, r: 16, t: 20, b: 36 };
+const PAD = { l: 52, r: 12, t: 22, b: 36 };
+
+/** Width of an element in CSS pixels, so the chart draws at 1:1 and its labels stay legible on phones. */
+function useWidth<T extends HTMLElement>(fallback: number) {
+  const ref = useRef<T>(null);
+  const [width, setWidth] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setWidth(Math.round(w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
 
 function AuctionCurve({ a, now }: { a: AuctionView; now: number | null }) {
+  const [ref, W] = useWidth<HTMLDivElement>(640);
+  const H = Math.max(200, Math.min(280, Math.round(W * 0.42)));
+  return (
+    <div ref={ref}>
+      <CurveSvg a={a} now={now} W={W} H={H} />
+    </div>
+  );
+}
+
+function CurveSvg({ a, now, W, H }: { a: AuctionView; now: number | null; W: number; H: number }) {
   if (a.collateralValue === null || a.auctionStart === null || a.auctionEndsAt === null || a.floorPrice === null) {
     return <Muted small>The price curve needs a live BTC price; the feed is stale right now.</Muted>;
   }
@@ -120,7 +145,7 @@ function AuctionCurve({ a, now }: { a: AuctionView; now: number | null }) {
       <line className={styles.axis} x1={PAD.l} x2={W - PAD.r} y1={H - PAD.b} y2={H - PAD.b} />
       <line className={styles.debt} x1={PAD.l} x2={W - PAD.r} y1={y(debt)} y2={y(debt)} />
       <text className={styles.labelDanger} x={W - PAD.r} y={y(debt) - 6} textAnchor="end">
-        debt {fmt(debt)}: a bid below it is bad debt
+        debt {fmt(debt)} · below it is bad debt
       </text>
       <path className={styles.curve} d={curve} />
       <path className={styles.curvePast} d={past} />

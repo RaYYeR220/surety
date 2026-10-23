@@ -107,7 +107,7 @@ function WalletButton() {
   }
   return (
     <button type="button" className={`${styles.walletButton} ${styles.walletButtonPrimary}`} onClick={wallet.open}>
-      Connect<span className={styles.walletLabelLong}>&nbsp;wallet</span>
+      Connect<span className={styles.walletLabelLong}> wallet</span>
     </button>
   );
 }
@@ -156,6 +156,9 @@ function Header() {
         </div>
         <nav id="mobile-nav" className={styles.mobileNav} data-open={open} aria-label="App (menu)">
           <NavLinks onNavigate={() => setOpen(false)} />
+          <span className={styles.mobileNetwork}>
+            <NetworkPicker />
+          </span>
         </nav>
       </Container>
     </header>

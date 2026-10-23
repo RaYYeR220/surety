@@ -107,7 +107,9 @@ function EpochStrip({ board, env }: { board: Board; env: ReadyEnv }) {
   const remaining = now === null ? Number(epoch.secondsToFlip) : Math.max(0, Number(epoch.nextFlip) - now);
   const elapsed = Number(epoch.epochLength) - remaining;
   const tallyLabel =
-    epoch.activeTallyEpoch === epoch.currentEpoch
+    epoch.activeTallyEpoch === 0n
+      ? "no tally yet: the first rebalance allocates from the votes cast so far"
+      : epoch.activeTallyEpoch === epoch.currentEpoch
       ? "this epoch's tally (bootstrap: no closed epoch yet)"
       : epoch.activeTallyEpoch === epoch.lastClosedEpoch
         ? `the tally that closed at ${formatDateTime(epoch.currentEpoch)}`
