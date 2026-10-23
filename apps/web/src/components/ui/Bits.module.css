@@ -170,6 +170,12 @@
   min-width: 0;
 }
 
+/* Credit-line fills sit below 3:1 on the ground, so they carry an ink outline (as on the landing). */
+.meterFill[data-line] {
+  inset: -1px auto -1px -1px;
+  box-shadow: inset 0 0 0 1.5px var(--line-outline);
+}
+
 .marker {
   position: absolute;
   top: -4px;
@@ -198,7 +204,7 @@
   border-radius: var(--radius-bar);
   overflow: hidden;
   background: var(--meter-track);
-  border: var(--meter-border);
+  border: var(--border-width-strong) solid var(--line-outline);
 }
 
 .stackSeg {
@@ -208,7 +214,7 @@
 }
 
 .stackSeg + .stackSeg {
-  border-left: 2px solid var(--color-surface);
+  border-left: var(--border-width-strong) solid var(--line-outline);
 }
 
 .hatched {
@@ -220,10 +226,11 @@
 /* ---------- Swatch / line name ---------- */
 .swatch {
   display: inline-block;
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   border-radius: 7px 2px 7px 2px;
   background: var(--swatch);
+  border: var(--border-width-strong) solid var(--line-outline);
   flex: none;
 }
 

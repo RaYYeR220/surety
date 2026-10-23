@@ -5,6 +5,11 @@ export function lineColor(id: number): string {
   return `var(--line-${(id % 5) + 1})`;
 }
 
+/** Whether a colour is a credit-line token (those fills get an ink outline). */
+export function isLineColor(color: string | undefined): boolean {
+  return !!color && color.startsWith("var(--line-");
+}
+
 export function kindLabel(kind: LineKind): string {
   return kind === "Morpho" ? "Morpho market" : "veBTC credit line";
 }

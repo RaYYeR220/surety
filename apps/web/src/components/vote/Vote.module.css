@@ -112,7 +112,7 @@
 
 .seasonTick[data-state="done"] {
   background: var(--tick, var(--color-ink));
-  border-color: transparent;
+  border-color: var(--line-outline);
 }
 
 .seasonTick[data-state="now"] {

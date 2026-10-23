@@ -177,6 +177,14 @@
   border: var(--meter-border);
 }
 
+.slider[data-line]::-webkit-slider-runnable-track {
+  border: var(--border-width-strong) solid var(--line-outline);
+}
+
+.slider[data-line]::-moz-range-track {
+  border: var(--border-width-strong) solid var(--line-outline);
+}
+
 .slider::-webkit-slider-thumb {
   appearance: none;
   width: 24px;

@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 
-import { lineColor } from "@/lib/lines";
+import { isLineColor, lineColor } from "@/lib/lines";
 
 import styles from "./Bits.module.css";
 
@@ -128,6 +128,7 @@ export function Meter({
     >
       <span
         className={styles.meterFill}
+        data-line={isLineColor(color) || undefined}
         style={{ width: `${v * 100}%`, ...(color ? cssVars({ "--fill": color }) : {}) }}
       />
       {markers?.map((m) => (

@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, type CSSProperties, type KeyboardEvent, type 
 
 import { useSurety } from "@/lib/env";
 import { shortAddress, shortHash } from "@/lib/format";
+import { isLineColor } from "@/lib/lines";
 
 import styles from "./Controls.module.css";
 
@@ -241,6 +242,7 @@ export function Slider({
       disabled={disabled}
       aria-label={label}
       aria-valuetext={valueText}
+      data-line={isLineColor(color) || undefined}
       onChange={(e) => onChange(Number(e.target.value))}
       style={{ "--pct": `${pct}%`, ...(color ? { "--thumb": color } : {}) } as CSSProperties}
     />
