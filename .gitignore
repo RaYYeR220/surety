@@ -1,0 +1,29 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/**/dry-run/
+
+# node
+node_modules/
+.next/
+dist/
+*.tsbuildinfo
+.vercel/
+
+# working material that never ships
+*-internal/
+.claude/
+.remember/
+docs/superpowers/
+ui-prototypes/
+mockups/
+variants/
+design-ref/
+BRIEF.md
+*.bundle
+*-backup*

@@ -1,0 +1,26 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
+
+[fuzz]
+runs = 512
+
+[invariant]
+runs = 256
+depth = 64
+fail_on_revert = false
+
+[rpc_endpoints]
+mezo_testnet = "https://rpc.test.mezo.org"
+mezo_mainnet = "https://mezo-mainnet.boar.network"
+
+[etherscan]
+mezo_testnet = { key = "blockscout", url = "https://api.explorer.test.mezo.org/api/", chain = 31611 }
+mezo_mainnet = { key = "blockscout", url = "https://api.explorer.mezo.org/api/", chain = 31612 }

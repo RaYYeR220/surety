@@ -1,0 +1,9 @@
+{
+  "name": "surety",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build:contracts": "cd contracts && forge build",
+    "test:contracts": "cd contracts && forge test"
+  }
+}
