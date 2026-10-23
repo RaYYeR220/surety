@@ -9,10 +9,13 @@ pragma solidity 0.8.28;
  *
  * One run deploys and wires the whole system on Mezo testnet (31611) or mainnet (31612): VaultV2 (MUSD) with a
  * MorphoMarketV1AdapterV2, a BTC/MUSD Morpho market priced by our oracle, CreditVoter, VeBTCCreditLine (+ its
- * LinearKinkIrm and LoanEscrow implementation), VoteAllocator and SuretyPool. Then it sets the vault's roles, caps,
- * fees, penalties and max rate, lists the BTC Morpho line (0) and the veBTC line (1), checkpoints the Morpho line,
- * raises the vault timelocks last (mainnet), and writes `deployments/<chainId>.json` (the schema the SDK reads).
- * Dry runs (no --broadcast) write `deployments/dry-run/<chainId>.json` instead.
+ * LinearKinkIrm and LoanEscrow implementation), VoteAllocator, SuretyPool and the vault's DepositGate. Then it puts
+ * the Morpho adapter's own timelocks (burnShares, setSkimRecipient, abdicate, increaseTimelock) at VAULT_TIMELOCK
+ * before the vault adds it, sets the vault's roles, caps, fees, penalties, receive-shares gate and max rate, lists
+ * the BTC Morpho line (0) and the veBTC line (1) and ends the CreditVoter's bootstrap (later lines wait its
+ * LINE_TIMELOCK, which is VAULT_TIMELOCK), checkpoints the Morpho line, raises the vault timelocks last (mainnet), and
+ * writes `deployments/<chainId>.json` (the schema the SDK reads). Dry runs (no --broadcast) write
+ * `deployments/dry-run/<chainId>.json` instead.
  *
  * The deployer key ends up as owner of every contract and as the vault's owner, curator and sentinel.
  *
@@ -29,8 +32,9 @@ pragma solidity 0.8.28;
  *                         (adapter, veBTC); 10,000,000 MUSD testnet, 2,000 MUSD mainnet. Relative caps are 100%.
  *   AUCTION_DURATION      veBTC auction decay, seconds; 600 testnet, 21600 mainnet
  *   MIN_TERM              minimum lock time left to borrow, seconds; 3600 testnet, 259200 mainnet
- *   VAULT_TIMELOCK        seconds set on every timelockable curator function after configuration; 0 testnet,
- *                         86400 mainnet
+ *   VAULT_TIMELOCK        seconds set on every timelockable curator function of the vault (after configuration)
+ *                         and of the Morpho adapter (before the vault adds it), and the CreditVoter's line
+ *                         timelock; 0 testnet, 86400 mainnet (the CreditVoter refuses 0 on mainnet)
  *   SIMULATE_PRECOMPILES  true: etch mock code over the Skip BTC/USD precompile (seeded with SKIP_PRICE, default
  *                         $81,350) so a dry run on a local fork can read it; a fork cannot execute Mezo's native
  *                         precompiles. Refused with --broadcast. Default false.
@@ -56,7 +60,10 @@ import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 import {MorphoMarketV1AdapterV2} from "vault-v2/adapters/MorphoMarketV1AdapterV2.sol";
 import {VmSafe} from "forge-std/Vm.sol";
 
+import {IMorphoMarketV1AdapterV2} from "vault-v2/adapters/interfaces/IMorphoMarketV1AdapterV2.sol";
+
 import {CreditVoter} from "../src/CreditVoter.sol";
+import {DepositGate} from "../src/DepositGate.sol";
 import {SuretyPool} from "../src/SuretyPool.sol";
 import {VoteAllocator} from "../src/VoteAllocator.sol";
 import {IAggregatorV3} from "../src/interfaces/IAggregatorV3.sol";
@@ -126,6 +133,7 @@ contract Deploy is MorphoStackDeployer {
         CreditVoter voter;
         VoteAllocator allocator;
         SuretyPool pool;
+        DepositGate gate;
         MarketParams market;
     }
 
@@ -250,10 +258,12 @@ contract Deploy is MorphoStackDeployer {
             d.deployer,
             SEASON
         );
+        d.gate = new DepositGate(d.pool);
     }
 
-    /// @dev Roles, adapters, caps, fees and penalties. Timelocks are still 0, so each curator call is submitted and
-    /// executed right away. The performance-fee recipient is set before the fee, which VaultV2 requires.
+    /// @dev Roles, adapters, caps, fees, penalties and the deposit gate. Timelocks are still 0, so each curator call
+    /// is submitted and executed right away. The performance-fee recipient is set before the fee, which VaultV2
+    /// requires. The Morpho adapter's timelocks are raised before the vault adds it, as its NatSpec requires.
     function _configureVault(Config memory c, Deployed memory d) internal {
         VaultV2 vault = d.vault;
         vault.setCurator(d.deployer);
@@ -261,6 +271,7 @@ contract Deploy is MorphoStackDeployer {
         vault.setName("Surety MUSD");
         vault.setSymbol("srMUSD");
 
+        if (c.timelock != 0) _raiseAdapterTimelocks(d.morphoAdapter, c.timelock);
         _curate(vault, abi.encodeCall(IVaultV2.addAdapter, (address(d.morphoAdapter))));
         _curate(vault, abi.encodeCall(IVaultV2.addAdapter, (address(d.line))));
         _caps(vault, LineIds.adapterIdData(address(d.morphoAdapter)), c.morphoCap);
@@ -278,6 +289,30 @@ contract Deploy is MorphoStackDeployer {
         _curate(vault, abi.encodeCall(IVaultV2.setForceDeallocatePenalty, (address(d.line), FORCE_DEALLOCATE_PENALTY)));
         // The VoteAllocator is the only allocator and no liquidity adapter is set.
         _curate(vault, abi.encodeCall(IVaultV2.setIsAllocator, (address(d.allocator), true)));
+        // New shares wait while a loss is pending, uncovered or being re-recognised; withdrawals are never gated.
+        _curate(vault, abi.encodeCall(IVaultV2.setReceiveSharesGate, (address(d.gate))));
+    }
+
+    /// @dev Puts `duration` on the MorphoMarketV1AdapterV2 functions that could hurt depositors without the vault's
+    /// timelocks: `burnShares` (writes the line off), `setSkimRecipient` and `abdicate`, then `increaseTimelock`
+    /// itself, last so the earlier raises are not delayed by it. The adapter's `submit` takes the vault's curator.
+    function _raiseAdapterTimelocks(MorphoMarketV1AdapterV2 adapter, uint256 duration) internal {
+        bytes4[4] memory selectors = [
+            IMorphoMarketV1AdapterV2.burnShares.selector,
+            IMorphoMarketV1AdapterV2.setSkimRecipient.selector,
+            IMorphoMarketV1AdapterV2.abdicate.selector,
+            IMorphoMarketV1AdapterV2.increaseTimelock.selector
+        ];
+        for (uint256 i; i < selectors.length; ++i) {
+            bytes memory data = abi.encodeCall(IMorphoMarketV1AdapterV2.increaseTimelock, (selectors[i], duration));
+            adapter.submit(data);
+            (bool ok, bytes memory ret) = address(adapter).call(data);
+            if (!ok) {
+                assembly ("memory-safe") {
+                    revert(add(ret, 32), mload(ret))
+                }
+            }
+        }
     }
 
     /// @dev Lines, cross-references, the vault's max rate, and the Morpho line's first loss checkpoint (losses before
@@ -373,6 +408,7 @@ contract Deploy is MorphoStackDeployer {
             _addr("creditVoter", address(d.voter), true),
             _addr("voteAllocator", address(d.allocator), true),
             _addr("suretyPool", address(d.pool), true),
+            _addr("depositGate", address(d.gate), true),
             _addr("veBTCLine", address(d.line), true)
         );
         address escrowImpl = d.line.escrowImplementation();
@@ -457,6 +493,7 @@ contract Deploy is MorphoStackDeployer {
         console2.log("creditVoter  ", address(d.voter));
         console2.log("voteAllocator", address(d.allocator));
         console2.log("suretyPool   ", address(d.pool));
+        console2.log("depositGate  ", address(d.gate));
         console2.log("veBTCLine    ", address(d.line));
         console2.log("priceSource  ", address(d.priceSource));
     }
