@@ -45,6 +45,11 @@ export function Footer() {
             <li>
               <Link href="/app/proof">Contracts and proof</Link>
             </li>
+            <li>
+              <a href="/surety-deck.pdf" {...EXT}>
+                Deck (PDF)
+              </a>
+            </li>
           </ul>
         </div>
         <div>
