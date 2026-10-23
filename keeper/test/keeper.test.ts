@@ -108,4 +108,50 @@ describe("keeper tick", () => {
     // Mid-epoch and already rebalanced: cover line 1's recorded loss and carry token 9's old ballot forward.
     expect(executor.sent.map((s) => s.label)).toEqual(["cover", "poke"]);
   });
+
+  it("backs off exponentially while passes fail, and stops on request", async () => {
+    const { client } = createSuretyFixture();
+    const delays: number[] = [];
+    let reads = 0;
+    const keeper = new Keeper({
+      client,
+      source: {
+        take: async () => {
+          reads++;
+          throw Object.assign(new Error("fetch failed"), { name: "HttpRequestError" });
+        },
+      },
+      executor: recordingExecutor(),
+      log: quiet,
+      snapshotRetry: { retries: 1, sleep: async () => {} },
+    });
+    await keeper.run({
+      intervalMs: 60_000,
+      sleep: async (ms) => {
+        delays.push(ms);
+        if (delays.length === 3) keeper.stop();
+      },
+    });
+    expect(delays).toEqual([2_000, 4_000, 8_000]);
+    expect(reads).toBe(6); // each pass: first read plus one retry
+  });
+
+  it("waits until just after the next flip when it is sooner than the interval", async () => {
+    const { client } = createSuretyFixture(); // 1,800 s to the flip
+    const delays: number[] = [];
+    const keeper = new Keeper({
+      client,
+      source: new SnapshotSource(client, { account: SENDER, morphoLiquidations: false, log: quiet }),
+      executor: recordingExecutor(),
+      log: quiet,
+    });
+    await keeper.run({
+      intervalMs: 3_600_000,
+      sleep: async (ms) => {
+        delays.push(ms);
+        keeper.stop();
+      },
+    });
+    expect(delays).toEqual([(1_800 + 5) * 1000]);
+  });
 });

@@ -6,6 +6,7 @@ import {
   MEZO_MAINNET_ID,
   createMezoPublicClient,
   createSuretyClient,
+  getDeployment,
   getMezoChain,
   isMezoChainId,
   parseDeployment,
@@ -101,6 +102,9 @@ async function main(): Promise<void> {
   const deployment = values.deployment
     ? parseDeployment(JSON.parse(readFileSync(values.deployment, "utf8")))
     : undefined;
+  if (!deployment && !getDeployment(chainId)) {
+    fail(`no Surety deployment bundled for chain ${chainId}; pass --deployment <path>`);
+  }
   const client = createSuretyClient({ chainId, publicClient, ...(deployment ? { deployment } : {}) });
 
   const intervalSeconds = values.interval ? Number(values.interval) : chainId === MEZO_MAINNET_ID ? 600 : 60;
@@ -142,7 +146,8 @@ async function main(): Promise<void> {
   await keeper.run({ intervalMs: intervalSeconds * 1000, once: values.once });
 }
 
+// exitCode rather than exit(): exiting while sockets are closing can abort Node on Windows.
 main().catch((e: unknown) => {
   fatalLog.error("fatal", { error: e });
-  process.exit(1);
+  process.exitCode = 1;
 });

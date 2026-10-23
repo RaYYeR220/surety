@@ -4,7 +4,7 @@ import type { Abi } from "viem";
 import { decide, type Action, type KeeperSnapshot } from "./decide.js";
 import type { ContractCall, ExecutionResult, Executor } from "./execute.js";
 import type { Logger } from "./log.js";
-import { backoffDelay, withRetry } from "./retry.js";
+import { backoffDelay, withRetry, type RetryOptions } from "./retry.js";
 import type { SnapshotSource } from "./snapshot.js";
 
 export interface KeeperOptions {
@@ -15,6 +15,8 @@ export interface KeeperOptions {
   /** Seconds after the flip before rebalancing (default 5). */
   flipDelaySeconds?: bigint;
   morphoLiquidations?: boolean;
+  /** Retry policy for reading the snapshot (default: 5 retries from 500 ms). */
+  snapshotRetry?: RetryOptions;
 }
 
 export interface TickResult {
@@ -74,6 +76,7 @@ export class Keeper {
   async tick(): Promise<TickResult> {
     const { log } = this.o;
     const snapshot = await withRetry(() => this.o.source.take(), {
+      ...this.o.snapshotRetry,
       onRetry: (e, attempt, delayMs) => log.warn("snapshot failed, retrying", { attempt, delayMs, error: e }),
     });
     const actions = decide(snapshot, {
@@ -115,10 +118,10 @@ export class Keeper {
         const toFlip = Number(snapshot.currentEpoch + snapshot.epochLength - snapshot.now);
         delay = Math.max(1_000, Math.min(options.intervalMs, (toFlip + flipDelay) * 1000));
       } catch (e) {
+        if (options.once) throw e;
         failures++;
         delay = backoffDelay(failures, 2_000, 5 * 60_000);
         log.error("tick failed", { failures, retryInMs: delay, error: e });
-        if (options.once) throw e;
       }
       if (options.once || this.stopped) break;
       await this.pause(delay, options.sleep);
