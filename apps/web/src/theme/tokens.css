@@ -113,8 +113,9 @@
 
   --color-positive: #1d7446;
   --color-positive-soft: rgb(29 116 70 / 0.12);
-  --color-warning: #8f5300;
-  --color-warning-soft: rgb(214 140 20 / 0.17);
+  /* Amber pushed toward gold (hue ~47°) so a warning never reads as BTC orange. */
+  --color-warning: #735a00;
+  --color-warning-soft: rgb(212 172 30 / 0.17);
   --color-danger: #b8301b;
   --color-danger-soft: rgb(184 48 27 / 0.1);
   --color-danger-shelf: #84200f;
@@ -180,8 +181,8 @@
 
   --color-positive: #67d4a6;
   --color-positive-soft: rgb(103 212 166 / 0.14);
-  --color-warning: #f2b84b;
-  --color-warning-soft: rgb(242 184 75 / 0.15);
+  --color-warning: #f0c75a;
+  --color-warning-soft: rgb(240 199 90 / 0.14);
   /* Redder than the coral line (#fa897b) so a status never reads as a credit line. */
   --color-danger: #ff4d5e;
   --color-danger-soft: rgb(255 77 94 / 0.14);

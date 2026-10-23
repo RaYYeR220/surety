@@ -263,7 +263,11 @@ function LineCard({
   const coverCap = line.coverCapacity ?? 0n;
   const uncovered = line.uncoveredLoss ?? 0n;
   const pending = check?.pendingLoss ?? 0n;
-  const scale = [allocation, target ?? 0n, cap?.cap ?? 0n].reduce((a, b) => (b > a ? b : a), 0n);
+  const exposure = (target ?? 0n) > allocation ? (target ?? 0n) : allocation;
+  // A cap far above what is lent would flatten the bar to nothing: then the bar scales to the exposure
+  // and the cap is only stated in words.
+  const capOnBar = !!cap && (exposure === 0n || cap.cap <= exposure * 3n);
+  const scale = capOnBar && cap.cap > exposure ? cap.cap : exposure === 0n ? 1n : (exposure * 5n) / 4n;
   const coverRatio = allocation === 0n ? (coverCap > 0n ? 1 : 0) : fraction(coverCap, allocation);
   const failClosed = line.oracleLive === false;
 
@@ -354,7 +358,7 @@ function LineCard({
             color={color}
             label={`${line.name} allocation`}
             valueText={`${formatMusd(allocation, 0)} MUSD now, target ${formatMusd(target, 0)} MUSD`}
-            markers={allocationMarkers(target, cap, scale)}
+            markers={allocationMarkers(target, capOnBar ? cap : undefined, scale)}
           />
           <Muted small>
             {cap
