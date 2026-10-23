@@ -33,6 +33,11 @@ export interface LineState {
   /** Loss a checkpoint would record now (simulated); null if the simulation failed. */
   pendingLoss: bigint | null;
   coverCapacity: bigint;
+  /**
+   * Morpho lines: whether SuretyPool has a supply-price high-water mark for the line (set by the first
+   * checkpoint; losses are measured against it). null for veBTC lines or when unknown.
+   */
+  markSet: boolean | null;
 }
 
 export interface LoanStateView {
@@ -78,7 +83,7 @@ export interface DecideOptions {
 export type Action =
   | { kind: "startAuction"; loanId: bigint; reason: "ltv" | "expiry" }
   | { kind: "cover"; lineId: number; loss: bigint }
-  | { kind: "checkpoint"; lineId: number; loss: bigint }
+  | { kind: "checkpoint"; lineId: number; reason: CheckpointReason; loss: bigint }
   | { kind: "poke"; tokenId: bigint }
   | { kind: "rebalance"; epoch: bigint }
   | {
@@ -89,6 +94,13 @@ export type Action =
       seizedAssets: bigint;
       repaidShares: bigint;
     };
+
+/**
+ * loss: a new loss to record. mark: a Morpho line without a high-water mark yet (a loss before the first
+ * checkpoint would go unmeasured). pre-rebalance: ratchets a Morpho line's mark up with interest once per epoch,
+ * right before the rebalance reallocates it.
+ */
+export type CheckpointReason = "loss" | "mark" | "pre-rebalance";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
@@ -117,16 +129,24 @@ export function rebalanceDue(s: KeeperSnapshot, flipDelaySeconds = 5n): boolean 
 
 /**
  * Loss handling per line: `cover` (which checkpoints first) when there is a loss and something to pay it with,
- * otherwise `checkpoint` alone so a new loss is at least recorded and reported to the allocator.
+ * otherwise `checkpoint` alone so a new loss is at least recorded and reported to the allocator. Morpho lines are
+ * also checkpointed when they have no high-water mark yet, and before each rebalance, because SuretyPool measures
+ * Morpho losses against the supply price of the line's last checkpoint.
  */
-export function lossActions(s: KeeperSnapshot): Action[] {
+export function lossActions(s: KeeperSnapshot, options: { rebalancing?: boolean } = {}): Action[] {
   const out: Action[] = [];
   for (const line of s.lines) {
     const pending = line.pendingLoss ?? 0n;
     const loss = line.uncoveredLoss + pending;
-    if (loss === 0n) continue;
-    if (line.coverCapacity > 0n && s.vaultIdle > 0n) out.push({ kind: "cover", lineId: line.id, loss });
-    else if (pending > 0n) out.push({ kind: "checkpoint", lineId: line.id, loss: pending });
+    if (loss > 0n && line.coverCapacity > 0n && s.vaultIdle > 0n) {
+      out.push({ kind: "cover", lineId: line.id, loss });
+    } else if (pending > 0n) {
+      out.push({ kind: "checkpoint", lineId: line.id, reason: "loss", loss: pending });
+    } else if (line.kind === "Morpho" && line.markSet === false) {
+      out.push({ kind: "checkpoint", lineId: line.id, reason: "mark", loss: 0n });
+    } else if (line.kind === "Morpho" && options.rebalancing) {
+      out.push({ kind: "checkpoint", lineId: line.id, reason: "pre-rebalance", loss: 0n });
+    }
   }
   return out;
 }
@@ -170,12 +190,13 @@ export function morphoLiquidations(s: KeeperSnapshot): Action[] {
  * epoch's rebalance, then the optional Morpho backstop.
  */
 export function decide(s: KeeperSnapshot, options: DecideOptions = {}): Action[] {
+  const rebalancing = rebalanceDue(s, options.flipDelaySeconds ?? 5n);
   const actions: Action[] = [
     ...auctionsToStart(s),
-    ...lossActions(s),
+    ...lossActions(s, { rebalancing }),
     ...ballotsToPoke(s).map((tokenId): Action => ({ kind: "poke", tokenId })),
   ];
-  if (rebalanceDue(s, options.flipDelaySeconds ?? 5n)) actions.push({ kind: "rebalance", epoch: s.currentEpoch });
+  if (rebalancing) actions.push({ kind: "rebalance", epoch: s.currentEpoch });
   if (options.morphoLiquidations) actions.push(...morphoLiquidations(s));
   return actions;
 }

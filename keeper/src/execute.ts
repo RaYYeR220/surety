@@ -1,4 +1,4 @@
-import type { Abi, Address, Hex, PublicClient, WalletClient } from "viem";
+import type { Abi, Account, Address, Hex, PublicClient, WalletClient } from "viem";
 
 import type { Logger } from "./log.js";
 import { withRetry, type RetryOptions } from "./retry.js";
@@ -12,6 +12,7 @@ export interface ContractCall {
 
 export type ExecutionResult =
   | { status: "simulated"; result: unknown }
+  | { status: "skipped"; result: unknown }
   | { status: "reverted"; reason: string }
   | { status: "success" | "failed"; hash: Hex; gasLimit: bigint; gasUsed: bigint };
 
@@ -19,8 +20,8 @@ export interface ExecutorOptions {
   publicClient: PublicClient;
   /** Required unless `dryRun`. */
   walletClient?: WalletClient;
-  /** Sender used for simulation and sending. */
-  account: Address;
+  /** Sender: the signing account when sending, or just an address for dry-run simulation. */
+  account: Account | Address;
   dryRun: boolean;
   log: Logger;
   /** Gas limit = estimate * this / 100 (default 115). Mezo charges at least half the limit, so keep it tight. */
@@ -57,8 +58,19 @@ export class Executor {
     this.o = options;
   }
 
-  async run(label: string, call: ContractCall, fields: Record<string, unknown> = {}): Promise<ExecutionResult> {
-    const { publicClient, walletClient, account, log } = this.o;
+  /**
+   * @param options.skipIfResult Skip sending when the simulated return value says there is nothing to do
+   * (a `cover` that would pay zero), so no gas is spent on a no-op.
+   */
+  async run(
+    label: string,
+    call: ContractCall,
+    fields: Record<string, unknown> = {},
+    options: { skipIfResult?: (result: unknown) => boolean } = {},
+  ): Promise<ExecutionResult> {
+    const { publicClient, walletClient, log } = this.o;
+    // Simulate as the signing account so the request carries it and is signed locally.
+    const account = walletClient?.account ?? this.o.account;
     const retry = this.o.retry ?? {};
     const params = {
       address: call.address,
@@ -75,6 +87,10 @@ export class Executor {
       const reason = reasonOf(e);
       log.warn("simulation reverted", { action: label, ...fields, reason });
       return { status: "reverted", reason };
+    }
+    if (options.skipIfResult?.(simulated.result)) {
+      log.info("skipped: nothing to do", { action: label, ...fields, result: simulated.result });
+      return { status: "skipped", result: simulated.result };
     }
     if (this.o.dryRun) {
       log.info("dry-run: simulated", { action: label, ...fields, result: simulated.result });

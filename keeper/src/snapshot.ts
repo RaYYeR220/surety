@@ -54,15 +54,25 @@ export class SnapshotSource {
     const head = board.epoch.blockNumber;
     const currentEpoch = board.epoch.currentEpoch;
 
-    const pending = await Promise.all(board.lines.map((l) => this.simulateCheckpoint(l.id)));
-    const lines: LineState[] = board.lines.map((l, i) => ({
-      id: l.id,
-      kind: l.kind,
-      active: l.active,
-      uncoveredLoss: l.uncoveredLoss ?? 0n,
-      pendingLoss: pending[i] ?? null,
-      coverCapacity: l.coverCapacity ?? 0n,
-    }));
+    const [pending, marks] = await Promise.all([
+      Promise.all(board.lines.map((l) => this.simulateCheckpoint(l.id))),
+      client.reader.settle(
+        board.lines.map((l) => call(client.deployment.contracts.suretyPool, suretyPoolAbi, "highWaterMark", [BigInt(l.id)])),
+        { blockNumber: head },
+      ),
+    ]);
+    const lines: LineState[] = board.lines.map((l, i) => {
+      const mark = orNull(marks[i] as Settled<readonly [bigint, bigint, boolean]>);
+      return {
+        id: l.id,
+        kind: l.kind,
+        active: l.active,
+        uncoveredLoss: l.uncoveredLoss ?? 0n,
+        pendingLoss: pending[i] ?? null,
+        coverCapacity: l.coverCapacity ?? 0n,
+        markSet: l.kind === "Morpho" && mark ? mark[2] : null,
+      };
+    });
 
     await this.scanVoters(head);
     const ballots = await this.readBallots(currentEpoch, head);

@@ -152,6 +152,24 @@ describe("executor", () => {
     expect(lines.at(-1)!.level).toBe("error");
   });
 
+  it("skips a send the simulation shows is a no-op", async () => {
+    const { publicClient, walletClient, spies } = fakes();
+    const { log, lines } = memoryLogger();
+    const ex = new Executor({ publicClient, walletClient, account: SENDER, dryRun: false, log });
+    expect(await ex.run("cover", call, {}, { skipIfResult: (r) => r === 5n })).toEqual({ status: "skipped", result: 5n });
+    expect(spies.writeContract).not.toHaveBeenCalled();
+    expect(lines[0]!.entry.msg).toBe("skipped: nothing to do");
+  });
+
+  it("simulates as the wallet's signing account", async () => {
+    const { publicClient, spies } = fakes();
+    const local = { address: SENDER, type: "local" };
+    const walletClient = { account: local, writeContract: spies.writeContract } as unknown as WalletClient;
+    const ex = new Executor({ publicClient, walletClient, account: SENDER, dryRun: false, log: memoryLogger().log });
+    await ex.run("cover", call);
+    expect(spies.simulateContract).toHaveBeenCalledWith(expect.objectContaining({ account: local }));
+  });
+
   it("refuses to send without a wallet", () => {
     const { publicClient } = fakes();
     expect(() => new Executor({ publicClient, account: SENDER, dryRun: false, log: memoryLogger().log })).toThrow(

@@ -30,8 +30,8 @@ function snapshot(over: Partial<KeeperSnapshot> = {}): KeeperSnapshot {
     vaultIdle: 1_000n * WAD,
     ballots: [],
     lines: [
-      { id: 0, kind: "Morpho", active: true, uncoveredLoss: 0n, pendingLoss: 0n, coverCapacity: 50n * WAD },
-      { id: 1, kind: "VeBTC", active: true, uncoveredLoss: 0n, pendingLoss: 0n, coverCapacity: 50n * WAD },
+      { id: 0, kind: "Morpho", active: true, uncoveredLoss: 0n, pendingLoss: 0n, coverCapacity: 50n * WAD, markSet: true },
+      { id: 1, kind: "VeBTC", active: true, uncoveredLoss: 0n, pendingLoss: 0n, coverCapacity: 50n * WAD, markSet: null },
     ],
     loans: [],
     morphoPositions: [],
@@ -101,12 +101,26 @@ describe("loss handling", () => {
     const s = snapshot({ vaultIdle: 0n });
     s.lines[0]!.pendingLoss = 7n;
     s.lines[1]!.uncoveredLoss = 3n; // already recorded, nothing to do
-    expect(lossActions(s)).toEqual([{ kind: "checkpoint", lineId: 0, loss: 7n }]);
+    expect(lossActions(s)).toEqual([{ kind: "checkpoint", lineId: 0, reason: "loss", loss: 7n }]);
 
     const noCapacity = snapshot();
     noCapacity.lines[0]!.coverCapacity = 0n;
     noCapacity.lines[0]!.pendingLoss = 7n;
-    expect(lossActions(noCapacity)).toEqual([{ kind: "checkpoint", lineId: 0, loss: 7n }]);
+    expect(lossActions(noCapacity)).toEqual([{ kind: "checkpoint", lineId: 0, reason: "loss", loss: 7n }]);
+  });
+
+  it("sets a Morpho line's high-water mark before any loss can go unmeasured", () => {
+    const s = snapshot();
+    s.lines[0]!.markSet = false;
+    expect(lossActions(s)).toEqual([{ kind: "checkpoint", lineId: 0, reason: "mark", loss: 0n }]);
+  });
+
+  it("checkpoints Morpho lines right before the epoch's rebalance", () => {
+    const s = snapshot({ lastRebalanceEpoch: EPOCH - L });
+    expect(decide(s)).toEqual([
+      { kind: "checkpoint", lineId: 0, reason: "pre-rebalance", loss: 0n },
+      { kind: "rebalance", epoch: EPOCH },
+    ]);
   });
 
   it("ignores a failed checkpoint simulation", () => {
@@ -187,7 +201,7 @@ describe("decide", () => {
       loans: [{ loanId: 9n, state: "Active", liquidatable: true, reason: "ltv" }],
     });
     s.lines[1]!.uncoveredLoss = 5n;
-    expect(decide(s).map((a) => a.kind)).toEqual(["startAuction", "cover", "poke", "rebalance"]);
+    expect(decide(s).map((a) => a.kind)).toEqual(["startAuction", "checkpoint", "cover", "poke", "rebalance"]);
   });
 
   it("is idle mid-epoch with nothing to do", () => {

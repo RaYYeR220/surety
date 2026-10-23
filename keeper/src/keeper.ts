@@ -93,7 +93,13 @@ export class Keeper {
     const results: ExecutionResult[] = [];
     for (const action of actions) {
       try {
-        results.push(await this.o.executor.run(action.kind, callFor(this.o.client, action), fieldsOf(action)));
+        // A cover that would pay nothing (no idle MUSD to redeem, rounding) is not worth its gas.
+        const skipIfResult = action.kind === "cover" ? (r: unknown) => r === 0n : undefined;
+        results.push(
+          await this.o.executor.run(action.kind, callFor(this.o.client, action), fieldsOf(action), {
+            ...(skipIfResult ? { skipIfResult } : {}),
+          }),
+        );
       } catch (e) {
         log.error("action failed", { action: action.kind, ...fieldsOf(action), error: e });
         results.push({ status: "reverted", reason: e instanceof Error ? e.message : String(e) });

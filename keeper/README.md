@@ -7,7 +7,7 @@ Permissionless keeper for Surety on Mezo. Every call it makes is open to anyone;
 Each pass reads a snapshot of the chain and decides, in this order:
 
 1. **Auctions**: `startAuction(loanId)` for every active veBTC loan at or past the liquidation LTV, or past its lock end.
-2. **Losses**: for each line, simulates `checkpoint(lineId)` to see whether a new loss would be recorded. When a line has a recorded or pending loss and the pool has cover capacity (and the vault has idle MUSD), it sends `cover(lineId)`, which checkpoints first. Otherwise it sends `checkpoint(lineId)` alone, so the loss is recorded.
+2. **Losses**: for each line, simulates `checkpoint(lineId)` to see whether a new loss would be recorded. When a line has a recorded or pending loss and the pool has cover capacity (and the vault has idle MUSD), it sends `cover(lineId)`, which checkpoints first; a cover the simulation shows would pay nothing is skipped. Otherwise it sends `checkpoint(lineId)` alone, so the loss is recorded. Morpho lines are also checkpointed when SuretyPool has no supply-price high-water mark for them yet (a loss before the first checkpoint would go unmeasured) and right before each rebalance, which ratchets the mark up with interest once per epoch.
 3. **Pokes**: `poke(tokenId)` for every ballot (token ids collected from `Voted` logs) still stored in an earlier epoch, skipping burned, escrowed and powerless NFTs. Pokes start one second after the flip, when the veBTC snapshot is final.
 4. **Rebalance**: `rebalance()` once per epoch, at least 5 seconds after the flip.
 5. **Morpho backstop** (off by default): liquidates unhealthy positions in the Morpho lines' markets, found from `Borrow` logs. The keeper account needs MUSD and a MUSD approval to Morpho for this.
@@ -40,7 +40,11 @@ pnpm keeper --chain 31611 --dry-run --once     # simulate one pass, send nothing
 | `KEEPER_ADDRESS` | simulation sender in `--dry-run` without a key |
 | `KEEPER_RPC_URL` | RPC URL(s), comma-separated |
 
-Keep the key in an `.env` file outside the repository (or your secret store), never in the repo.
+Keep the key in an `.env` file outside the repository (or your secret store), never in the repo, and load it with Node's env-file flag:
+
+```sh
+node --env-file=/path/outside/repo/.env keeper/dist/cli.js --chain 31611
+```
 
 ## Logs
 

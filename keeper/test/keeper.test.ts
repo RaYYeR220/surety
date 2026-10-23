@@ -38,6 +38,7 @@ describe("snapshot from chain", () => {
     expect(nine.power).toBe(2n * 10n ** 16n); // permanent lock: full amount
     expect(nine.ownerIsEscrow).toBe(false);
     expect(snap.lines.map((l) => l.pendingLoss)).toEqual([7n, 0n]);
+    expect(snap.lines.map((l) => l.markSet)).toEqual([true, null]);
     expect(snap.lines[1]!.uncoveredLoss).toBe(10n ** 19n);
     expect(snap.loans).toEqual([{ loanId: 1n, state: "Active", liquidatable: false, reason: null }]);
   });

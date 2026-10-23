@@ -114,7 +114,7 @@ async function main(): Promise<void> {
   const executor = new Executor({
     publicClient,
     ...(walletClient ? { walletClient } : {}),
-    account: sender,
+    account: account ?? sender,
     dryRun,
     log,
   });

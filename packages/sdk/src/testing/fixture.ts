@@ -161,6 +161,8 @@ export interface FixtureState {
     claimed: Record<string, boolean>;
     /** Loss a `checkpoint(lineId)` would record now. */
     pendingLoss: bigint[];
+    /** Whether each line has a supply-price high-water mark. */
+    markSet: boolean[];
   };
   /** Ballots cast, as `Voted` logs: token, voter, block. */
   votes: { tokenId: bigint; voter: Address; block: bigint }[];
@@ -270,6 +272,7 @@ export function defaultFixtureState(): FixtureState {
       cohorts: { [`1:${prev}`]: e18(20), [`0:${matured}`]: e18(25) },
       claimed: {},
       pendingLoss: [0n, 0n],
+      markSet: [true, false],
     },
     votes: [
       { tokenId: 9n, voter: ALICE, block: 16_305_000n },
@@ -449,6 +452,7 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
         functions: {
           SEASON: () => s.season,
           checkpoint: (l: bigint) => s.pool.pendingLoss[Number(l)] ?? 0n,
+          highWaterMark: (l: bigint) => [0n, 0n, s.pool.markSet[Number(l)] ?? false],
           cover: (l: bigint) => {
             const n = Number(l);
             const uncovered = (s.pool.lossRecorded[n] ?? 0n) - (s.pool.lossCovered[n] ?? 0n) + (s.pool.pendingLoss[n] ?? 0n);
