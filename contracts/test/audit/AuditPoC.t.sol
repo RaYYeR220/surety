@@ -9,6 +9,7 @@ import {ErrorsLib} from "vault-v2/libraries/ErrorsLib.sol";
 import {CreditVoter} from "../../src/CreditVoter.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
+import {VeBTCCreditLine} from "../../src/lines/VeBTCCreditLine.sol";
 import {SuretyFixture} from "../utils/SuretyFixture.sol";
 
 /// @notice What the CreditVoter owner used to be able to list as a "veBTC line" without any timelock: it reports
@@ -373,6 +374,45 @@ contract AuditPoCTest is SuretyFixture {
         vm.expectRevert(ErrorsLib.CannotReceiveShares.selector);
         vm.prank(mallory);
         vault.deposit(100_000e18, mallory);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* L-06  No PoolsVoter vote on an NFT that is being auctioned           */
+    /* ------------------------------------------------------------------ */
+
+    /// @dev The review's scenario: just before a bid lands, the borrower votes the escrowed NFT on Mezo's PoolsVoter,
+    /// which allows one vote or reset per NFT per Mezo epoch, so the bidder would get an NFT it cannot reset until the
+    /// next epoch. Votes and resets now need an Active loan; the bidder receives an NFT it can vote with at once.
+    function test_L06_borrowerCannotVoteTheNFTDuringTheAuction() public {
+        _deposit(lender, 10_000e18);
+        uint256 aliceId = _lockPermanent(alice, 1e18);
+        _warpEpochs(1);
+        _voteAll(alice, aliceId, VE_LINE);
+        _warpEpochs(1);
+        _rebalance();
+        (uint256 loanId, uint256 tokenId) = _openTimed(borrower, 0.05e18, 2_000e18);
+        _warp(1 hours);
+        address[] memory pools = new address[](1);
+        pools[0] = makeAddr("gauge");
+        uint256[] memory weights = new uint256[](1);
+        weights[0] = 1;
+
+        _shock(4500);
+        line.startAuction(loanId);
+        vm.startPrank(borrower);
+        vm.expectRevert(VeBTCCreditLine.LoanNotActive.selector);
+        line.escrowVote(loanId, pools, weights);
+        vm.expectRevert(VeBTCCreditLine.LoanNotActive.selector);
+        line.escrowReset(loanId);
+        vm.stopPrank();
+
+        _bid(bidder, loanId);
+        assertEq(ve.ownerOf(tokenId), bidder);
+        assertFalse(ve.voted(tokenId), "the bidder gets an unvoted NFT");
+        vm.roll(vm.getBlockNumber() + 1); // veBTC reports zero power in the block an NFT moved
+        vm.prank(bidder);
+        poolsVoter.vote(tokenId, pools, weights);
+        assertTrue(ve.voted(tokenId), "and can use this epoch's vote");
     }
 
     /* ------------------------------------------------------------------ */

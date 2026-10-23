@@ -34,6 +34,11 @@ import {LoanEscrow} from "./LoanEscrow.sol";
 /// - Debt is tracked in normalised units against a global `borrowIndex` (WAD). Rounding always favours lenders:
 ///   borrowing mints normalised debt rounded up, partial repayments burn it rounded down, debts round up.
 /// - Collateral value is `locked.amount * BTC/USD` with MUSD valued at $1; lock boosts are ignored.
+/// - Utilisation is `debt / (cash + debt)` on the line's own cash. VaultV2's permissionless `forceDeallocate` can
+///   pull that cash out (its penalty goes to lenders): utilisation then reads 100%, every borrower accrues at the
+///   IRM's max APR and `open` / `borrowMore` revert with InsufficientCash until the allocator refills the line.
+///   The keeper rebalances at every epoch flip and should also rebalance when the line's cash falls well below what
+///   the allocator targets for it.
 /// Fail-closed oracle: open, borrowMore, startAuction and bid revert when the price source does; repay never reads it.
 /// The owner can pause new borrowing and set the SuretyPool once. It cannot move NFTs or MUSD.
 contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, ReentrancyGuardTransient {
@@ -382,22 +387,28 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         LoanEscrow(record.escrow).increaseAmount(btcAmount);
     }
 
-    /* Escrow actions (borrower only; also during an auction) */
+    /* Escrow actions (borrower only) */
 
-    /// @notice Votes the escrowed NFT on Mezo's PoolsVoter.
+    /// @notice Votes the escrowed NFT on Mezo's PoolsVoter. Active loans only.
+    /// @dev Not once the loan is in Auction: Mezo's PoolsVoter allows one vote or reset per NFT per Mezo epoch, so a
+    /// vote just before a bid would hand the bidder an NFT it cannot reset, withdraw, merge or split until the next
+    /// Mezo epoch, and bidders would discount for it.
     function escrowVote(uint256 loanId, address[] calldata pools, uint256[] calldata weights) external nonReentrant {
-        Loan storage record = _borrowerLoan(loanId, false);
+        Loan storage record = _borrowerLoan(loanId, true);
         LoanEscrow(record.escrow).vote(pools, weights);
     }
 
-    /// @notice Clears the escrowed NFT's PoolsVoter votes.
+    /// @notice Clears the escrowed NFT's PoolsVoter votes. Active loans only, for the same reason as `escrowVote`
+    /// (a reset uses up the NFT's one PoolsVoter action of the Mezo epoch).
     function escrowReset(uint256 loanId) external nonReentrant {
-        Loan storage record = _borrowerLoan(loanId, false);
+        Loan storage record = _borrowerLoan(loanId, true);
         LoanEscrow(record.escrow).reset();
     }
 
     /// @notice Claims PoolsVoter fees and bribes for the escrowed NFT; what the claim pays is forwarded to the
     /// borrower.
+    /// @dev Also during an auction: claiming only pays out rewards the NFT earned while the borrower held it, and
+    /// changes neither the lock nor its votes, so it takes nothing from what the bidder buys.
     function escrowClaim(uint256 loanId, address[] calldata rewards, address[][] calldata tokens)
         external
         nonReentrant
@@ -408,6 +419,8 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
 
     /// @notice Claims the escrowed NFT's veBTC rebase: compounded into the lock while it is live, paid to the
     /// borrower once it has expired.
+    /// @dev Also during an auction: a live lock only grows (more collateral for the bidder), and an expired one keeps
+    /// its amount while the rebase it earned goes to the borrower.
     function escrowClaimRebase(uint256 loanId) external nonReentrant {
         Loan storage record = _borrowerLoan(loanId, false);
         LoanEscrow(record.escrow).claimRebase(record.borrower);
