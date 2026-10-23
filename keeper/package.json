@@ -1,0 +1,27 @@
+{
+  "name": "@surety/keeper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Permissionless keeper for Surety on Mezo: epoch pokes, rebalances, loss cover and auctions.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "surety-keeper": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@surety/sdk": "workspace:*",
+    "viem": "2.57.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3"
+  }
+}
