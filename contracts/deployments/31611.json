@@ -48,6 +48,127 @@
     }
   ],
   "proof": {
-    "txs": []
+    "txs": [
+      {
+        "label": "approve 1,000 MUSD to vault",
+        "hash": "0x58d8ef88ffce86321c5f405da5f7a0ab1933ebd7428d3e923c3d298013fe8109",
+        "block": 16325338
+      },
+      {
+        "label": "deposit 1,000 MUSD",
+        "hash": "0x85074699e9ec364e4eaf7059c36db3a4725febad815c6e2e247226d06ea4062b",
+        "block": 16325339
+      },
+      {
+        "label": "vote #1711 70/30",
+        "hash": "0x8d54318157efc4465e08179957ad7bad8559ff16833568db17374066d912200f",
+        "block": 16325398
+      },
+      {
+        "label": "vote #1712 30/70",
+        "hash": "0x443ccc414ba03a947952af03959cb9eeaf30b189788f072e58ed4abfa1a41770",
+        "block": 16325423
+      },
+      {
+        "label": "rebalance (bootstrap)",
+        "hash": "0x53fb67de9cb16c74bcd9e8a318222e979d46da56e86e371bed5b6869b0a1c3fe",
+        "block": 16325425
+      },
+      {
+        "label": "approve 250 MUSD to SuretyPool",
+        "hash": "0x749cb3be27113fb5ee26727e6b08cda8d46eb938230cc40c128a1e6e8dcf052a",
+        "block": 16325427
+      },
+      {
+        "label": "incentive 100 MUSD to line 0 (BTC / MUSD (Morpho))",
+        "hash": "0xc0b18f08b34d2a6f20230f15cf74e424102943cdbf1c2298b245733c6965c77e",
+        "block": 16325428
+      },
+      {
+        "label": "incentive 150 MUSD to line 1 (veBTC credit line)",
+        "hash": "0x8588dae9f6d6c9e49a4aa5caf9c36986758f01e33b48805d739bc6d3000daced",
+        "block": 16325430
+      },
+      {
+        "label": "approve veBTC #1712 to credit line",
+        "hash": "0xdccb02131dfe2a6aa1787ad63540aaa1795056291ed37a5cd410033f9022909c",
+        "block": 16325432
+      },
+      {
+        "label": "veBTC loan opened #1712 (100 MUSD)",
+        "hash": "0x1dd7ad7431547fb82711c8c92e5b4aaa5827009f0c7c0186f336c1ff1466166f",
+        "block": 16325434
+      },
+      {
+        "label": "approve 0.004 BTC to Morpho",
+        "hash": "0xd56cd2b90262cd14c5a7817c4fdf84a49ce4200a96aa9b563abf7df55f6b0457",
+        "block": 16325443
+      },
+      {
+        "label": "Morpho supplyCollateral 0.004 BTC",
+        "hash": "0xdd4936f7b0e151793ac45b2594ae60a53c5f916e5c4ecf8247d5c12539f945aa",
+        "block": 16325445
+      },
+      {
+        "label": "Morpho borrow 250 MUSD (LTV 76.93%)",
+        "hash": "0x4fc1f95f7e65dc245ce484b3539f0c77fdd735d389c3787410104b35cf8b7e57",
+        "block": 16325448
+      },
+      {
+        "label": "checkpoint Morpho line (pre-shock high-water mark)",
+        "hash": "0xd072adc36aa044a9e00e194023a107d910fde419bf832071d3f6a984f48a1fdb",
+        "block": 16325454
+      },
+      {
+        "label": "shock −60%",
+        "hash": "0x824e2a67f050379f2e3cf1affcf66504ec01e9953e2a1d1770f9f8b08b0b4dbc",
+        "block": 16325455
+      },
+      {
+        "label": "approve MUSD to Morpho (liquidation)",
+        "hash": "0x3d7b4a6ae55dd8557bc6bb1a45bf5f605210f1eca11a7900f3f90f4270b68111",
+        "block": 16325457
+      },
+      {
+        "label": "Morpho liquidation with bad debt",
+        "hash": "0xc2005a3c3b6319fe28c5278fdf558a51ae5b2263f879c32b7a90f69e5e104f25",
+        "block": 16325458
+      },
+      {
+        "label": "veBTC auction started (loan #1, LTV 102.58%)",
+        "hash": "0x7a617c186bf47639ba55caa706e5a4eea38ea4d4bcce932bbac2e46885a7708d",
+        "block": 16325459
+      },
+      {
+        "label": "approve MUSD to credit line (bid)",
+        "hash": "0x3b48bb7d2c40473adaf75d799683e75205d6d413832105e21c4379cfd3d2c284",
+        "block": 16325605
+      },
+      {
+        "label": "veBTC auction bid at floor",
+        "hash": "0xa6a6e6b0273c9d0d5a93914bf695c2501e3c96fb58c704934e2c4616716183aa",
+        "block": 16325607
+      },
+      {
+        "label": "checkpoint Morpho line (loss recorded)",
+        "hash": "0x25d09def8da53d40a526d7cd43a03e73f7b02c0aab17114e6a70bb52c5a9fe9a",
+        "block": 16325616
+      },
+      {
+        "label": "checkpoint veBTC line (loss recorded)",
+        "hash": "0x61b83956c7e613bb782e57ea9b3afac8577f875dfdaa78374b404503e1e9382c",
+        "block": 16325617
+      },
+      {
+        "label": "cover Morpho line",
+        "hash": "0x2e7d66428f367a49696b7d883a78473d0f74524eb9113d85033062427e121027",
+        "block": 16325619
+      },
+      {
+        "label": "cover veBTC line",
+        "hash": "0x1fa437e54c6f437b90dbb9c4fab80b8a10a9443371170b8ef923fedb5f81c235",
+        "block": 16325621
+      }
+    ]
   }
 }
