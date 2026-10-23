@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {IAdapter} from "vault-v2/interfaces/IAdapter.sol";
+import {IPriceSource} from "./IPriceSource.sol";
 
 /// @title ISuretyLine
 /// @notice A Surety-native credit line: a VaultV2 adapter that tracks its own bad debt and can be made whole.
@@ -12,4 +13,13 @@ interface ISuretyLine is IAdapter {
 
     /// @notice Pulls `assets` of the loan asset from the caller to restore the line after a loss.
     function receiveCover(uint256 assets) external;
+
+    /// @notice Loan asset held by the line and not lent out; the most the vault can deallocate right now.
+    function cash() external view returns (uint256);
+
+    /// @notice Whether new borrowing is paused on the line.
+    function paused() external view returns (bool);
+
+    /// @notice Price source the line values collateral with.
+    function oracle() external view returns (IPriceSource);
 }
