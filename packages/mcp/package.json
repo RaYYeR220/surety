@@ -1,0 +1,40 @@
+{
+  "name": "@surety/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Surety on Mezo: read the credit board, quote veBTC borrows, build unsigned transactions.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "surety-mcp": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@surety/sdk": "workspace:*",
+    "viem": "2.57.4",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3"
+  }
+}

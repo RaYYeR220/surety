@@ -1,0 +1,41 @@
+{
+  "name": "@surety/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Surety on Mezo: typed reads and unsigned transaction builders.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/sync-deployments.ts && tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "gen:abis": "node scripts/gen-abis.ts",
+    "sync:deployments": "node scripts/sync-deployments.ts"
+  },
+  "peerDependencies": {
+    "viem": "^2.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "viem": "2.57.4",
+    "vitest": "5.0.3"
+  }
+}
