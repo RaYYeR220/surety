@@ -44,7 +44,7 @@ abstract contract AllocatorFixture is LineFixture {
     function _deployCbtcMarket() internal {
         cbtc = new MockERC20("Bridged BTC", "cbBTC", 18);
         cbtcAggregator = new MockAggregator(BTC_USD);
-        cbtcSource = new SkipPriceSource(IAggregatorV3(address(cbtcAggregator)), ORACLE_MAX_AGE);
+        cbtcSource = new SkipPriceSource(IAggregatorV3(address(cbtcAggregator)), ORACLE_MAX_AGE, 18);
         cbtcOracle = new MorphoPriceOracle(cbtcSource);
         vm.label(address(cbtc), "cbBTC");
         vm.label(address(cbtcOracle), "cbBTCOracle");

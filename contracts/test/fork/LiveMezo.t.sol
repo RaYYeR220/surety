@@ -240,7 +240,7 @@ contract LiveMezoTest is Test {
 
     /// @dev The mainnet wiring of Deploy.s.sol on Mezo's Morpho (timelocks left at 0).
     function _deploy() internal {
-        SkipPriceSource source = new SkipPriceSource(IAggregatorV3(SKIP_BTC_USD), 60);
+        SkipPriceSource source = new SkipPriceSource(IAggregatorV3(SKIP_BTC_USD), 60, 18);
         MorphoPriceOracle oracle = new MorphoPriceOracle(source);
         market = MarketParams({
             loanToken: MUSD, collateralToken: BTC, oracle: address(oracle), irm: ADAPTIVE_CURVE_IRM, lltv: LLTV
