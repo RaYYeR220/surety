@@ -1,0 +1,73 @@
+.host {
+  position: relative;
+  width: 100%;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  overflow: visible;
+}
+
+.k {
+  stroke: var(--color-ink);
+  transition: stroke var(--dur-theme);
+}
+
+.kf {
+  fill: var(--color-ink);
+  transition: fill var(--dur-theme);
+}
+
+.gf {
+  fill: var(--color-ground);
+  transition: fill var(--dur-theme);
+}
+
+.cf {
+  fill: var(--color-canvas);
+  transition: fill var(--dur-theme);
+}
+
+.liq {
+  fill: var(--color-ink);
+  opacity: 0.09;
+}
+
+.svg text {
+  fill: var(--color-ink);
+  transition: fill var(--dur-theme);
+}
+
+.tg {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+}
+
+.vt {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: var(--weight-display);
+  letter-spacing: -0.02em;
+}
+
+.svg .vs {
+  font-family: var(--font-body);
+  fill: var(--color-ink-2);
+}
+
+.an {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  letter-spacing: var(--tracking-label);
+}
+
+.arrow {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

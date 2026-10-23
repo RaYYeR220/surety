@@ -79,6 +79,10 @@
   --dur-theme: 400ms;
   --dur-enter: 700ms;
 
+  /* ---------- Theme-invariant paper and ink (labels on line fills, the cream switch, the loan card) ---------- */
+  --color-cream: #f7f5f0;
+  --color-night: #111210;
+
   /* ---------- Floor (page background layers) ---------- */
   --floor-grid-size: 48px;
   --floor-grain-size: 200px;
@@ -139,6 +143,18 @@
   --floor-grain-blend: multiply;
 
   --scrim: rgb(17 18 16 / 0.42);
+
+  /* Landing: a second canvas step, a mid-strength rule, and the two full-bleed bands. */
+  --color-canvas-2: #e2ddcf;
+  --color-line-mid: rgb(17 18 16 / 0.25);
+  --band-ink-bg: #111210;
+  --band-ink-fg: #f3f1ea;
+  --band-ink-fg-2: rgb(243 241 234 / 0.74);
+  --band-ink-line: rgb(243 241 234 / 0.16);
+  --band-ink-panel: #1f201c;
+  --band-ink-accent: #a996ff;
+  --band-ink-reserve: #9a9484;
+  --band-accent-fg: #f7f5f0;
 }
 
 /* ---------- Dark: near-black + lime ---------- */
@@ -189,6 +205,18 @@
   --floor-grain-blend: normal;
 
   --scrim: rgb(0 0 0 / 0.6);
+
+  /* Landing: in the dark the ink band inverts to cream. */
+  --color-canvas-2: #272823;
+  --color-line-mid: rgb(243 241 234 / 0.25);
+  --band-ink-bg: #f3f1ea;
+  --band-ink-fg: #111210;
+  --band-ink-fg-2: rgb(17 18 16 / 0.77);
+  --band-ink-line: rgb(17 18 16 / 0.16);
+  --band-ink-panel: #e4e0d4;
+  --band-ink-accent: #3d6b14;
+  --band-ink-reserve: #a39d8b;
+  --band-accent-fg: #111210;
 }
 
 /* ---------- Component tokens (derived; a skin may override any of them) ---------- */
