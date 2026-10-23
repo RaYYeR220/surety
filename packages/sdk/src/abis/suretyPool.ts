@@ -75,7 +75,33 @@ export const suretyPoolAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_COVER_FEES_PER_DISTRIBUTION",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_SEASON",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "RECOGNITION_TOLERANCE_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -110,6 +136,25 @@ export const suretyPoolAbi = [
     "type": "function",
     "name": "accountedShares",
     "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "allocationAtCheckpoint",
+    "inputs": [
+      {
+        "name": "lineId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "outputs": [
       {
         "name": "",
@@ -283,6 +328,45 @@ export const suretyPoolAbi = [
   },
   {
     "type": "function",
+    "name": "coverFeeHead",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "coverUnrecognised",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "depositsPaused",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "distributeFees",
     "inputs": [
       {
@@ -342,6 +426,11 @@ export const suretyPoolAbi = [
         "name": "set",
         "type": "bool",
         "internalType": "bool"
+      },
+      {
+        "name": "adapterShares",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -779,6 +868,31 @@ export const suretyPoolAbi = [
   },
   {
     "type": "event",
+    "name": "CoverFeeCredited",
+    "inputs": [
+      {
+        "name": "lineId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toCohorts",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toReserve",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Covered",
     "inputs": [
       {
@@ -1050,17 +1164,6 @@ export const suretyPoolAbi = [
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "SafeCastOverflowedUintToInt",
-    "inputs": [
-      {
-        "name": "value",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
   },
   {
     "type": "error",

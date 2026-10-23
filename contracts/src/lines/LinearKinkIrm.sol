@@ -4,7 +4,9 @@ pragma solidity 0.8.28;
 /// @title LinearKinkIrm
 /// @notice Borrow rate as a piecewise-linear function of utilisation with one kink.
 /// @dev APRs and utilisation are WAD (1e18 = 100%). The per-second rate is the APR divided by 365 days and is
-/// applied as simple interest between accruals.
+/// applied as simple interest between accruals. The veBTC line measures utilisation on its own cash, which VaultV2's
+/// permissionless `forceDeallocate` can drain to zero; borrowers then pay `maxApr` until the next rebalance refills
+/// the line (see VeBTCCreditLine).
 contract LinearKinkIrm {
     uint256 internal constant WAD = 1e18;
     uint256 internal constant YEAR = 365 days;

@@ -58,7 +58,9 @@ abstract contract AllocatorFixture is LineFixture {
     }
 
     function _deployAllocator() internal {
-        voter = new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, admin);
+        voter = new CreditVoter(
+            IVeBTC(address(ve)), EPOCH_LENGTH, admin, IVaultV2(address(vault)), address(morphoAdapter), LINE_TIMELOCK
+        );
         vm.startPrank(admin);
         voter.addLine(address(morphoAdapter), abi.encode(btcMarket), ICreditVoter.LineKind.Morpho, "BTC / Morpho");
         voter.addLine(address(line), "", ICreditVoter.LineKind.VeBTC, "veBTC credit");

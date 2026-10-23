@@ -56,6 +56,12 @@ export interface VaultStats {
   managementFee: bigint;
   /** Max share-price growth rate, WAD per second. */
   maxRate: bigint;
+  /**
+   * Whether the vault's DepositGate holds new shares back (SuretyPool.depositsPaused): a loss is pending or uncovered,
+   * or a cover's MUSD is still being re-recognised. Deposits, share transfers and pool claims wait; withdrawals never
+   * do. null when unknown (a deployment without the gate).
+   */
+  depositsPaused: boolean | null;
   /** Estimated depositor APY: asset-weighted line supply APYs, net of fees. */
   supplyApy: number;
 }

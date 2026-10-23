@@ -283,12 +283,17 @@ contract LoanEscrowTest is LineFixture {
         line.addCollateral(loanId, 1);
         vm.stopPrank();
 
-        // In auction the borrower still votes and claims, but can no longer reshape the collateral.
+        // In auction the borrower still claims, but can no longer vote or reset the NFT (review finding L-06) nor
+        // reshape the collateral.
         _shock(4500);
         line.startAuction(loanId);
         vm.startPrank(borrower);
+        vm.expectRevert(VeBTCCreditLine.LoanNotActive.selector);
         line.escrowVote(loanId, pools, weights);
+        vm.expectRevert(VeBTCCreditLine.LoanNotActive.selector);
+        line.escrowReset(loanId);
         line.escrowClaim(loanId, none, noTokens);
+        line.escrowClaimRebase(loanId);
         vm.expectRevert(VeBTCCreditLine.LoanNotActive.selector);
         line.extend(loanId, 28 days);
         vm.expectRevert(VeBTCCreditLine.LoanNotActive.selector);
@@ -297,7 +302,7 @@ contract LoanEscrowTest is LineFixture {
 
         _bid(bidder, loanId);
         vm.startPrank(borrower);
-        vm.expectRevert(VeBTCCreditLine.LoanClosed.selector);
+        vm.expectRevert(VeBTCCreditLine.LoanNotActive.selector);
         line.escrowReset(loanId);
         vm.expectRevert(VeBTCCreditLine.LoanClosed.selector);
         line.escrowClaim(loanId, none, noTokens);

@@ -124,19 +124,36 @@ export const voteAllocatorAbi = [
     ],
     "outputs": [
       {
-        "name": "baseline",
-        "type": "int256",
-        "internalType": "int256"
-      },
-      {
-        "name": "pendingInterest",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "unexplainedLoss",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct VoteAllocator.Ledger",
+        "components": [
+          {
+            "name": "pendingInterest",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "totalSupplyAssets",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "totalSupplyShares",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "earned",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -159,24 +176,6 @@ export const voteAllocatorAbi = [
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "noteAdjustment",
-    "inputs": [
-      {
-        "name": "lineId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "delta",
-        "type": "int256",
-        "internalType": "int256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -326,25 +325,6 @@ export const voteAllocatorAbi = [
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "event",
-    "name": "AdjustmentNoted",
-    "inputs": [
-      {
-        "name": "lineId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "delta",
-        "type": "int256",
-        "indexed": false,
-        "internalType": "int256"
-      }
-    ],
-    "anonymous": false
   },
   {
     "type": "event",
@@ -534,11 +514,6 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "error",
-    "name": "NotSuretyPool",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "OwnableInvalidOwner",
     "inputs": [
       {
@@ -566,19 +541,13 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "error",
-    "name": "SafeCastOverflowedIntToUint",
+    "name": "SafeCastOverflowedUintDowncast",
     "inputs": [
       {
-        "name": "value",
-        "type": "int256",
-        "internalType": "int256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SafeCastOverflowedUintToInt",
-    "inputs": [
+        "name": "bits",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
       {
         "name": "value",
         "type": "uint256",

@@ -131,7 +131,9 @@ contract SuretyHandler is Test {
 
     /* Lenders */
 
+    /// @dev Waits while the vault's DepositGate holds new shares back (a loss pending, uncovered or re-recognised).
     function deposit(uint256 who, uint256 assets) external step("deposit") {
+        if (pool.depositsPaused()) return;
         address lender = lenders[who % lenders.length];
         assets = bound(assets, 100e18, 200_000e18);
         musd.mint(lender, assets);
@@ -195,12 +197,16 @@ contract SuretyHandler is Test {
         uint256 epoch = _epochBack(bound(back, 1, 8));
         if (epoch < firstEpoch || voter.lineVotes(epoch, lineId) != 0) return;
         if (pool.sponsorShares(lineId, epoch, sponsor) == 0) return;
+        // Refunds pay vault shares, which wait while the DepositGate is closed.
+        if (pool.depositsPaused()) return;
         vm.prank(sponsor);
         pool.refundIncentive(lineId, epoch);
     }
 
-    /// @dev Claims a matured cohort for a voter, through the keeper (claims are permissionless).
+    /// @dev Claims a matured cohort for a voter, through the keeper (claims are permissionless). Claims pay vault
+    /// shares, which wait while the DepositGate is closed.
     function claim(uint256 who, uint256 lineSeed, uint256 back) external step("claim") {
+        if (pool.depositsPaused()) return;
         uint256 tokenId = voterTokens[who % voters.length];
         uint256 lineId = lineSeed % LINES;
         uint256 elapsed = (currentEpoch() - firstEpoch) / epochLength;
@@ -407,6 +413,8 @@ contract SuretyHandler is Test {
             }
         }
         uint256 lag = 2 + pool.SEASON();
+        // Claims pay vault shares, which wait while the DepositGate is closed.
+        if (pool.depositsPaused()) jump = 0;
         for (uint256 back = lag; back < lag + jump; ++back) {
             uint256 epoch = _epochBack(back);
             if (epoch < firstEpoch) break;

@@ -3,6 +3,8 @@ pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
+import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 
 import {CreditVoter} from "../../src/CreditVoter.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
@@ -21,6 +23,40 @@ contract TestEscrowRegistry is IEscrowRegistry {
 
     function isEscrow(address account) external view returns (bool) {
         return borrowerOfEscrow[account] != address(0);
+    }
+}
+
+/// @notice The parts of VaultV2 the CreditVoter reads when listing a line.
+contract StubListingVault {
+    address public asset;
+    mapping(address account => bool) public isAdapter;
+
+    constructor(address asset_) {
+        asset = asset_;
+    }
+
+    function setAdapter(address account, bool value) external {
+        isAdapter[account] = value;
+    }
+}
+
+/// @notice The parts of MorphoMarketV1AdapterV2 the CreditVoter reads.
+contract StubMorphoAdapter {
+    address public parentVault;
+    address public adaptiveCurveIrm;
+
+    constructor(address vault_, address irm_) {
+        parentVault = vault_;
+        adaptiveCurveIrm = irm_;
+    }
+}
+
+/// @notice The part of a Surety veBTC line the CreditVoter reads.
+contract StubSuretyLine {
+    address public vault;
+
+    constructor(address vault_) {
+        vault = vault_;
     }
 }
 
@@ -48,8 +84,13 @@ contract CreditVoterTest is Test {
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
     address internal keeper = makeAddr("keeper");
-    address internal morphoAdapter = makeAddr("morphoAdapter");
-    address internal veLine = makeAddr("veBTCCreditLine");
+    address internal musd = makeAddr("MUSD");
+    address internal irm = makeAddr("AdaptiveCurveIrm");
+    uint256 internal constant LINE_TIMELOCK = 1 days;
+
+    StubListingVault internal vault;
+    address internal morphoAdapter;
+    address internal veLine;
 
     function setUp() public {
         vm.warp(START_TIME);
@@ -57,11 +98,15 @@ contract CreditVoterTest is Test {
 
         btc = new MockERC20("Bitcoin", "BTC", 18);
         ve = new MockVeBTC(address(btc));
-        voter = new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, owner);
+        vault = new StubListingVault(musd);
+        morphoAdapter = address(new StubMorphoAdapter(address(vault), irm));
+        veLine = _newVeLine();
+        vault.setAdapter(morphoAdapter, true);
+        voter = _newVoter(LINE_TIMELOCK);
 
         vm.startPrank(owner);
-        voter.addLine(morphoAdapter, abi.encode(uint256(1)), ICreditVoter.LineKind.Morpho, "BTC / Morpho");
-        voter.addLine(morphoAdapter, abi.encode(uint256(2)), ICreditVoter.LineKind.Morpho, "mcbBTC / Morpho");
+        voter.addLine(morphoAdapter, _market(1), ICreditVoter.LineKind.Morpho, "BTC / Morpho");
+        voter.addLine(morphoAdapter, _market(2), ICreditVoter.LineKind.Morpho, "mcbBTC / Morpho");
         voter.addLine(veLine, "", ICreditVoter.LineKind.VeBTC, "veBTC credit");
         vm.stopPrank();
     }
@@ -114,9 +159,36 @@ contract CreditVoterTest is Test {
     function _addLines(uint256 n) internal {
         vm.startPrank(owner);
         for (uint256 i; i < n; ++i) {
-            voter.addLine(veLine, abi.encode(i + 100), ICreditVoter.LineKind.VeBTC, "extra");
+            voter.addLine(morphoAdapter, _market(i + 100), ICreditVoter.LineKind.Morpho, "extra");
         }
         vm.stopPrank();
+    }
+
+    function _newVoter(uint256 lineTimelock) internal returns (CreditVoter) {
+        return new CreditVoter(
+            IVeBTC(address(ve)), EPOCH_LENGTH, owner, IVaultV2(address(vault)), morphoAdapter, lineTimelock
+        );
+    }
+
+    /// @dev A veBTC line of the stub vault, added as its adapter.
+    function _newVeLine() internal returns (address l) {
+        l = address(new StubSuretyLine(address(vault)));
+        vault.setAdapter(l, true);
+    }
+
+    /// @dev MarketParams of a MUSD market on the adapter's IRM, told apart by its collateral.
+    function _params(uint256 collateral) internal view returns (MarketParams memory) {
+        return MarketParams({
+            loanToken: musd,
+            collateralToken: address(uint160(0xC000 + collateral)),
+            oracle: address(uint160(0x0A00 + collateral)),
+            irm: irm,
+            lltv: 0.86e18
+        });
+    }
+
+    function _market(uint256 collateral) internal view returns (bytes memory) {
+        return abi.encode(_params(collateral));
     }
 
     /* Admin */
@@ -127,12 +199,33 @@ contract CreditVoterTest is Test {
         assertEq(voter.owner(), owner);
         assertEq(address(voter.escrowRegistry()), address(0));
 
+        assertEq(address(voter.vault()), address(vault));
+        assertEq(voter.morphoAdapter(), morphoAdapter);
+        assertEq(voter.LINE_TIMELOCK(), LINE_TIMELOCK);
+        assertFalse(voter.bootstrapEnded());
+
+        IVaultV2 v = IVaultV2(address(vault));
         vm.expectRevert(CreditVoter.ZeroAddress.selector);
-        new CreditVoter(IVeBTC(address(0)), EPOCH_LENGTH, owner);
+        new CreditVoter(IVeBTC(address(0)), EPOCH_LENGTH, owner, v, morphoAdapter, LINE_TIMELOCK);
+        vm.expectRevert(CreditVoter.ZeroAddress.selector);
+        new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, owner, IVaultV2(address(0)), morphoAdapter, LINE_TIMELOCK);
+        vm.expectRevert(CreditVoter.ZeroAddress.selector);
+        new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, owner, v, address(0), LINE_TIMELOCK);
         vm.expectRevert(CreditVoter.ZeroEpochLength.selector);
-        new CreditVoter(IVeBTC(address(ve)), 0, owner);
+        new CreditVoter(IVeBTC(address(ve)), 0, owner, v, morphoAdapter, LINE_TIMELOCK);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
-        new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, address(0));
+        new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, address(0), v, morphoAdapter, LINE_TIMELOCK);
+        // The Morpho adapter must belong to the vault.
+        address foreign = address(new StubMorphoAdapter(makeAddr("otherVault"), irm));
+        vm.expectRevert(CreditVoter.UnsupportedAdapter.selector);
+        new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, owner, v, foreign, LINE_TIMELOCK);
+
+        // A zero line timelock is for testnets only.
+        assertEq(_newVoter(0).LINE_TIMELOCK(), 0);
+        vm.chainId(31612);
+        vm.expectRevert(CreditVoter.ZeroLineTimelock.selector);
+        _newVoter(0);
+        assertEq(_newVoter(1 days).LINE_TIMELOCK(), 1 days);
     }
 
     function test_currentEpoch_isEpochStart() public {
@@ -140,25 +233,27 @@ contract CreditVoterTest is Test {
         _warpEpochs(1);
         assertEq(voter.currentEpoch(), EPOCH0 + EPOCH_LENGTH);
 
-        CreditVoter hourly = new CreditVoter(IVeBTC(address(ve)), 1 hours, owner);
+        CreditVoter hourly =
+            new CreditVoter(IVeBTC(address(ve)), 1 hours, owner, IVaultV2(address(vault)), morphoAdapter, 0);
         assertEq(hourly.currentEpoch(), block.timestamp - block.timestamp % 1 hours);
     }
 
     function test_addLine_onlyOwner_storesAndEmits() public {
+        address veLine2 = _newVeLine();
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
         vm.prank(alice);
-        voter.addLine(veLine, hex"01", ICreditVoter.LineKind.VeBTC, "x");
+        voter.addLine(veLine2, "", ICreditVoter.LineKind.VeBTC, "x");
 
         vm.expectEmit(address(voter));
-        emit CreditVoter.LineAdded(3, veLine, ICreditVoter.LineKind.VeBTC, "veBTC credit II");
+        emit CreditVoter.LineAdded(3, veLine2, ICreditVoter.LineKind.VeBTC, "veBTC credit II");
         vm.prank(owner);
-        uint256 lineId = voter.addLine(veLine, hex"01", ICreditVoter.LineKind.VeBTC, "veBTC credit II");
+        uint256 lineId = voter.addLine(veLine2, "", ICreditVoter.LineKind.VeBTC, "veBTC credit II");
 
         assertEq(lineId, 3);
         assertEq(voter.lineCount(), 4);
         ICreditVoter.Line memory l = voter.line(BTC_LINE);
         assertEq(l.adapter, morphoAdapter);
-        assertEq(l.data, abi.encode(uint256(1)));
+        assertEq(l.data, _market(1));
         assertEq(uint8(l.kind), uint8(ICreditVoter.LineKind.Morpho));
         assertTrue(l.active);
         assertEq(l.name, "BTC / Morpho");
@@ -169,13 +264,111 @@ contract CreditVoterTest is Test {
         vm.expectRevert(CreditVoter.ZeroAddress.selector);
         voter.addLine(address(0), "", ICreditVoter.LineKind.VeBTC, "x");
 
-        // Same adapter and data as BTC_LINE: two lines would double-count one market.
+        // Same market as BTC_LINE: two lines would double-count one market.
         vm.expectRevert(CreditVoter.LineExists.selector);
-        voter.addLine(morphoAdapter, abi.encode(uint256(1)), ICreditVoter.LineKind.Morpho, "dup");
+        voter.addLine(morphoAdapter, _market(1), ICreditVoter.LineKind.Morpho, "dup");
+        // One veBTC line per adapter, whatever the data: other data would count its loss and interest twice.
+        vm.expectRevert(CreditVoter.LineExists.selector);
+        voter.addLine(veLine, hex"01", ICreditVoter.LineKind.VeBTC, "dup");
         vm.stopPrank();
 
         vm.expectRevert(CreditVoter.UnknownLine.selector);
         voter.line(3);
+    }
+
+    /// @dev Review finding M-04: only real lines of this vault can be listed.
+    function test_addLine_validatesAdapterAndMarket() public {
+        vm.startPrank(owner);
+        // Not one of the vault's adapters (the curator adds adapters through VaultV2's timelock).
+        address stranger = address(new StubSuretyLine(address(vault)));
+        vm.expectRevert(CreditVoter.NotVaultAdapter.selector);
+        voter.addLine(stranger, "", ICreditVoter.LineKind.VeBTC, "x");
+
+        // A Morpho line must use the vault's Morpho adapter...
+        vault.setAdapter(stranger, true);
+        vm.expectRevert(CreditVoter.UnsupportedAdapter.selector);
+        voter.addLine(stranger, _market(7), ICreditVoter.LineKind.Morpho, "x");
+        // ...and lend the vault's asset under the adapter's IRM, with canonically encoded MarketParams.
+        MarketParams memory p = _params(7);
+        p.loanToken = address(btc);
+        vm.expectRevert(CreditVoter.BadMarketParams.selector);
+        voter.addLine(morphoAdapter, abi.encode(p), ICreditVoter.LineKind.Morpho, "x");
+        p = _params(7);
+        p.irm = makeAddr("otherIrm");
+        vm.expectRevert(CreditVoter.BadMarketParams.selector);
+        voter.addLine(morphoAdapter, abi.encode(p), ICreditVoter.LineKind.Morpho, "x");
+        vm.expectRevert(CreditVoter.BadMarketParams.selector);
+        voter.addLine(morphoAdapter, bytes.concat(_market(1), hex"00"), ICreditVoter.LineKind.Morpho, "x");
+
+        // A veBTC line must be a Surety line of this vault, and not the Morpho adapter.
+        address otherVaults = address(new StubSuretyLine(makeAddr("otherVault")));
+        vault.setAdapter(otherVaults, true);
+        vm.expectRevert(CreditVoter.UnsupportedAdapter.selector);
+        voter.addLine(otherVaults, "", ICreditVoter.LineKind.VeBTC, "x");
+        vm.expectRevert(CreditVoter.UnsupportedAdapter.selector);
+        voter.addLine(morphoAdapter, "", ICreditVoter.LineKind.VeBTC, "x");
+        vm.stopPrank();
+        assertEq(voter.lineCount(), 3);
+    }
+
+    /// @dev Review finding M-04: after the bootstrap a new line waits LINE_TIMELOCK and is re-validated.
+    function test_proposeLine_timelockedAfterBootstrap() public {
+        address veLine2 = _newVeLine();
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        vm.prank(alice);
+        voter.endBootstrap();
+
+        vm.startPrank(owner);
+        vm.expectEmit(address(voter));
+        emit CreditVoter.BootstrapEnded();
+        voter.endBootstrap();
+        assertTrue(voter.bootstrapEnded());
+        vm.expectRevert(CreditVoter.BootstrapOver.selector);
+        voter.endBootstrap();
+        vm.expectRevert(CreditVoter.BootstrapOver.selector);
+        voter.addLine(veLine2, "", ICreditVoter.LineKind.VeBTC, "instant");
+
+        // Proposals are validated up front.
+        vm.expectRevert(CreditVoter.NotVaultAdapter.selector);
+        voter.proposeLine(makeAddr("nobody"), "", ICreditVoter.LineKind.VeBTC, "x");
+        vm.expectEmit(address(voter));
+        emit CreditVoter.LineProposed(0, veLine2, ICreditVoter.LineKind.VeBTC, "veBTC II", block.timestamp + 1 days);
+        uint256 id = voter.proposeLine(veLine2, "", ICreditVoter.LineKind.VeBTC, "veBTC II");
+        uint256 dup = voter.proposeLine(veLine2, "", ICreditVoter.LineKind.VeBTC, "veBTC II again");
+        assertEq(voter.proposalCount(), 2);
+        assertEq(voter.proposal(id).executableAt, block.timestamp + LINE_TIMELOCK);
+
+        vm.expectRevert(CreditVoter.TimelockPending.selector);
+        voter.executeLine(id);
+        vm.stopPrank();
+        _warp(LINE_TIMELOCK);
+
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        vm.prank(alice);
+        voter.executeLine(id);
+        vm.startPrank(owner);
+        vm.expectEmit(address(voter));
+        emit CreditVoter.LineAdded(3, veLine2, ICreditVoter.LineKind.VeBTC, "veBTC II");
+        assertEq(voter.executeLine(id), 3);
+        assertEq(voter.line(3).adapter, veLine2);
+        assertEq(voter.proposal(id).executableAt, 0);
+        vm.expectRevert(CreditVoter.UnknownProposal.selector);
+        voter.executeLine(id);
+        // Re-validated on execution: the same line cannot be listed twice.
+        vm.expectRevert(CreditVoter.LineExists.selector);
+        voter.executeLine(dup);
+        vm.expectRevert(CreditVoter.UnknownProposal.selector);
+        voter.executeLine(9);
+
+        // An adapter the curator removed in the meantime is refused too.
+        address veLine3 = _newVeLine();
+        uint256 removed = voter.proposeLine(veLine3, "", ICreditVoter.LineKind.VeBTC, "removed");
+        vm.stopPrank();
+        vault.setAdapter(veLine3, false);
+        _warp(LINE_TIMELOCK);
+        vm.expectRevert(CreditVoter.NotVaultAdapter.selector);
+        vm.prank(owner);
+        voter.executeLine(removed);
     }
 
     function test_setLineActive_onlyOwner_andUnknownLine() public {

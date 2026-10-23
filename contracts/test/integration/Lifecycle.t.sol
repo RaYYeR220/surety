@@ -42,6 +42,9 @@ contract LifecycleTest is SuretyFixture {
         assertEq(vault.maxRate(), MAX_MAX_RATE);
         assertEq(vault.forceDeallocatePenalty(address(morphoAdapter)), FORCE_DEALLOCATE_PENALTY);
         assertEq(vault.forceDeallocatePenalty(address(line)), FORCE_DEALLOCATE_PENALTY);
+        assertEq(vault.receiveSharesGate(), address(gate));
+        assertEq(address(gate.pool()), address(pool));
+        assertTrue(voter.bootstrapEnded(), "later lines go through the timelock");
         assertTrue(vault.isAdapter(address(morphoAdapter)));
         assertTrue(vault.isAdapter(address(line)));
         assertEq(vault.absoluteCap(LineIds.adapterId(address(line))), LINE_CAP);
@@ -65,7 +68,7 @@ contract LifecycleTest is SuretyFixture {
         assertEq(line.suretyPool(), address(pool));
         assertEq(address(pool.escrows()), address(line));
         assertEq(pool.SEASON(), SEASON);
-        (,, bool markSet) = pool.highWaterMark(MORPHO_LINE);
+        (,, bool markSet,) = pool.highWaterMark(MORPHO_LINE);
         assertTrue(markSet, "the Morpho line was checkpointed when listed");
     }
 
@@ -205,10 +208,6 @@ contract LifecycleTest is SuretyFixture {
         _flip();
         uint256[] memory interest = _attributed();
         assertLe(interest[MORPHO_LINE], 2, "Morpho loss is not interest");
-        (,, uint256 unexplainedMorpho) = allocator.ledger(MORPHO_LINE);
-        (,, uint256 unexplainedVe) = allocator.ledger(VE_LINE);
-        assertLe(unexplainedMorpho, 2);
-        assertLe(unexplainedVe, 2);
         assertApproxEqAbs(interest[VE_LINE], debt - debtAtE4, 2, "only the interest the loan accrued");
     }
 

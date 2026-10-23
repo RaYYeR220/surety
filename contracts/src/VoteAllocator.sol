@@ -10,6 +10,8 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {IMorpho, Id, Market, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
 import {IOracle} from "morpho-blue/interfaces/IOracle.sol";
 import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
+import {SharesMathLib} from "morpho-blue/libraries/SharesMathLib.sol";
+import {MorphoBalancesLib} from "morpho-blue/libraries/periphery/MorphoBalancesLib.sol";
 import {IMorphoMarketV1AdapterV2} from "vault-v2/adapters/interfaces/IMorphoMarketV1AdapterV2.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 import {MAX_MAX_RATE, WAD} from "vault-v2/libraries/ConstantsLib.sol";
@@ -27,60 +29,79 @@ import {LineIds} from "./libraries/LineIds.sol";
 /// @dev
 /// Timeline: votes cast in epoch t drive the allocation from the first rebalance of t+1, and the interest the lines
 /// earn while that allocation is live is attributed to cohort t at the first rebalance of t+2.
-/// - Tally: the first rebalance of an epoch fixes it for the epoch: the previous epoch if any eligible line got votes
-///   in it, else the current epoch (bootstrap; its tally can still change, so re-runs follow it).
-/// - Targets: `deployable = totalAssets * (1 - idleBuffer)` split by the tally over eligible lines (active, live
-///   oracle, veBTC line not paused), each capped by the room the VaultV2 absolute and relative caps of its ids leave
-///   once the other lines have shrunk to their shares. Ineligible or unvoted lines target zero. When several lines
-///   grow into one shared cap, targets are upper bounds: caps are re-checked before each allocation, in line order.
+/// - Tally: the first rebalance of an epoch fixes it for the epoch: the previous epoch if any active line got votes
+///   in it, else the current epoch (bootstrap; its tally can still change, so re-runs follow it). Oracle liveness
+///   plays no part, so a stale feed at the flip cannot throw away the closed epoch's tally.
+/// - Targets: `deployable = totalAssets * (1 - idleBuffer)` split by the tally over active lines, each capped by the
+///   room the VaultV2 absolute and relative caps of its ids leave once the other lines have shrunk to their shares.
+///   An active line that cannot take new money (stale oracle, paused veBTC line, or a veBTC line whose calls revert)
+///   holds what it has up to that target, `min(current, target)`: no new money and no forced pull. Inactive or
+///   unvoted lines target zero. When several lines grow into one shared cap, targets are upper bounds: caps are
+///   re-checked before each allocation, in line order.
 /// - Moves: overweight lines are deallocated first, bounded by what they can pay out now (Morpho market liquidity,
 ///   veBTC line cash), then underweight lines are allocated from idle assets above the buffer. Nothing reverts on an
 ///   illiquid line; a re-run inside the epoch continues the move. A move the vault rejects is skipped and reported.
-/// - Losses: before measuring, each rebalance has the pool checkpoint every line, so a loss taken since the previous
-///   rebalance is noted (lowering the baseline) before interest is measured. A checkpoint that fails is reported
-///   and skipped; it never blocks the run.
-/// - Interest: each rebalance measures `assets - baseline` per line, where the baseline is the line's assets after
-///   the previous rebalance moved by the adjustments the pool noted since (losses down, covers up). Drops are not
-///   negative interest; they are kept as unexplained loss that a later noted loss is netted against first.
+/// - Losses: each rebalance has the pool checkpoint every line before it measures, and again after its moves so the
+///   pool values a later Morpho loss on the adapter's shares as this run left them. A checkpoint that fails is
+///   reported and skipped; it never blocks the run.
+/// - Interest is never read from changes in a line's assets, which anyone can move through VaultV2's permissionless
+///   `forceDeallocate` (and covers and losses move too). Each rebalance snapshots, after its own moves:
+///   - Morpho lines: the adapter's supply shares in the market and the market's supply share price. The next
+///     rebalance measures `sharesAtSnapshot * (sharePriceNow - sharePriceAtSnapshot)` with Morpho's share math
+///     (virtual shares and assets) on the accrued market. Only interest raises Morpho's supply share price and only
+///     bad debt lowers it, so nobody else's moves change the result; a drop measures zero (the pool handles it as a
+///     loss).
+///   - veBTC lines: the line's cumulative `interestEarnedTotal()`, and measures its increase.
 ///   Interest accumulates until the first rebalance of the next epoch hands it to `SuretyPool.distributeFees`.
-///   This assumes the allocator is the vault's only allocator and no liquidity adapter is set: capital moved by
-///   anyone else reads as interest (in) or as an unexplained drop (out).
 /// Trust: the only capital moves are VaultV2 `allocate` / `deallocate` with the adapter and data the CreditVoter lists
-/// for a line. VaultV2 rejects addresses that are not its adapters and enforces the caps; tokens never pass through
-/// this contract. The owner can only set the pool once and set the vault's max rate within VaultV2's bound.
+/// for a line (validated and, after its bootstrap, timelocked there). VaultV2 rejects addresses that are not its
+/// adapters and enforces the caps; tokens never pass through this contract. A veBTC line's own calls (ids, paused,
+/// oracle, cash, interest counter) are guarded, so a line whose calls revert only makes itself ineligible. The owner
+/// can only set the pool once and set the vault's max rate within VaultV2's bound.
 contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient {
     using MarketParamsLib for MarketParams;
+    using MorphoBalancesLib for IMorpho;
+    using SharesMathLib for uint256;
 
     // Looping over lines with external calls is the job: the list is short and curated, and every call goes to the
-    // vault, the voter, the pool or a listed line's adapter, market or oracle. rebalance is nonReentrant and re-bases
-    // the ledger after its moves on purpose. noteAdjustment, the only other ledger writer, is reserved to the pool and
-    // deliberately outside the lock, so the pool can record losses from inside rebalance before interest is measured.
-    // Events after those calls report what the calls did.
+    // vault, the voter, the pool or a listed line's adapter, market or oracle. rebalance is nonReentrant and
+    // snapshots the ledger after its moves on purpose. Events after those calls report what the calls did.
     // forge-lint: disable-start(calls-loop, reentrancy-events, reentrancy-no-eth)
 
-    /// @param baseline Assets the line would hold had it earned nothing since the last rebalance.
+    /// @notice What the last rebalance left a line at, and the interest measured since the last attribution.
     /// @param pendingInterest Interest measured since the last attribution.
-    /// @param unexplainedLoss Asset drops measured but not yet matched by a loss noted by the pool.
+    /// @param shares Morpho lines: the adapter's supply shares in the line's market.
+    /// @param totalSupplyAssets Morpho lines: the market's total supply assets (with `totalSupplyShares`, its supply
+    /// share price).
+    /// @param totalSupplyShares Morpho lines: the market's total supply shares.
+    /// @param earned veBTC lines: the line's `interestEarnedTotal()`.
     struct Ledger {
-        int256 baseline;
         uint256 pendingInterest;
-        uint256 unexplainedLoss;
+        uint256 shares;
+        uint128 totalSupplyAssets;
+        uint128 totalSupplyShares;
+        uint256 earned;
     }
 
     /// @dev A line as one rebalance sees it.
+    /// @param params Morpho market parameters (Morpho lines only).
     /// @param marketId Morpho market id (Morpho lines only).
     /// @param ownId Cap id no other line uses: the market id for Morpho lines, the adapter id for veBTC lines.
     /// @param ids Every cap id an allocation to the line counts against.
-    /// @param share Vote-weighted slice of the deployable assets (zero when ineligible or unvoted).
+    /// @param active Whether the CreditVoter has the line active (its votes count).
+    /// @param eligible Active and able to take new money (live oracle; veBTC line not paused, calls not reverting).
+    /// @param share Vote-weighted slice of the deployable assets (zero when inactive or unvoted).
     /// @param release Allocation the line is expected to give back this run: its recorded allocation above `share`.
-    /// @param target `share` capped by the room the vault's caps leave.
+    /// @param target `share` capped by the room the vault's caps leave, and by the line's assets when not eligible.
     struct LineState {
         address adapter;
         bytes data;
         ICreditVoter.LineKind kind;
+        MarketParams params;
         bytes32 marketId;
         bytes32 ownId;
         bytes32[] ids;
+        bool active;
         bool eligible;
         uint256 votes;
         uint256 share;
@@ -101,7 +122,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     /// @notice Share of total assets kept idle in the vault, in basis points.
     uint256 public immutable idleBufferBps;
 
-    /// @notice Receives fee attributions and notes loss/cover adjustments. Set once.
+    /// @notice Receives fee attributions and records losses at each rebalance. Set once.
     address public suretyPool;
     /// @inheritdoc IVoteAllocator
     uint256 public activeTallyEpoch;
@@ -122,14 +143,12 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     event MoveFailed(uint256 indexed lineId, bool allocation, uint256 assets, bytes reason);
     /// @notice The pool's loss checkpoint of `lineId` reverted; the line's losses wait for a later checkpoint.
     event CheckpointFailed(uint256 indexed lineId, bytes reason);
-    event AdjustmentNoted(uint256 indexed lineId, int256 delta);
     event SuretyPoolSet(address indexed pool);
     event MaxRateSet(uint256 maxRate);
 
     error ZeroAddress();
     error BadIdleBuffer();
     error SuretyPoolAlreadySet();
-    error NotSuretyPool();
     error MaxRateTooHigh();
 
     /// @param vault_ The Surety VaultV2; this contract must be granted its allocator role.
@@ -163,30 +182,6 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         vault.setMaxRate(newMaxRate);
     }
 
-    /* Pool */
-
-    /// @inheritdoc IVoteAllocator
-    /// @dev Only the SuretyPool: negative after it records a loss, positive after it pays a cover into the line.
-    /// Applied to the baseline at once, so a note made inside `rebalance` before interest is measured (a loss
-    /// checkpoint) counts in that same call; not guarded by the rebalance lock for that reason. A loss is first
-    /// netted against drops already measured as unexplained. Notes for lines not tracked yet are ignored: their
-    /// first rebalance takes their assets as they are.
-    function noteAdjustment(uint256 lineId, int256 delta) external {
-        if (msg.sender != suretyPool) revert NotSuretyPool();
-        emit AdjustmentNoted(lineId, delta);
-        if (lineId >= trackedLines) return;
-
-        Ledger storage book = ledgers[lineId];
-        if (delta >= 0) {
-            book.baseline += delta;
-            return;
-        }
-        uint256 loss = SafeCast.toUint256(-delta);
-        uint256 absorbed = Math.min(loss, book.unexplainedLoss);
-        book.unexplainedLoss -= absorbed;
-        book.baseline -= SafeCast.toInt256(loss - absorbed);
-    }
-
     /* Rebalance */
 
     /// @notice Moves vault capital toward the vote-weighted targets and, on the first call of an epoch, hands the
@@ -205,6 +200,8 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         _setTargets(lines, tallyEpoch, total, firstTotal);
         _deallocateOverweight(lines);
         _allocateUnderweight(lines, total, firstTotal);
+        // Again after the moves, so the pool's Morpho marks hold the adapter's shares as this run left them.
+        _checkpointLosses(lines.length);
 
         (uint256[] memory lineIds, uint256[] memory targetAssets) = _snapshot(lines);
         emit Rebalanced(epoch, tallyEpoch, lineIds, targetAssets, interest);
@@ -238,14 +235,9 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         return _assetsOf(_describe(voter.line(lineId)));
     }
 
-    /// @notice Interest ledger of `lineId`.
-    function ledger(uint256 lineId)
-        external
-        view
-        returns (int256 baseline, uint256 pendingInterest, uint256 unexplainedLoss)
-    {
-        Ledger storage l = ledgers[lineId];
-        return (l.baseline, l.pendingInterest, l.unexplainedLoss);
+    /// @notice Interest ledger of `lineId`: see `Ledger`.
+    function ledger(uint256 lineId) external view returns (Ledger memory) {
+        return ledgers[lineId];
     }
 
     /* Internals: lines */
@@ -256,21 +248,38 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         for (uint256 i; i < n; ++i) {
             ICreditVoter.Line memory info = voter.line(i);
             LineState memory l = _describe(info);
+            l.active = info.active;
             if (info.kind == ICreditVoter.LineKind.Morpho) {
-                MarketParams memory params = abi.decode(info.data, (MarketParams));
                 l.ids = new bytes32[](3);
                 l.ids[0] = LineIds.adapterId(info.adapter);
-                l.ids[1] = LineIds.collateralId(params.collateralToken);
+                l.ids[1] = LineIds.collateralId(l.params.collateralToken);
                 l.ids[2] = l.ownId;
-                l.eligible = info.active && _quotes(params.oracle, IOracle.price.selector);
+                l.eligible = info.active && _quotes(l.params.oracle, IOracle.price.selector);
             } else {
-                ISuretyLine suretyLine = ISuretyLine(info.adapter);
-                l.ids = suretyLine.ids();
-                l.eligible = info.active && !suretyLine.paused()
-                    && _quotes(address(suretyLine.oracle()), IPriceSource.priceWad.selector);
+                bool live;
+                (l.ids, live) = _suretyLineState(ISuretyLine(info.adapter));
+                l.eligible = info.active && live;
             }
             lines[i] = l;
         }
+    }
+
+    /// @dev A veBTC line's cap ids and whether it can take new money (not paused, live oracle). Each call is guarded,
+    /// so a line whose calls revert reports no ids and is not live: it only makes itself ineligible.
+    function _suretyLineState(ISuretyLine suretyLine) internal view returns (bytes32[] memory ids, bool live) {
+        try suretyLine.ids() returns (bytes32[] memory lineIds) {
+            ids = lineIds;
+        } catch {
+            return (ids, live);
+        }
+        try suretyLine.paused() returns (bool paused) {
+            if (paused) return (ids, live);
+        } catch {
+            return (ids, live);
+        }
+        try suretyLine.oracle() returns (IPriceSource source) {
+            live = _quotes(address(source), IPriceSource.priceWad.selector);
+        } catch {}
     }
 
     /// @dev Adapter, data, kind and the ids that identify the line's position.
@@ -279,9 +288,9 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         l.data = info.data;
         l.kind = info.kind;
         if (info.kind == ICreditVoter.LineKind.Morpho) {
-            MarketParams memory params = abi.decode(info.data, (MarketParams));
-            l.marketId = Id.unwrap(params.id());
-            l.ownId = LineIds.marketParamsId(info.adapter, params);
+            l.params = abi.decode(info.data, (MarketParams));
+            l.marketId = Id.unwrap(l.params.id());
+            l.ownId = LineIds.marketParamsId(info.adapter, l.params);
         } else {
             l.ownId = LineIds.adapterId(info.adapter);
         }
@@ -301,7 +310,13 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
 
     /// @dev What the line can pay back to the vault right now, out of `assets`.
     function _withdrawable(LineState memory l, uint256 assets) internal view returns (uint256) {
-        if (l.kind == ICreditVoter.LineKind.VeBTC) return Math.min(assets, ISuretyLine(l.adapter).cash());
+        if (l.kind == ICreditVoter.LineKind.VeBTC) {
+            try ISuretyLine(l.adapter).cash() returns (uint256 cash) {
+                return Math.min(assets, cash);
+            } catch {
+                return 0;
+            }
+        }
         // Accruing raises supply and borrow by the same interest, so the stored difference is the live liquidity.
         Market memory m = IMorpho(IMorphoMarketV1AdapterV2(l.adapter).morpho()).market(Id.wrap(l.marketId));
         uint256 free = m.totalSupplyAssets > m.totalBorrowAssets ? m.totalSupplyAssets - m.totalBorrowAssets : 0;
@@ -310,19 +325,20 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
 
     /* Internals: targets */
 
-    /// @dev Previous epoch if an eligible line got votes in it, else the current epoch (bootstrap).
+    /// @dev Previous epoch if an active line got votes in it, else the current epoch (bootstrap).
     function _tallyEpoch(uint256 epoch, LineState[] memory lines) internal view returns (uint256) {
         if (epoch < EPOCH_LENGTH) return epoch;
         uint256 previous = epoch - EPOCH_LENGTH;
         for (uint256 i; i < lines.length; ++i) {
-            if (lines[i].eligible && voter.lineVotes(previous, i) != 0) return previous;
+            if (lines[i].active && voter.lineVotes(previous, i) != 0) return previous;
         }
         return epoch;
     }
 
-    /// @dev Splits the deployable assets over eligible lines by their votes in `tallyEpoch`, then caps each share by
-    /// the room its ids leave once the other lines have given back what they hold above their own shares.
-    /// Votes of ineligible lines are left out of the denominator (the tally's total includes them).
+    /// @dev Splits the deployable assets over active lines by their votes in `tallyEpoch`, then caps each share by
+    /// the room its ids leave once the other lines have given back what they hold above their own shares, and holds
+    /// lines that cannot take new money at what they have. Votes of inactive lines are left out of the denominator
+    /// (the tally's total includes them).
     function _setTargets(LineState[] memory lines, uint256 tallyEpoch, uint256 total, uint256 firstTotal)
         internal
         view
@@ -330,7 +346,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         uint256 n = lines.length;
         uint256 votesSum = 0;
         for (uint256 i; i < n; ++i) {
-            if (!lines[i].eligible) continue;
+            if (!lines[i].active) continue;
             lines[i].votes = voter.lineVotes(tallyEpoch, i);
             votesSum += lines[i].votes;
         }
@@ -341,7 +357,10 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
             l.release = _floorSub(vault.allocation(l.ownId), l.share);
         }
         for (uint256 i; i < n; ++i) {
-            if (lines[i].share != 0) lines[i].target = Math.min(lines[i].share, _maxPosition(lines, i, firstTotal));
+            LineState memory l = lines[i];
+            if (l.share == 0) continue;
+            l.target = Math.min(l.share, _maxPosition(lines, i, firstTotal));
+            if (!l.eligible) l.target = Math.min(l.target, _assetsOf(l));
         }
     }
 
@@ -433,9 +452,8 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
 
     /* Internals: interest */
 
-    /// @dev Has the pool record each line's new losses, which it notes back through `noteAdjustment`, so they lower
-    /// the baselines before `_measure` instead of reading as unexplained drops. Covers every listed line, so a line's
-    /// loss mark is set from its first rebalance on. Skipped while no pool is set.
+    /// @dev Has the pool record each line's new losses. Covers every listed line, so a line's loss mark is set from
+    /// its first rebalance on. Skipped while no pool is set.
     function _checkpointLosses(uint256 n) internal {
         address pool = suretyPool;
         if (pool == address(0)) return;
@@ -447,25 +465,34 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         }
     }
 
-    /// @dev Interest of each tracked line since the previous rebalance, added to its pending interest. Drops are
-    /// recorded as unexplained loss instead. Untracked (newly listed) lines report zero.
+    /// @dev Interest of each tracked line since the previous rebalance's snapshot, added to its pending interest.
+    /// Untracked (newly listed) lines report zero.
     function _measure(LineState[] memory lines) internal returns (uint256[] memory interest) {
         uint256 n = lines.length;
         uint256 tracked = trackedLines;
         interest = new uint256[](n);
         for (uint256 i = 0; i < n && i < tracked; ++i) {
-            Ledger storage book = ledgers[i];
-            int256 delta = SafeCast.toInt256(_assetsOf(lines[i])) - book.baseline;
-            if (delta >= 0) {
-                interest[i] = SafeCast.toUint256(delta);
-                book.pendingInterest += interest[i];
-            } else {
-                book.unexplainedLoss += SafeCast.toUint256(-delta);
-            }
+            interest[i] = _interestSince(lines[i], ledgers[i]);
+            ledgers[i].pendingInterest += interest[i];
         }
     }
 
-    /// @dev Re-bases every line on its assets after the moves.
+    /// @dev Morpho: the snapshot's shares valued at the market's accrued supply share price minus their value at the
+    /// snapshot's price, floored at zero. veBTC: the increase of the line's interest counter.
+    function _interestSince(LineState memory l, Ledger storage book) internal view returns (uint256) {
+        if (l.kind == ICreditVoter.LineKind.Morpho) {
+            uint256 shares = book.shares;
+            if (shares == 0) return 0;
+            (uint256 supplyAssets, uint256 supplyShares) = _supplyTotals(l);
+            uint256 valueNow = shares.toAssetsDown(supplyAssets, supplyShares);
+            uint256 valueThen = shares.toAssetsDown(book.totalSupplyAssets, book.totalSupplyShares);
+            return _floorSub(valueNow, valueThen);
+        }
+        (bool ok, uint256 earned) = _earnedOf(l.adapter);
+        return ok ? _floorSub(earned, book.earned) : 0;
+    }
+
+    /// @dev Snapshots every line after the moves: Morpho shares and share price, veBTC interest counter.
     function _snapshot(LineState[] memory lines)
         internal
         returns (uint256[] memory lineIds, uint256[] memory targetAssets)
@@ -474,11 +501,36 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         lineIds = new uint256[](n);
         targetAssets = new uint256[](n);
         for (uint256 i; i < n; ++i) {
+            LineState memory l = lines[i];
             lineIds[i] = i;
-            targetAssets[i] = lines[i].target;
-            ledgers[i].baseline = SafeCast.toInt256(_assetsOf(lines[i]));
+            targetAssets[i] = l.target;
+            Ledger storage book = ledgers[i];
+            if (l.kind == ICreditVoter.LineKind.Morpho) {
+                (uint256 supplyAssets, uint256 supplyShares) = _supplyTotals(l);
+                book.shares = IMorphoMarketV1AdapterV2(l.adapter).supplyShares(l.marketId);
+                book.totalSupplyAssets = SafeCast.toUint128(supplyAssets);
+                book.totalSupplyShares = SafeCast.toUint128(supplyShares);
+            } else {
+                // A line whose counter cannot be read keeps its old snapshot; it is measured from there once it can.
+                (bool ok, uint256 earned) = _earnedOf(l.adapter);
+                if (ok) book.earned = earned;
+            }
         }
         trackedLines = n;
+    }
+
+    /// @dev The market's supply totals after interest accrual, as Morpho would compute them now.
+    function _supplyTotals(LineState memory l) internal view returns (uint256 supplyAssets, uint256 supplyShares) {
+        IMorpho morpho = IMorpho(IMorphoMarketV1AdapterV2(l.adapter).morpho());
+        (supplyAssets, supplyShares,,) = morpho.expectedMarketBalances(l.params);
+    }
+
+    /// @dev The veBTC line's interest counter; `ok` is false if the call reverts or returns something malformed.
+    function _earnedOf(address adapter) internal view returns (bool ok, uint256 earned) {
+        bytes memory ret;
+        (ok, ret) = adapter.staticcall(abi.encodeCall(ISuretyLine.interestEarnedTotal, ()));
+        ok = ok && ret.length == 32;
+        if (ok) earned = abi.decode(ret, (uint256));
     }
 
     /// @dev First rebalance of `epoch`: hands the pending interest to the pool for the cohort whose tally drove the

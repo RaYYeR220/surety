@@ -147,6 +147,17 @@ contract SuretyInvariants is SuretyFixture {
         assertLe(pool.lossRecorded(VE_LINE), line.badDebtTotal(), "recorded <= bad debt");
     }
 
+    /// @notice The DepositGate never refuses the pool (fee recipient and incentive depositor), and new shares wait
+    /// whenever a recorded loss is uncovered while the pool could cover it.
+    function invariant_depositGate() public synced {
+        assertTrue(vault.canReceiveShares(address(pool)), "the pool always receives shares");
+        for (uint256 lineId; lineId < 2; ++lineId) {
+            if (pool.uncoveredLoss(lineId) > pool.LOSS_DUST() && pool.coverCapacity(lineId) != 0) {
+                assertTrue(pool.depositsPaused(), "deposits wait while a coverable loss is uncovered");
+            }
+        }
+    }
+
     /// @notice Per epoch, line tallies sum to the epoch total and each line's tally is the sum of its ballots.
     function invariant_tallyConservation() public synced {
         uint256[] memory tokens = handler.voterTokenIds();

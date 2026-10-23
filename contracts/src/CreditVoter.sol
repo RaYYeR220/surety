@@ -3,9 +3,14 @@ pragma solidity 0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
+import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
+import {IMorphoMarketV1AdapterV2} from "vault-v2/adapters/interfaces/IMorphoMarketV1AdapterV2.sol";
+import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 
 import {ICreditVoter} from "./interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "./interfaces/IEscrowRegistry.sol";
+import {ISuretyLine} from "./interfaces/ISuretyLine.sol";
 import {IVeBTC} from "./interfaces/IVeBTC.sol";
 import {EpochLib} from "./libraries/EpochLib.sol";
 
@@ -22,25 +27,58 @@ import {EpochLib} from "./libraries/EpochLib.sol";
 /// - Ballots persist. `poke` recasts a stored ballot into a later epoch at that epoch's snapshot.
 /// - Tallies are keyed by epoch start. Only the current epoch is ever written, so past epochs are final.
 /// - Line ids are 0-based registry indexes. Lines are never removed, only deactivated.
+/// - Listing. A listed line's adapter is trusted by the SuretyPool (its reported bad debt is covered from the shared
+///   reserve) and by the VoteAllocator (its reported interest earns voter fees), so listing is validated and, after
+///   the bootstrap, timelocked:
+///   - the adapter must be one of the vault's adapters (added by the curator through VaultV2's own timelock);
+///   - a Morpho line must use the vault's MorphoMarketV1AdapterV2 with canonically encoded MarketParams that lend
+///     the vault's asset under the adapter's IRM, one line per market;
+///   - a veBTC line must be a Surety line of this vault (`vault()`), other than the Morpho adapter, one line per
+///     adapter whatever its data;
+///   - lines are listed at once only until the owner calls `endBootstrap()` (the deployment does right after
+///     listing its initial lines); from then on `proposeLine` queues a line and `executeLine` lists it no earlier
+///     than LINE_TIMELOCK later, re-validated. LINE_TIMELOCK can only be zero off Mezo mainnet.
 contract CreditVoter is ICreditVoter, Ownable2Step {
+    using MarketParamsLib for MarketParams;
+
     struct Ballot {
         uint256[] lineIds;
         uint256[] weightsBps;
         uint256 epochCast;
     }
 
+    /// @notice A line queued by `proposeLine`.
+    /// @param executableAt When `executeLine` may list it; zero once executed.
+    struct ProposedLine {
+        address adapter;
+        bytes data;
+        LineKind kind;
+        string name;
+        uint256 executableAt;
+    }
+
     /// @notice Ballot weights are in basis points and must sum to this.
     uint256 public constant BPS = 10_000;
     /// @notice Maximum number of lines in one ballot.
     uint256 public constant MAX_LINES_PER_BALLOT = 10;
+    /// @notice Mezo mainnet, where LINE_TIMELOCK must not be zero.
+    uint256 public constant MEZO_MAINNET = 31612;
 
     /// @notice Mezo's veBTC VotingEscrow, the source of voting power.
     IVeBTC public immutable veBTC;
     /// @notice Epoch length in seconds; epoch ids are their start timestamps.
     uint256 public immutable EPOCH_LENGTH;
+    /// @notice The Surety VaultV2 whose adapters lines must be.
+    IVaultV2 public immutable vault;
+    /// @notice The vault's MorphoMarketV1AdapterV2, the only adapter Morpho lines may use.
+    address public immutable morphoAdapter;
+    /// @notice Seconds between `proposeLine` and `executeLine` once the bootstrap has ended.
+    uint256 public immutable LINE_TIMELOCK;
 
     /// @notice Loan escrows whose NFTs may not vote. Unset means no check; once set it cannot change.
     IEscrowRegistry public escrowRegistry;
+    /// @notice Whether `endBootstrap` was called: lines can then only be listed through the timelock.
+    bool public bootstrapEnded;
 
     /// @inheritdoc ICreditVoter
     mapping(uint256 epoch => mapping(uint256 lineId => uint256)) public lineVotes;
@@ -50,13 +88,20 @@ contract CreditVoter is ICreditVoter, Ownable2Step {
     mapping(uint256 epoch => mapping(uint256 tokenId => mapping(uint256 lineId => uint256))) public tokenVotes;
 
     Line[] internal lines;
-    /// @dev keccak256(adapter, data) of every listed line, so one market cannot be listed twice.
+    /// @dev Key of every listed line (adapter and market id for Morpho lines, the adapter for veBTC lines), so one
+    /// market or one veBTC line cannot be listed twice.
     mapping(bytes32 lineKey => bool) internal listed;
+    /// @dev Lines queued by `proposeLine`, by proposal id.
+    ProposedLine[] internal proposals;
     /// @dev Latest ballot per NFT. When `epochCast` is the current epoch, its lines are exactly the lines holding
     /// the NFT's tallies for that epoch, which is what a replacement ballot subtracts.
     mapping(uint256 tokenId => Ballot) internal ballots;
 
     event LineAdded(uint256 indexed lineId, address indexed adapter, LineKind kind, string name);
+    event LineProposed(
+        uint256 indexed proposalId, address indexed adapter, LineKind kind, string name, uint256 executableAt
+    );
+    event BootstrapEnded();
     event LineActiveSet(uint256 indexed lineId, bool active);
     event EscrowRegistrySet(address indexed registry);
     event Voted(
@@ -84,15 +129,40 @@ contract CreditVoter is ICreditVoter, Ownable2Step {
     error BadWeights();
     error NoPower();
     error NothingToPoke();
+    error ZeroLineTimelock();
+    error NotVaultAdapter();
+    error UnsupportedAdapter();
+    error BadMarketParams();
+    error BootstrapOver();
+    error UnknownProposal();
+    error TimelockPending();
 
     /// @param veBTC_ Mezo's veBTC VotingEscrow.
     /// @param epochLength Epoch length in seconds (1 week on mainnet, aligned with Mezo's Thursday flip).
     /// @param owner_ Account allowed to list lines and set the escrow registry.
-    constructor(IVeBTC veBTC_, uint256 epochLength, address owner_) Ownable(owner_) {
-        if (address(veBTC_) == address(0)) revert ZeroAddress();
+    /// @param vault_ The Surety VaultV2.
+    /// @param morphoAdapter_ The vault's MorphoMarketV1AdapterV2.
+    /// @param lineTimelock Seconds a proposed line waits before it can be listed (1 day on mainnet; zero only off
+    /// Mezo mainnet).
+    constructor(
+        IVeBTC veBTC_,
+        uint256 epochLength,
+        address owner_,
+        IVaultV2 vault_,
+        address morphoAdapter_,
+        uint256 lineTimelock
+    ) Ownable(owner_) {
+        if (address(veBTC_) == address(0) || address(vault_) == address(0) || morphoAdapter_ == address(0)) {
+            revert ZeroAddress();
+        }
         if (epochLength == 0) revert ZeroEpochLength();
+        if (lineTimelock == 0 && block.chainid == MEZO_MAINNET) revert ZeroLineTimelock();
+        if (IMorphoMarketV1AdapterV2(morphoAdapter_).parentVault() != address(vault_)) revert UnsupportedAdapter();
         veBTC = veBTC_;
         EPOCH_LENGTH = epochLength;
+        vault = vault_;
+        morphoAdapter = morphoAdapter_;
+        LINE_TIMELOCK = lineTimelock;
     }
 
     /* Admin */
@@ -106,9 +176,10 @@ contract CreditVoter is ICreditVoter, Ownable2Step {
         emit EscrowRegistrySet(address(registry));
     }
 
-    /// @notice Lists a credit line. It starts active.
+    /// @notice Lists a credit line at once, during the bootstrap only. It starts active. See the contract notes for
+    /// what a line must satisfy.
     /// @param adapter VaultV2 adapter holding the line's allocation.
-    /// @param data Adapter data for VaultV2 allocate/deallocate; (adapter, data) must be new.
+    /// @param data Adapter data for VaultV2 allocate/deallocate: abi-encoded MarketParams for Morpho lines.
     /// @param kind Morpho market or veBTC credit line.
     /// @param name Display name.
     /// @return lineId Index of the new line.
@@ -117,14 +188,40 @@ contract CreditVoter is ICreditVoter, Ownable2Step {
         onlyOwner
         returns (uint256 lineId)
     {
-        if (adapter == address(0)) revert ZeroAddress();
-        bytes32 key = keccak256(abi.encode(adapter, data));
-        if (listed[key]) revert LineExists();
-        listed[key] = true;
+        if (bootstrapEnded) revert BootstrapOver();
+        return _list(adapter, data, kind, name);
+    }
 
-        lineId = lines.length;
-        lines.push(Line({adapter: adapter, data: data, kind: kind, active: true, name: name}));
-        emit LineAdded(lineId, adapter, kind, name);
+    /// @notice Ends the bootstrap: from now on lines are listed only through `proposeLine` and `executeLine`.
+    function endBootstrap() external onlyOwner {
+        if (bootstrapEnded) revert BootstrapOver();
+        bootstrapEnded = true;
+        emit BootstrapEnded();
+    }
+
+    /// @notice Queues a line for listing no earlier than LINE_TIMELOCK from now. Validated now and again on execution.
+    /// @return proposalId Id to pass to `executeLine`.
+    function proposeLine(address adapter, bytes calldata data, LineKind kind, string calldata name)
+        external
+        onlyOwner
+        returns (uint256 proposalId)
+    {
+        _lineKey(adapter, data, kind);
+        uint256 executableAt = block.timestamp + LINE_TIMELOCK;
+        proposalId = proposals.length;
+        proposals.push(ProposedLine({adapter: adapter, data: data, kind: kind, name: name, executableAt: executableAt}));
+        emit LineProposed(proposalId, adapter, kind, name, executableAt);
+    }
+
+    /// @notice Lists a proposed line once its timelock has passed. Each proposal executes at most once.
+    /// @return lineId Index of the new line.
+    function executeLine(uint256 proposalId) external onlyOwner returns (uint256 lineId) {
+        if (proposalId >= proposals.length) revert UnknownProposal();
+        ProposedLine memory p = proposals[proposalId];
+        if (p.executableAt == 0) revert UnknownProposal();
+        if (block.timestamp < p.executableAt) revert TimelockPending();
+        proposals[proposalId].executableAt = 0;
+        return _list(p.adapter, p.data, p.kind, p.name);
     }
 
     /// @notice Opens or closes a line to new ballots and pokes. Tallies already cast stay as they are.
@@ -218,6 +315,16 @@ contract CreditVoter is ICreditVoter, Ownable2Step {
         return lines[lineId];
     }
 
+    /// @notice Line queued under `proposalId` (`executableAt` is zero once executed) and the number of proposals.
+    function proposal(uint256 proposalId) external view returns (ProposedLine memory) {
+        if (proposalId >= proposals.length) revert UnknownProposal();
+        return proposals[proposalId];
+    }
+
+    function proposalCount() external view returns (uint256) {
+        return proposals.length;
+    }
+
     /// @notice Latest ballot of `tokenId` and the epoch it was cast into (zeros if it never voted).
     function ballotOf(uint256 tokenId)
         external
@@ -229,6 +336,37 @@ contract CreditVoter is ICreditVoter, Ownable2Step {
     }
 
     /* Internals */
+
+    function _list(address adapter, bytes memory data, LineKind kind, string memory name)
+        internal
+        returns (uint256 lineId)
+    {
+        listed[_lineKey(adapter, data, kind)] = true;
+        lineId = lines.length;
+        lines.push(Line({adapter: adapter, data: data, kind: kind, active: true, name: name}));
+        emit LineAdded(lineId, adapter, kind, name);
+    }
+
+    /// @dev Validates a line (see the contract notes) and returns its uniqueness key; reverts if it is listed already.
+    function _lineKey(address adapter, bytes memory data, LineKind kind) internal view returns (bytes32 key) {
+        if (adapter == address(0)) revert ZeroAddress();
+        if (!vault.isAdapter(adapter)) revert NotVaultAdapter();
+        if (kind == LineKind.Morpho) {
+            if (adapter != morphoAdapter) revert UnsupportedAdapter();
+            // Exactly one encoding per market (five static words), so a market cannot be listed twice.
+            if (data.length != 5 * 32) revert BadMarketParams();
+            MarketParams memory params = abi.decode(data, (MarketParams));
+            if (params.loanToken != vault.asset()) revert BadMarketParams();
+            if (params.irm != IMorphoMarketV1AdapterV2(adapter).adaptiveCurveIrm()) revert BadMarketParams();
+            key = keccak256(abi.encode(adapter, params.id()));
+        } else {
+            if (adapter == morphoAdapter || ISuretyLine(adapter).vault() != address(vault)) {
+                revert UnsupportedAdapter();
+            }
+            key = keccak256(abi.encode(adapter));
+        }
+        if (listed[key]) revert LineExists();
+    }
 
     /// @dev Current epoch, once its veBTC snapshot can no longer change.
     function _openEpoch() internal view returns (uint256 epoch) {
