@@ -9,8 +9,9 @@
 
 :root {
   /* ---------- Type ---------- */
-  --font-display: var(--font-display-face), Georgia, "Times New Roman", serif;
-  --font-label: var(--font-label-face), system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Gambetta and Clash Display load from Fontshare (see fonts.ts); Figtree and JetBrains Mono via next/font. */
+  --font-display: "Gambetta", Georgia, "Times New Roman", serif;
+  --font-label: "Clash Display", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-body: var(--font-body-face), system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
@@ -115,12 +116,19 @@
   --color-danger-shelf: #84200f;
   --color-on-danger: #fffaf5;
 
-  /* Categorical colours, one per credit line (line id 0 = --line-1). */
-  --line-1: #2f6bd1;
-  --line-2: #e07b2a;
-  --line-3: #13896f;
-  --line-4: #c2407a;
-  --line-5: #96782c;
+  /*
+   * Categorical colours, one per credit line (line id 0 = --line-1): teal, coral, sky, mustard, orchid.
+   * Same hexes in both themes so a line keeps its colour. Below 3:1 against the ground, so every fill
+   * carries an ink outline (--line-outline) and a direct label; text on a fill is --on-line (6.1-8.0:1).
+   * Validated with the dataviz palette script (light, all pairs: worst CVD 6.8 with outline + label relief).
+   */
+  --line-1: #2bbdaa;
+  --line-2: #fa897b;
+  --line-3: #4098e3;
+  --line-4: #bd9605;
+  --line-5: #c86bb0;
+  --line-outline: var(--color-ink);
+  --on-line: #111210;
   --line-idle: rgb(17 18 16 / 0.16);
 
   --floor-pool-1: rgb(107 79 216 / 0.08);
@@ -158,16 +166,19 @@
   --color-positive-soft: rgb(103 212 166 / 0.14);
   --color-warning: #f2b84b;
   --color-warning-soft: rgb(242 184 75 / 0.15);
-  --color-danger: #ff7a63;
-  --color-danger-soft: rgb(255 122 99 / 0.14);
-  --color-danger-shelf: #b3412e;
+  /* Redder than the coral line (#fa897b) so a status never reads as a credit line. */
+  --color-danger: #ff4d5e;
+  --color-danger-soft: rgb(255 77 94 / 0.14);
+  --color-danger-shelf: #b02a3a;
   --color-on-danger: #111210;
 
-  --line-1: #79aaf6;
-  --line-2: #f39d58;
-  --line-3: #48c8ab;
-  --line-4: #ef84b4;
-  --line-5: #d9bb6a;
+  --line-1: #2bbdaa;
+  --line-2: #fa897b;
+  --line-3: #4098e3;
+  --line-4: #bd9605;
+  --line-5: #c86bb0;
+  --line-outline: var(--color-ink);
+  --on-line: #111210;
   --line-idle: rgb(243 241 234 / 0.2);
 
   --floor-pool-1: rgb(155 225 93 / 0.07);

@@ -1,25 +1,15 @@
-// Typefaces for the current skin. tokens.css maps these four CSS variables onto
-// --font-display / --font-label / --font-body / --font-mono; components only use the latter.
-// To swap a face, change it here (any next/font/google or next/font/local font) and keep the variable name.
-import { Bricolage_Grotesque, Figtree, Fraunces, JetBrains_Mono } from "next/font/google";
+// Typefaces for the current skin. tokens.css maps the faces onto --font-display / --font-label /
+// --font-body / --font-mono; components only use those four.
+//
+// Display (Gambetta) and labels (Clash Display) come from Fontshare's CSS API, linked in the root layout
+// with FONTSHARE_CSS. Their licence (ITF FFL) forbids redistributing the font files through a repository,
+// so the files are never downloaded into the project. Body (Figtree) and numbers (JetBrains Mono) are OFL
+// faces self-hosted through next/font.
+import { Figtree, JetBrains_Mono } from "next/font/google";
 
-// Stand-in for Gambetta 600 (display).
-const display = Fraunces({
-  subsets: ["latin"],
-  weight: "variable",
-  style: ["normal", "italic"],
-  axes: ["opsz"],
-  variable: "--font-display-face",
-  display: "swap",
-});
-
-// Stand-in for Clash Display 500 (labels and buttons).
-const label = Bricolage_Grotesque({
-  subsets: ["latin"],
-  weight: "variable",
-  variable: "--font-label-face",
-  display: "swap",
-});
+/** Fontshare stylesheet: Gambetta 600 and 600 italic (display), Clash Display 500 (labels, buttons). */
+export const FONTSHARE_CSS =
+  "https://api.fontshare.com/v2/css?f[]=gambetta@600,600i&f[]=clash-display@500&display=swap";
 
 const body = Figtree({
   subsets: ["latin"],
@@ -35,5 +25,5 @@ const mono = JetBrains_Mono({
   display: "swap",
 });
 
-/** Class names that define the four font-face variables; put on <html>. */
-export const fontVariables = [display.variable, label.variable, body.variable, mono.variable].join(" ");
+/** Class names that define the next/font face variables; put on <html>. */
+export const fontVariables = [body.variable, mono.variable].join(" ");

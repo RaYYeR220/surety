@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { Floor } from "@/components/shell/Floor";
 import { themeInitScript } from "@/components/shell/themeScript";
-import { fontVariables } from "@/theme/fonts";
+import { FONTSHARE_CSS, fontVariables } from "@/theme/fonts";
 
 import "@/theme/tokens.css";
 import "./globals.css";
@@ -32,6 +32,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" data-theme="light" className={fontVariables} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <link rel="preconnect" href="https://api.fontshare.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://cdn.fontshare.com" crossOrigin="anonymous" />
+        {/* Gambetta + Clash Display from Fontshare; their licence keeps the files out of the repository. */}
+        <link rel="stylesheet" href={FONTSHARE_CSS} />
       </head>
       <body>
         <Floor />
