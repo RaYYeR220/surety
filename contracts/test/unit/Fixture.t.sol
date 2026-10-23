@@ -9,10 +9,9 @@ import {LineIds} from "../../src/libraries/LineIds.sol";
 import {SuretyFixture} from "../utils/SuretyFixture.sol";
 
 /// @notice Smoke tests for the shared fixture: real VaultV2 + MorphoMarketV1AdapterV2 + Morpho Blue + IRM.
+/// @dev Runs on the bare world (no Surety contracts), where `admin` is still a vault allocator.
 contract FixtureTest is SuretyFixture {
-    address internal lender = makeAddr("lender");
-    address internal borrower = makeAddr("borrower");
-    address internal liquidator = makeAddr("liquidator");
+    function _deploySurety() internal override {}
 
     function test_fixture_idsMatchAdapterEncoding() public view {
         assertEq(LineIds.adapterId(address(morphoAdapter)), morphoAdapter.adapterId());
