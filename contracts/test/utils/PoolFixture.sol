@@ -50,26 +50,14 @@ contract MockAllocator is IVoteAllocator {
     }
 }
 
-/// @notice LineFixture plus a CreditVoter with two lines, a SuretyPool wired as the vault's performance-fee
-/// recipient (10% fee), and a MockAllocator in the allocator seat.
+/// @notice Unit fixture: LineFixture plus a CreditVoter with two lines, a SuretyPool wired as the vault's
+/// performance-fee recipient (10% fee), and a MockAllocator in the allocator seat.
 /// @dev Lines: 0 = BTC/MUSD Morpho market through the shared MorphoMarketV1AdapterV2, 1 = the veBTC credit line.
 /// `admin` stays the vault allocator so tests move capital directly. Locks created at START_TIME have no power in
 /// the current epoch: tests warp at least one epoch before voting (the offset inside the epoch is kept, so votes
 /// never land in an epoch's first second).
 abstract contract PoolFixture is LineFixture {
-    uint256 internal constant MORPHO_LINE = 0;
-    uint256 internal constant VE_LINE = 1;
-    uint256 internal constant SEASON = 4;
-
-    CreditVoter internal voter;
-    SuretyPool internal pool;
-    MockAllocator internal allocator;
-
-    address internal sponsor = makeAddr("sponsor");
-    address internal alice = makeAddr("alice");
-    address internal bob = makeAddr("bob");
-    address internal liquidator = makeAddr("liquidator");
-    address internal morphoBorrower = makeAddr("morphoBorrower");
+    MockAllocator internal mockAllocator;
 
     function setUp() public virtual override {
         super.setUp();
@@ -78,7 +66,7 @@ abstract contract PoolFixture is LineFixture {
 
     function _deployPool() internal {
         voter = new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, admin);
-        allocator = new MockAllocator();
+        mockAllocator = new MockAllocator();
         pool = new SuretyPool(
             address(vault),
             voter,
@@ -91,42 +79,22 @@ abstract contract PoolFixture is LineFixture {
         );
         vm.label(address(voter), "CreditVoter");
         vm.label(address(pool), "SuretyPool");
-        vm.label(address(allocator), "MockAllocator");
+        vm.label(address(mockAllocator), "MockAllocator");
 
         vm.startPrank(admin);
         voter.addLine(address(morphoAdapter), abi.encode(btcMarket), ICreditVoter.LineKind.Morpho, "BTC / Morpho");
         voter.addLine(address(line), "", ICreditVoter.LineKind.VeBTC, "veBTC credit");
         voter.setEscrowRegistry(IEscrowRegistry(address(line)));
         line.setSuretyPool(address(pool));
-        pool.setAllocator(address(allocator));
+        pool.setAllocator(address(mockAllocator));
         vm.stopPrank();
 
         _curate(abi.encodeCall(IVaultV2.setPerformanceFeeRecipient, (address(pool))));
         _curate(abi.encodeCall(IVaultV2.setPerformanceFee, (VOTER_FEE)));
     }
 
-    /* Actors */
-
-    /// @notice Mints `assets` MUSD to `who` and posts them as an incentive for `lineId` in the current epoch.
-    function _post(address who, uint256 lineId, uint256 assets) internal returns (uint256 shares) {
-        musd.mint(who, assets);
-        vm.startPrank(who);
-        musd.approve(address(pool), assets);
-        shares = pool.postIncentive(lineId, assets);
-        vm.stopPrank();
-    }
-
-    function _vote(address who, uint256 tokenId, uint256[] memory lineIds, uint256[] memory weights) internal {
-        vm.prank(who);
-        voter.vote(tokenId, lineIds, weights);
-    }
-
-    function _voteAll(address who, uint256 tokenId, uint256 lineId) internal {
-        _vote(who, tokenId, _arr(lineId), _arr(BPS));
-    }
-
     function _distribute(uint256 cohortEpoch, uint256[] memory lineIds, uint256[] memory interest) internal {
-        allocator.distribute(pool, cohortEpoch, lineIds, interest);
+        mockAllocator.distribute(pool, cohortEpoch, lineIds, interest);
     }
 
     /// @notice Mints `amount` vault shares' worth of fees: earns interest on a Morpho borrow for `secs`.
@@ -146,25 +114,5 @@ abstract contract PoolFixture is LineFixture {
 
     function _cohortShares(uint256 lineId, uint256 epoch) internal view returns (uint256 shares) {
         (shares,,) = pool.cohort(lineId, epoch);
-    }
-
-    /* Arrays */
-
-    function _arr(uint256 a) internal pure returns (uint256[] memory r) {
-        r = new uint256[](1);
-        r[0] = a;
-    }
-
-    function _arr(uint256 a, uint256 b) internal pure returns (uint256[] memory r) {
-        r = new uint256[](2);
-        r[0] = a;
-        r[1] = b;
-    }
-
-    function _arr(uint256 a, uint256 b, uint256 c) internal pure returns (uint256[] memory r) {
-        r = new uint256[](3);
-        r[0] = a;
-        r[1] = b;
-        r[2] = c;
     }
 }

@@ -32,7 +32,7 @@ export interface ExecutorOptions {
 }
 
 /** Gas limit for an estimate: estimate * pct / 100, rounded up. */
-export function gasLimitFor(estimate: bigint, pct = 115n): bigint {
+export function gasLimitFor(estimate: bigint, pct = 130n): bigint {
   return (estimate * pct + 99n) / 100n;
 }
 
@@ -101,7 +101,7 @@ export class Executor {
       () => publicClient.estimateContractGas(params as Parameters<PublicClient["estimateContractGas"]>[0]),
       retry,
     );
-    const gas = gasLimitFor(estimate, this.o.gasMultiplierPct ?? 115n);
+    const gas = gasLimitFor(estimate, this.o.gasMultiplierPct ?? 130n);
     // Not retried: a send that failed in transit may still land; the next tick re-plans from chain state.
     const hash = await walletClient!.writeContract({
       ...(simulated.request as Parameters<WalletClient["writeContract"]>[0]),

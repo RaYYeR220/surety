@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IVeBTC} from "./IVeBTC.sol";
+
 /// @title ICreditVoter
 /// @notice veBTC-weighted gauges that decide how the Surety vault's capital is split across credit lines.
 interface ICreditVoter {
@@ -20,6 +22,9 @@ interface ICreditVoter {
     }
 
     function EPOCH_LENGTH() external view returns (uint256);
+
+    /// @notice The veBTC VotingEscrow whose NFTs vote.
+    function veBTC() external view returns (IVeBTC);
 
     /// @notice Start timestamp of the current epoch, which is also its id.
     function currentEpoch() external view returns (uint256);

@@ -1,0 +1,53 @@
+{
+  "chainId": 31611,
+  "epochLength": 3600,
+  "deployedAt": 16324963,
+  "contracts": {
+    "vault": "0x68715685C8E8e5f1c459aeE54f41D7d741C3A2bc",
+    "morphoAdapter": "0x63d3baEfA3F437530Cf146e17638965A6af432BF",
+    "morpho": "0xcEE819d8EF9204E37f3b54e7A83D3381CAE14258",
+    "irm": "0xaFFC37C5a28d8bF490d1c8F3518da52594C822a4",
+    "creditVoter": "0x2E52C7315f652f648b723757676FDeEaEAd7F607",
+    "voteAllocator": "0x04949403293BcEE7449ca248cC56633197E8bB4f",
+    "suretyPool": "0x5116E7D0a9E1C3e3c9e58E6137c3afed58662D47",
+    "veBTCLine": "0x18658108AE2a280e7540A20Eb4661618cAE87D41",
+    "loanEscrowImpl": "0x7E368a2b2dD5C877639724420FB1cD27E12247C9",
+    "irmLine": "0x703C6971c7cAc75bd88d21a3a01158ef34eE8bbF",
+    "priceSource": "0x2C08eeE2d31f2AC47e1343d4AA186A581fc3feee",
+    "skipSource": "0x0d3E30098ed91D08C797210eAB8Ea9D6AA3cafBE",
+    "morphoOracle": "0xed59443c8E756608888c9ab4a15D5739Bb9dB0e0"
+  },
+  "external": {
+    "musd": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
+    "btc": "0x7b7C000000000000000000000000000000000000",
+    "veBTC": "0x38E35d92E6Bfc6787272A62345856B13eA12130a",
+    "poolsVoter": "0x263F1Fd5fB7F866881e1B6cD7d5d6c40Fd985F0D",
+    "rewardsDistributor": "0x9050218f89F0b5b17df4a30Ba4Fc97C72E307442",
+    "skipAggregator": "0x7b7c000000000000000000000000000000000015"
+  },
+  "lines": [
+    {
+      "id": 0,
+      "kind": "Morpho",
+      "name": "BTC / MUSD (Morpho)",
+      "adapter": "0x63d3baEfA3F437530Cf146e17638965A6af432BF",
+      "marketId": "0x6cd3cbe5b88c01424558664c8be3b715a03adbfd84a878af4e0331a65a7a230a",
+      "marketParams": {
+        "loanToken": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
+        "collateralToken": "0x7b7C000000000000000000000000000000000000",
+        "oracle": "0xed59443c8E756608888c9ab4a15D5739Bb9dB0e0",
+        "irm": "0xaFFC37C5a28d8bF490d1c8F3518da52594C822a4",
+        "lltv": "860000000000000000"
+      }
+    },
+    {
+      "id": 1,
+      "kind": "VeBTC",
+      "name": "veBTC credit line",
+      "adapter": "0x18658108AE2a280e7540A20Eb4661618cAE87D41"
+    }
+  ],
+  "proof": {
+    "txs": []
+  }
+}

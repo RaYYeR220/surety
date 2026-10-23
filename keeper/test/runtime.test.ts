@@ -113,15 +113,15 @@ describe("executor", () => {
   }
   const call = { address: SENDER, abi: [], functionName: "cover", args: [1n] };
 
-  it("sets the gas limit to the estimate plus 15%", async () => {
-    expect(gasLimitFor(200_000n)).toBe(230_000n);
-    expect(gasLimitFor(100_001n)).toBe(115_002n); // rounded up
+  it("sets the gas limit to the estimate plus 30%", async () => {
+    expect(gasLimitFor(200_000n)).toBe(260_000n);
+    expect(gasLimitFor(100_001n)).toBe(130_002n); // rounded up
     const { publicClient, walletClient, spies } = fakes();
     const { log } = memoryLogger();
     const ex = new Executor({ publicClient, walletClient, account: SENDER, dryRun: false, log });
     const result = await ex.run("cover", call);
-    expect(result).toEqual({ status: "success", hash: "0xabc", gasLimit: 230_000n, gasUsed: 150_000n });
-    expect(spies.writeContract).toHaveBeenCalledWith(expect.objectContaining({ gas: 230_000n }));
+    expect(result).toEqual({ status: "success", hash: "0xabc", gasLimit: 260_000n, gasUsed: 150_000n });
+    expect(spies.writeContract).toHaveBeenCalledWith(expect.objectContaining({ gas: 260_000n }));
   });
 
   it("only simulates in dry-run", async () => {
