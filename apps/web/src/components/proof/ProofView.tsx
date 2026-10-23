@@ -5,11 +5,12 @@ import type { Address } from "viem";
 
 import { Stack } from "@/components/layout/Layout";
 import { EnvGate } from "@/components/shell/EnvGate";
-import { Empty, KeyValues, LineName, Muted, Notice, PageHead, Tag } from "@/components/ui/Bits";
+import { Empty, KeyValues, LineName, Muted, Notice, PageHead } from "@/components/ui/Bits";
 import { Card } from "@/components/ui/Card";
 import { DataTable, ExplorerLink, type Column } from "@/components/ui/Controls";
 import type { ReadyEnv } from "@/lib/env";
 import { epochCadence, kindLabel } from "@/lib/lines";
+import { sourcifyUrl, TEST_COUNTS } from "@/lib/proof";
 
 export function ProofPage() {
   return <EnvGate>{(env) => <ProofView env={env} />}</EnvGate>;
@@ -53,6 +54,23 @@ function ProofView({ env }: { env: ReadyEnv }) {
     { key: "role", header: "Contract", cell: (r) => r.role },
     { key: "address", header: "Address", align: "end", cell: (r) => <ExplorerLink kind="address" value={r.address} full /> },
   ];
+  // Surety's own contracts are verified on Sourcify (exact match); link the source next to the address.
+  const suretyColumns: Column<Row>[] = demo
+    ? columns
+    : [
+        ...columns,
+        {
+          key: "source",
+          header: "Source",
+          align: "end",
+          cell: (r) => (
+            <a href={sourcifyUrl(d.chainId, r.address)} target="_blank" rel="noopener noreferrer">
+              Sourcify<span aria-hidden="true"> ↗</span>
+              <span className="sr-only"> (opens the verified source of {r.role})</span>
+            </a>
+          ),
+        },
+      ];
   const surety: Row[] = (Object.keys(SURETY) as (keyof SuretyContracts)[]).map((k) => ({
     key: k,
     role: SURETY[k],
@@ -86,8 +104,8 @@ function ProofView({ env }: { env: ReadyEnv }) {
           ]}
         />
       </Card>
-      <Card flat title="Surety contracts">
-        <DataTable columns={columns} rows={surety} rowKey={(r) => r.key} caption="Surety contracts" />
+      <Card flat title="Surety contracts" description={demo ? undefined : "Every one is verified source on Sourcify."}>
+        <DataTable columns={suretyColumns} rows={surety} rowKey={(r) => r.key} caption="Surety contracts" />
       </Card>
       <Card flat title="Mezo contracts it uses" description="Surety reads and calls these; it does not own them.">
         <DataTable columns={columns} rows={external} rowKey={(r) => r.key} caption="External contracts" />
@@ -130,11 +148,24 @@ function ProofView({ env }: { env: ReadyEnv }) {
           />
         )}
       </Card>
-      <Card title="Tests" eyebrow={<Tag>pending</Tag>}>
-        <Muted small>
-          Test counts (Foundry unit, fuzz, invariant, adversarial and fork suites, plus the SDK, keeper and MCP tests) are
-          filled in with the release. Nothing here is a claim until it links to a run.
-        </Muted>
+      <Card title="Tests">
+        <Stack gap={3}>
+          <KeyValues
+            label="Tests"
+            items={[
+              {
+                label: "Contracts (Foundry)",
+                value: `${TEST_COUNTS.foundry} tests: unit, fuzz, integration and live-Mezo fork suites`,
+              },
+              {
+                label: "Invariants",
+                value: `${TEST_COUNTS.invariants}, each over ${TEST_COUNTS.invariantCalls.toLocaleString("en-US")} calls per run`,
+              },
+              { label: "SDK, keeper and MCP (TypeScript)", value: `${TEST_COUNTS.typescript} tests` },
+            ]}
+          />
+          <Muted small>Run them with forge test in contracts/ and pnpm test at the repository root.</Muted>
+        </Stack>
       </Card>
     </Stack>
   );
