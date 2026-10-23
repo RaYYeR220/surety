@@ -29,12 +29,15 @@ import {LineIds} from "./libraries/LineIds.sol";
 /// @dev
 /// Timeline: votes cast in epoch t drive the allocation from the first rebalance of t+1, and the interest the lines
 /// earn while that allocation is live is attributed to cohort t at the first rebalance of t+2.
-/// - Tally: the first rebalance of an epoch fixes it for the epoch: the previous epoch if any eligible line got votes
-///   in it, else the current epoch (bootstrap; its tally can still change, so re-runs follow it).
-/// - Targets: `deployable = totalAssets * (1 - idleBuffer)` split by the tally over eligible lines (active, live
-///   oracle, veBTC line not paused), each capped by the room the VaultV2 absolute and relative caps of its ids leave
-///   once the other lines have shrunk to their shares. Ineligible or unvoted lines target zero. When several lines
-///   grow into one shared cap, targets are upper bounds: caps are re-checked before each allocation, in line order.
+/// - Tally: the first rebalance of an epoch fixes it for the epoch: the previous epoch if any active line got votes
+///   in it, else the current epoch (bootstrap; its tally can still change, so re-runs follow it). Oracle liveness
+///   plays no part, so a stale feed at the flip cannot throw away the closed epoch's tally.
+/// - Targets: `deployable = totalAssets * (1 - idleBuffer)` split by the tally over active lines, each capped by the
+///   room the VaultV2 absolute and relative caps of its ids leave once the other lines have shrunk to their shares.
+///   An active line that cannot take new money (stale oracle, paused veBTC line, or a veBTC line whose calls revert)
+///   holds what it has up to that target, `min(current, target)`: no new money and no forced pull. Inactive or
+///   unvoted lines target zero. When several lines grow into one shared cap, targets are upper bounds: caps are
+///   re-checked before each allocation, in line order.
 /// - Moves: overweight lines are deallocated first, bounded by what they can pay out now (Morpho market liquidity,
 ///   veBTC line cash), then underweight lines are allocated from idle assets above the buffer. Nothing reverts on an
 ///   illiquid line; a re-run inside the epoch continues the move. A move the vault rejects is skipped and reported.
@@ -85,9 +88,11 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     /// @param marketId Morpho market id (Morpho lines only).
     /// @param ownId Cap id no other line uses: the market id for Morpho lines, the adapter id for veBTC lines.
     /// @param ids Every cap id an allocation to the line counts against.
-    /// @param share Vote-weighted slice of the deployable assets (zero when ineligible or unvoted).
+    /// @param active Whether the CreditVoter has the line active (its votes count).
+    /// @param eligible Active and able to take new money (live oracle; veBTC line not paused, calls not reverting).
+    /// @param share Vote-weighted slice of the deployable assets (zero when inactive or unvoted).
     /// @param release Allocation the line is expected to give back this run: its recorded allocation above `share`.
-    /// @param target `share` capped by the room the vault's caps leave.
+    /// @param target `share` capped by the room the vault's caps leave, and by the line's assets when not eligible.
     struct LineState {
         address adapter;
         bytes data;
@@ -96,6 +101,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         bytes32 marketId;
         bytes32 ownId;
         bytes32[] ids;
+        bool active;
         bool eligible;
         uint256 votes;
         uint256 share;
@@ -242,6 +248,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         for (uint256 i; i < n; ++i) {
             ICreditVoter.Line memory info = voter.line(i);
             LineState memory l = _describe(info);
+            l.active = info.active;
             if (info.kind == ICreditVoter.LineKind.Morpho) {
                 l.ids = new bytes32[](3);
                 l.ids[0] = LineIds.adapterId(info.adapter);
@@ -318,19 +325,20 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
 
     /* Internals: targets */
 
-    /// @dev Previous epoch if an eligible line got votes in it, else the current epoch (bootstrap).
+    /// @dev Previous epoch if an active line got votes in it, else the current epoch (bootstrap).
     function _tallyEpoch(uint256 epoch, LineState[] memory lines) internal view returns (uint256) {
         if (epoch < EPOCH_LENGTH) return epoch;
         uint256 previous = epoch - EPOCH_LENGTH;
         for (uint256 i; i < lines.length; ++i) {
-            if (lines[i].eligible && voter.lineVotes(previous, i) != 0) return previous;
+            if (lines[i].active && voter.lineVotes(previous, i) != 0) return previous;
         }
         return epoch;
     }
 
-    /// @dev Splits the deployable assets over eligible lines by their votes in `tallyEpoch`, then caps each share by
-    /// the room its ids leave once the other lines have given back what they hold above their own shares.
-    /// Votes of ineligible lines are left out of the denominator (the tally's total includes them).
+    /// @dev Splits the deployable assets over active lines by their votes in `tallyEpoch`, then caps each share by
+    /// the room its ids leave once the other lines have given back what they hold above their own shares, and holds
+    /// lines that cannot take new money at what they have. Votes of inactive lines are left out of the denominator
+    /// (the tally's total includes them).
     function _setTargets(LineState[] memory lines, uint256 tallyEpoch, uint256 total, uint256 firstTotal)
         internal
         view
@@ -338,7 +346,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         uint256 n = lines.length;
         uint256 votesSum = 0;
         for (uint256 i; i < n; ++i) {
-            if (!lines[i].eligible) continue;
+            if (!lines[i].active) continue;
             lines[i].votes = voter.lineVotes(tallyEpoch, i);
             votesSum += lines[i].votes;
         }
@@ -349,7 +357,10 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
             l.release = _floorSub(vault.allocation(l.ownId), l.share);
         }
         for (uint256 i; i < n; ++i) {
-            if (lines[i].share != 0) lines[i].target = Math.min(lines[i].share, _maxPosition(lines, i, firstTotal));
+            LineState memory l = lines[i];
+            if (l.share == 0) continue;
+            l.target = Math.min(l.share, _maxPosition(lines, i, firstTotal));
+            if (!l.eligible) l.target = Math.min(l.target, _assetsOf(l));
         }
     }
 

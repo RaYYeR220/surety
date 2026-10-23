@@ -220,6 +220,36 @@ contract AuditPoCTest is SuretyFixture {
     }
 
     /* ------------------------------------------------------------------ */
+    /* L-02  A stale oracle at the flip keeps the closed tally              */
+    /* ------------------------------------------------------------------ */
+
+    /// @dev The review's scenario: the Skip feed is 61 s old when someone makes the first rebalance of E2. The tally
+    /// is now chosen from active lines, so E1's closed tally is kept for E2, and the stale line holds its capital
+    /// instead of being pulled to idle; once the feed recovers the allocation follows E1's tally as before.
+    function test_L02_staleOracleAtFirstRebalanceKeepsClosedTally() public {
+        _deposit(lender, 10_000e18);
+        uint256 aliceId = _lockPermanent(alice, 6e18);
+        _warpEpochs(1);
+        uint256 e1 = _currentEpoch();
+        _voteAll(alice, aliceId, MORPHO_LINE);
+        _rebalance(); // bootstrap on E1
+        uint256 position = allocator.lineAssets(MORPHO_LINE);
+        assertGt(position, 8_000e18);
+
+        _warpEpochs(1);
+        _makeStale(); // the feed is 61 s old at the flip
+        _rebalance(); // anyone can be first
+        assertEq(allocator.activeTallyEpoch(), e1, "E1's closed tally drives E2");
+        assertGe(allocator.lineAssets(MORPHO_LINE), position, "the stale line holds its capital");
+
+        aggregator.setLive();
+        _deposit(lender, 10_000e18);
+        _warp(1 hours);
+        _rebalance();
+        assertGt(allocator.lineAssets(MORPHO_LINE), 17_000e18, "E1's votes keep steering E2 once the feed is back");
+    }
+
+    /* ------------------------------------------------------------------ */
     /* M-04  Lines are validated and timelocked; a bad line cannot drain    */
     /* ------------------------------------------------------------------ */
 

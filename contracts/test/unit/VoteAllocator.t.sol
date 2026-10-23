@@ -299,7 +299,9 @@ contract VoteAllocatorTest is AllocatorFixture {
 
     /* Fail-closed and illiquid lines */
 
-    function test_rebalance_staleOracleLineTargetsZero() public {
+    /// @dev Review finding L-02: a line whose oracle is stale takes no new money but is not pulled either; its share
+    /// is not handed to the other lines, and votes moving off it still pull it (Morpho withdrawals need no price).
+    function test_rebalance_staleOracleLineHolds() public {
         _deposit(lender, DEPOSIT);
         uint256 aliceId = _voterLock(alice, 6e18);
         uint256 bobId = _voterLock(bob, 2e18);
@@ -312,42 +314,57 @@ contract VoteAllocatorTest is AllocatorFixture {
         _rebalance();
         assertApproxEqAbs(allocator.lineAssets(CBTC_LINE), 180_000e18, DUST);
 
-        // cbBTC's feed goes stale: its line drops out and its votes stop counting.
+        // cbBTC's feed goes stale and lenders double the vault: cbBTC holds, the others grow to their own shares.
         cbtcAggregator.setUpdatedAt(vm.getBlockTimestamp() - ORACLE_MAX_AGE - 1);
+        _deposit(lender, DEPOSIT);
         _rebalance();
         (uint256 btcAssets, uint256 veAssets, uint256 cbtcAssets) = _assets();
-        assertEq(cbtcAssets, 0);
-        assertApproxEqAbs(btcAssets, DEPLOYABLE * 6 / 8, DUST);
-        assertApproxEqAbs(veAssets, DEPLOYABLE * 2 / 8, DUST);
+        assertApproxEqAbs(cbtcAssets, 180_000e18, DUST, "no new money, no pull");
+        assertApproxEqAbs(btcAssets, 1_080_000e18, 2 * DUST);
+        assertEq(veAssets, 360_000e18);
+        (, uint256[] memory planned) = allocator.targets();
+        assertApproxEqAbs(planned[CBTC_LINE], 180_000e18, DUST);
 
-        // The BTC feed goes stale instead: the BTC Morpho line and the veBTC line both price with it.
+        // The BTC feed goes stale instead: the BTC Morpho line and the veBTC line both price with it and hold.
         cbtcAggregator.setLive();
         _makeStale();
         _rebalance();
         (btcAssets, veAssets, cbtcAssets) = _assets();
-        assertEq(btcAssets, 0);
-        assertEq(veAssets, 0);
-        assertApproxEqAbs(cbtcAssets, DEPLOYABLE, 2 * DUST);
+        assertApproxEqAbs(btcAssets, 1_080_000e18, 2 * DUST);
+        assertEq(veAssets, 360_000e18);
+        assertApproxEqAbs(cbtcAssets, 360_000e18, 4 * DUST);
 
-        // Feeds recover: back to the vote split.
+        // Next epoch carol's votes move to BTC while cbBTC's feed is stale again: unvoted, it is pulled anyway.
         aggregator.setLive();
+        voter.poke(aliceId);
+        voter.poke(bobId);
+        _vote(carol, carolId, BTC_LINE);
+        _warpEpochs(1);
+        cbtcAggregator.setUpdatedAt(vm.getBlockTimestamp() - ORACLE_MAX_AGE - 1);
         _rebalance();
         (btcAssets, veAssets, cbtcAssets) = _assets();
-        assertApproxEqAbs(btcAssets, 540_000e18, 4 * DUST);
-        assertApproxEqAbs(veAssets, 180_000e18, 4 * DUST);
-        assertApproxEqAbs(cbtcAssets, 180_000e18, 4 * DUST);
+        assertEq(cbtcAssets, 0);
+        assertApproxEqAbs(btcAssets, 1_440_000e18, 4 * DUST);
+        assertEq(veAssets, 360_000e18);
     }
 
-    function test_rebalance_pausedLineTargetsZero() public {
+    /// @dev Review finding L-02: a paused veBTC line holds its allocation; its share is not handed out.
+    function test_rebalance_pausedLineHolds() public {
         _seed60_40();
         _warpEpochs(1);
         _rebalance();
 
         vm.prank(admin);
         line.pause(true);
+        _deposit(lender, DEPOSIT);
         _rebalance();
-        assertEq(allocator.lineAssets(VE_LINE), 0);
-        assertApproxEqAbs(allocator.lineAssets(BTC_LINE), DEPLOYABLE, DUST);
+        assertEq(allocator.lineAssets(VE_LINE), 360_000e18, "no new money, no pull");
+        assertApproxEqAbs(allocator.lineAssets(BTC_LINE), 1_080_000e18, 2 * DUST, "only its own share");
+
+        vm.prank(admin);
+        line.pause(false);
+        _rebalance();
+        assertEq(allocator.lineAssets(VE_LINE), 720_000e18);
     }
 
     /// @dev Review Focus 4: a fully borrowed Morpho market and a veBTC line whose cash is below its cut.
