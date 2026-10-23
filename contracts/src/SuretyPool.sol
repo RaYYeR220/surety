@@ -37,9 +37,9 @@ import {LineIds} from "./libraries/LineIds.sol";
 /// - Claims go to the NFT's current owner, or to the borrower when the owner is a Surety loan escrow. Claims for a
 ///   burned NFT (merged or withdrawn; `ownerOf == 0`) are credited to the reserve.
 /// - Losses: Morpho lines are measured from the market's supply share price against the mark of the line's last
-///   checkpoint (price and the adapter's shares then); the veBTC line reports its cumulative bad debt. `cover` covers at most the recorded loss and
-///   sizes the MUSD it moves so that, once VaultV2 has re-recognised it, lenders are back at the pre-loss share price
-///   and the pool bears exactly the loss (see `cover`). The fee shares VaultV2 mints on the re-recognised MUSD go
+///   checkpoint (price and the adapter's shares then); the veBTC line reports its cumulative bad debt. `cover`
+///   covers at most the recorded loss and sizes the MUSD it moves so that, once VaultV2 has re-recognised it, lenders
+///   are back at the pre-loss share price and the pool bears exactly the loss (see `cover`). The fee shares VaultV2 mints on the re-recognised MUSD go
 ///   back to whoever the cover slashed, so the slashed cohorts themselves net exactly the loss.
 /// - Covering a Morpho line returns the redeemed MUSD to the vault as idle assets, because
 ///   MorphoMarketV1AdapterV2 values its position from its own supply-share ledger and a Morpho supply made on its

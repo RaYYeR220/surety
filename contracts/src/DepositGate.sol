@@ -19,6 +19,9 @@ import {ISuretyPool} from "./interfaces/ISuretyPool.sol";
 /// - While paused, every new share receiver other than the pool waits: deposits and mints, share transfers, and the
 ///   pool's claim and refund payouts (those revert until deposits reopen; nothing is lost meanwhile).
 /// - Never reverts, as VaultV2 requires of gates: if the pool's view reverts, receivers other than the pool wait.
+/// - Assumes the pool stays the vault's performance-fee recipient: VaultV2 asks the gate about the fee recipient in
+///   every accrual, and `depositsPaused` reads the vault's accrued total assets in turn, so the pool's own answer
+///   must not depend on that view.
 contract DepositGate is IReceiveSharesGate {
     /// @notice The SuretyPool whose `depositsPaused` the gate follows.
     ISuretyPool public immutable pool;
