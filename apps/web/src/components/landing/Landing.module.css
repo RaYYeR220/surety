@@ -1,0 +1,316 @@
+/*
+ * Shared pieces of the landing page (V14+ "Ledge"): section frame, eyebrow, display heading, lead, tags,
+ * ledge buttons and the scroll reveal. Every value comes from src/theme/tokens.css.
+ */
+
+.page {
+  position: relative;
+  overflow-x: clip;
+  font-size: var(--text-lg);
+  line-height: 1.55;
+}
+
+/* ---------- Reveal: rise once on load / on scroll; a CSS failsafe shows everything at 3.5 s ---------- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 22px;
+  }
+  to {
+    opacity: 1;
+    translate: none;
+  }
+}
+
+@keyframes failsafe {
+  to {
+    opacity: 1;
+    translate: none;
+  }
+}
+
+.rv {
+  opacity: 0;
+  animation:
+    rise 0.8s var(--ease) var(--d, 0s) forwards,
+    failsafe 0.7s 3.5s forwards;
+}
+
+/* Only hidden once the reveal script is running (no JS: everything is visible). */
+:global(html[data-reveal]) .io {
+  opacity: 0;
+  translate: 0 26px;
+  animation: failsafe 0.7s var(--ease) 3.5s forwards;
+}
+
+:global(html[data-reveal]) .io[data-in] {
+  animation: rise 0.8s var(--ease) var(--d, 0s) forwards;
+}
+
+/* ---------- Section frame ---------- */
+.sec {
+  position: relative;
+  z-index: 1;
+  padding: 136px 48px;
+  scroll-margin-top: 12px;
+}
+
+.wrap {
+  position: relative;
+  max-width: 1296px;
+  margin: 0 auto;
+}
+
+.eb {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 14px;
+  letter-spacing: var(--tracking-label);
+  padding: 6px 15px 6px 9px;
+  border-radius: var(--radius-pill);
+  border: var(--border-width-strong) solid currentColor;
+}
+
+.eb::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border-radius: 7px 2px 7px 2px;
+  background: var(--eb-dot, var(--color-accent));
+  transition: background-color var(--dur-theme);
+}
+
+.h2 {
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: clamp(40px, 5.2vw, 74px);
+  line-height: 1.02;
+  letter-spacing: var(--tracking-display);
+  margin-top: 22px;
+  text-wrap: balance;
+}
+
+.h2 em {
+  font-style: italic;
+  color: var(--color-accent-text);
+  transition: color var(--dur-theme);
+}
+
+.lead {
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--color-ink-2);
+  max-width: 520px;
+}
+
+/* Dashed pill that says where a number comes from: "Illustrative", "Simulation", "Pending". */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  border: var(--border-width-strong) dashed currentColor;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* A live figure: solid border and a dot. */
+.tagLive {
+  border-style: solid;
+}
+
+.tagLive::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-positive);
+}
+
+/* Credit-line swatch: a line colour with an ink outline. */
+.sw {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 8px 2px 8px 2px;
+  border: var(--border-width-strong) solid var(--line-outline);
+  background: var(--sw);
+  flex: none;
+}
+
+/* ---------- Ledge buttons: press = drop onto the shelf ---------- */
+.ledge {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  text-decoration: none;
+  border: 0;
+  cursor: pointer;
+  border-radius: var(--radius-button);
+  transition:
+    transform var(--dur-press) ease,
+    box-shadow var(--dur-press) ease,
+    background-color var(--dur-theme),
+    color var(--dur-theme);
+}
+
+.ledge:hover {
+  transform: translateY(1px);
+}
+
+.ledge:active {
+  transform: translateY(5px);
+}
+
+.ledge:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 4px;
+}
+
+.pri {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: 19px;
+  padding: 19px 30px;
+  box-shadow:
+    0 5px 0 var(--color-accent-shelf),
+    0 6px 12px rgb(0 0 0 / 0.125),
+    inset 0 1px 0 rgb(255 255 255 / 0.2);
+}
+
+.pri:hover {
+  box-shadow:
+    0 4px 0 var(--color-accent-shelf),
+    0 5px 10px rgb(0 0 0 / 0.125),
+    inset 0 1px 0 rgb(255 255 255 / 0.2);
+}
+
+.pri:active {
+  box-shadow:
+    0 0 0 var(--color-accent-shelf),
+    0 1px 2px rgb(0 0 0 / 0.125);
+}
+
+.secBtn {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-size: 16px;
+  padding: 23px 26px;
+  box-shadow:
+    0 5px 0 var(--color-ink),
+    0 6px 12px rgb(0 0 0 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.4);
+  outline: var(--border-width-strong) solid var(--color-ink);
+  outline-offset: -1.5px;
+}
+
+.secBtn:hover {
+  box-shadow:
+    0 4px 0 var(--color-ink),
+    0 5px 10px rgb(0 0 0 / 0.08);
+}
+
+.secBtn:active {
+  box-shadow:
+    0 0 0 var(--color-ink),
+    0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+/* Cream button with an ink shelf, the same in both themes (sits on the accent band). */
+.alt {
+  background: var(--color-cream);
+  color: var(--color-night);
+  font-size: 17px;
+  padding: 19px 26px;
+  box-shadow:
+    0 5px 0 var(--color-night),
+    0 6px 12px rgb(0 0 0 / 0.125);
+  outline: var(--border-width-strong) solid var(--color-night);
+  outline-offset: -1.5px;
+}
+
+.alt:hover {
+  box-shadow:
+    0 4px 0 var(--color-night),
+    0 5px 10px rgb(0 0 0 / 0.08);
+}
+
+.alt:active {
+  box-shadow: 0 0 0 var(--color-night);
+}
+
+.arr {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--color-on-accent);
+  color: var(--color-accent);
+  transition:
+    background-color var(--dur-theme),
+    color var(--dur-theme);
+}
+
+.alt .arr {
+  background: var(--color-night);
+  color: var(--color-cream);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rv,
+  :global(html[data-reveal]) .io,
+  :global(html[data-reveal]) .io[data-in] {
+    opacity: 1;
+    translate: none;
+    animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .page {
+    font-size: 16px;
+  }
+
+  .sec {
+    padding: 84px 16px;
+  }
+
+  .lead {
+    font-size: 17px;
+  }
+
+  .ledge {
+    justify-content: center;
+  }
+
+  .pri {
+    font-size: 18px;
+    padding: 17px 22px;
+  }
+
+  .secBtn {
+    font-size: 15px;
+    padding: 16px 18px;
+  }
+}

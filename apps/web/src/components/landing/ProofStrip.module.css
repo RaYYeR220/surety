@@ -1,0 +1,274 @@
+.proof {
+  padding-top: 40px;
+  padding-bottom: 120px;
+}
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.h2 {
+  font-size: clamp(34px, 3.6vw, 52px);
+}
+
+.head p {
+  font-size: 16px;
+  color: var(--color-ink-2);
+  max-width: 420px;
+}
+
+/* One punched receipt: five cells divided by dashed tear lines with half-circle punches. */
+.receipt {
+  margin-top: 40px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  background: var(--color-canvas);
+  border: 2px solid var(--color-ink);
+  border-radius: 26px 6px 26px 6px;
+  box-shadow: 0 7px 0 var(--color-ink);
+  transition: background-color var(--dur-theme);
+}
+
+.receipt > div {
+  position: relative;
+  padding: 24px 22px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 190px;
+}
+
+.receipt > div + div {
+  border-left: 2px dashed var(--color-line-mid);
+}
+
+.receipt > div + div::before,
+.receipt > div + div::after {
+  content: "";
+  position: absolute;
+  left: -12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-ground);
+  border: 2px solid var(--color-ink);
+  transition: background-color var(--dur-theme);
+}
+
+.receipt > div + div::before {
+  top: -12px;
+  clip-path: inset(50% 0 0 0);
+}
+
+.receipt > div + div::after {
+  bottom: -12px;
+  clip-path: inset(0 0 50% 0);
+}
+
+.k {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+}
+
+.v {
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: 23px;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.sub {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--color-ink-2);
+}
+
+.sub a {
+  color: var(--color-ink);
+}
+
+.tag {
+  margin-top: auto;
+  align-self: flex-start;
+}
+
+/* Below the receipt: the addresses, then the proof transactions (a list that grows as the lifecycle is recorded). */
+.ledger {
+  margin-top: 56px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 56px;
+}
+
+.block h3 {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--color-ink);
+}
+
+.contracts {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 28px;
+}
+
+/* The lifecycle reads top to bottom, then on into the second column. */
+.txs {
+  list-style: none;
+  columns: 2;
+  column-gap: 28px;
+}
+
+.txs li {
+  break-inside: avoid;
+}
+
+/* Number in a hanging column, so a wrapped label lines up under its first line. */
+.txs .cn {
+  display: flex;
+  align-items: baseline;
+}
+
+.tn {
+  flex: none;
+  min-width: 2.2em;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-ink-2);
+}
+
+.contracts li,
+.txs li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name addr"
+    "links links";
+  gap: 2px 12px;
+  padding: 12px 0;
+  border-bottom: var(--border-width-strong) solid var(--color-line-mid);
+}
+
+.txs li {
+  grid-template-areas: "name links";
+  align-items: center;
+}
+
+.cn {
+  grid-area: name;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 15px;
+  min-width: 0;
+}
+
+.addr {
+  grid-area: addr;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-ink-2);
+}
+
+.links {
+  grid-area: links;
+  display: flex;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.links a {
+  color: var(--color-ink);
+  text-decoration-thickness: 1px;
+}
+
+.txs .links {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.empty {
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-ink-2);
+}
+
+.empty > span {
+  margin-right: 8px;
+  color: var(--color-ink);
+}
+
+.more {
+  margin-top: 18px;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 15px;
+}
+
+@media (max-width: 1180px) {
+  .receipt {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .receipt > div:nth-child(4) {
+    border-left: 0;
+  }
+
+  .receipt > div:nth-child(n + 4) {
+    border-top: 2px dashed var(--color-line-mid);
+  }
+
+  .receipt > div:nth-child(4)::before,
+  .receipt > div:nth-child(4)::after {
+    display: none;
+  }
+
+  .contracts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .receipt {
+    grid-template-columns: 1fr;
+  }
+
+  .receipt > div {
+    min-height: 0;
+    padding: 20px;
+  }
+
+  .receipt > div + div {
+    border-left: 0;
+    border-top: 2px dashed var(--color-line-mid);
+  }
+
+  .receipt > div + div::before,
+  .receipt > div + div::after {
+    display: none;
+  }
+
+  .contracts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .txs {
+    columns: 1;
+  }
+}

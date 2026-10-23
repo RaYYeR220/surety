@@ -1,0 +1,116 @@
+.auction {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .auction {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.title {
+  font-family: var(--heading-font);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+  font-size: var(--text-xl);
+}
+
+.chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.axis {
+  stroke: var(--color-line);
+  stroke-width: 1;
+}
+
+.grid {
+  stroke: var(--color-line);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.curve {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.curvePast {
+  fill: none;
+  stroke: var(--color-ink-3);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.area {
+  fill: var(--color-accent-soft);
+}
+
+.shortfall {
+  fill: var(--color-danger-soft);
+}
+
+.debt {
+  stroke: var(--color-danger);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.nowLine {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+
+.nowDot {
+  fill: var(--color-accent);
+  stroke: var(--color-surface);
+  stroke-width: 3;
+}
+
+.label {
+  font-family: var(--font-label);
+  font-size: 12px;
+  fill: var(--color-ink-2);
+}
+
+.labelStrong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  fill: var(--color-ink);
+}
+
+.labelDanger {
+  font-family: var(--font-label);
+  font-size: 12px;
+  fill: var(--color-danger);
+}
+
+.price {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-3xl);
+  line-height: 1;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}

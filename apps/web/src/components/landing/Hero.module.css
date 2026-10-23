@@ -1,0 +1,208 @@
+@keyframes swoosh {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.hero {
+  position: relative;
+  z-index: 1;
+  min-height: max(760px, calc(100svh - 84px));
+  padding: 0 48px 62px;
+  display: flex;
+  flex-direction: column;
+}
+
+.inner {
+  flex: 1;
+  width: 100%;
+  max-width: 1344px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
+  gap: 48px;
+  align-items: center;
+  padding: 24px 0 72px;
+}
+
+.claim {
+  min-width: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 14px;
+  letter-spacing: var(--tracking-label);
+  padding: 8px 16px 8px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-canvas);
+  border: var(--border-width-strong) solid var(--color-ink);
+  transition: background-color var(--dur-theme);
+}
+
+.chip b {
+  white-space: nowrap;
+  display: grid;
+  place-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: var(--weight-label);
+  font-size: 12px;
+  transition:
+    background-color var(--dur-theme),
+    color var(--dur-theme);
+}
+
+.cd {
+  font-variant-numeric: tabular-nums;
+}
+
+.h1 {
+  margin-top: 30px;
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: clamp(52px, 6.3vw, 94px);
+  line-height: 1;
+  letter-spacing: var(--tracking-display);
+}
+
+.mk {
+  position: relative;
+  white-space: nowrap;
+  font-style: italic;
+  color: var(--color-accent);
+  transition: color var(--dur-theme);
+}
+
+.mk svg {
+  position: absolute;
+  left: -2%;
+  width: 104%;
+  max-width: none;
+  bottom: -0.16em;
+  height: 0.3em;
+  overflow: visible;
+}
+
+/* The swoosh draws in once; the second animation is the failsafe if the first never runs. */
+.mk path {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation:
+    swoosh 0.8s var(--ease) 0.45s forwards,
+    swoosh 0.7s 3.5s forwards;
+  transition: stroke var(--dur-theme);
+}
+
+.sub {
+  margin-top: 36px;
+  font-size: 19px;
+  line-height: 1.5;
+  color: var(--color-ink-2);
+  max-width: 520px;
+}
+
+.ctas {
+  margin-top: 38px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+}
+
+.pour {
+  position: relative;
+  margin: 0;
+  min-width: 0;
+}
+
+.caption {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 13px;
+  letter-spacing: var(--tracking-label);
+  color: var(--color-ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mk path {
+    stroke-dashoffset: 0;
+    animation: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+    padding-top: 28px;
+  }
+
+  .pour {
+    max-width: 620px;
+  }
+}
+
+@media (max-width: 760px) {
+  .hero {
+    padding: 0 16px 54px;
+    min-height: 0;
+  }
+
+  .inner {
+    padding: 22px 0 48px;
+    gap: 36px;
+  }
+
+  .chip {
+    font-size: 13px;
+    padding: 7px 14px 7px 8px;
+  }
+
+  .lg {
+    display: none;
+  }
+
+  .h1 {
+    font-size: 52px;
+    margin-top: 22px;
+  }
+
+  .sub {
+    font-size: 16.5px;
+    margin-top: 22px;
+  }
+
+  .ctas {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+    margin-top: 28px;
+  }
+
+  .ctas > * {
+    text-align: center;
+  }
+}
+
+@media (max-width: 380px) {
+  .h1 {
+    font-size: 46px;
+  }
+}

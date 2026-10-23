@@ -1,0 +1,511 @@
+/* ---------- Pill ---------- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-label);
+  line-height: 1.2;
+  white-space: nowrap;
+  border: var(--border-width) solid transparent;
+}
+
+.pill-neutral {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+.pill-outline {
+  background: transparent;
+  color: var(--color-ink);
+  border: var(--border-width-strong) solid var(--color-line-strong);
+}
+
+.pill-accent {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.pill-positive {
+  background: var(--color-positive-soft);
+  color: var(--color-positive);
+}
+
+.pill-warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.pill-danger {
+  background: var(--color-danger);
+  color: var(--color-on-danger);
+}
+
+.pill-danger-soft {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  flex: none;
+}
+
+/* ---------- Tag (source / estimate labels) ---------- */
+.tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: var(--radius-chip);
+  border: var(--border-width) solid var(--color-line);
+  font-family: var(--font-label);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-label);
+  letter-spacing: var(--tracking-label);
+  color: var(--color-ink-3);
+  vertical-align: middle;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* ---------- Stat ---------- */
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.statLabel {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-label);
+  color: var(--color-ink-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.statValue {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--text-xl);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.statLg .statValue {
+  font-size: var(--text-2xl);
+}
+
+@media (max-width: 560px) {
+  .statLg .statValue {
+    font-size: var(--text-xl);
+  }
+}
+
+.statSm .statValue {
+  font-size: var(--text-md);
+}
+
+.statUnit {
+  white-space: nowrap;
+  font-size: 0.62em;
+  color: var(--color-ink-3);
+  margin-left: 0.3em;
+  font-family: var(--font-label);
+}
+
+.statHint {
+  font-size: var(--text-xs);
+  color: var(--color-ink-3);
+}
+
+.statDanger .statValue {
+  color: var(--color-danger);
+}
+
+.statPositive .statValue {
+  color: var(--color-positive);
+}
+
+/* ---------- Meter ---------- */
+.meter {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  border-radius: var(--radius-bar);
+  background: var(--meter-track);
+  border: var(--meter-border);
+  overflow: visible;
+}
+
+.meterLabelled {
+  margin-bottom: 18px;
+}
+
+.meterSm {
+  height: 8px;
+}
+
+.meterLg {
+  height: 18px;
+}
+
+.meterFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-bar);
+  background: var(--fill, var(--color-accent));
+  transition: width var(--dur-ui) var(--ease);
+  min-width: 0;
+}
+
+/* Credit-line fills sit below 3:1 on the ground, so they carry an ink outline (as on the landing). */
+.meterFill[data-line] {
+  inset: -1px auto -1px -1px;
+  box-shadow: inset 0 0 0 1.5px var(--line-outline);
+}
+
+.marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--marker, var(--color-ink));
+  border-radius: 1px;
+}
+
+.markerLabel {
+  position: absolute;
+  top: calc(100% + 2px);
+  transform: translateX(-50%);
+  font-family: var(--font-label);
+  font-size: var(--text-2xs);
+  color: var(--color-ink-3);
+  white-space: nowrap;
+}
+
+/* ---------- Stacked bar ---------- */
+.stackBar {
+  display: flex;
+  width: 100%;
+  height: 20px;
+  border-radius: var(--radius-bar);
+  overflow: hidden;
+  background: var(--meter-track);
+  border: var(--border-width-strong) solid var(--line-outline);
+}
+
+.stackSeg {
+  height: 100%;
+  background: var(--seg);
+  transition: flex-grow var(--dur-ui) var(--ease);
+}
+
+.stackSeg + .stackSeg {
+  border-left: var(--border-width-strong) solid var(--line-outline);
+}
+
+.hatched {
+  background:
+    repeating-linear-gradient(135deg, var(--line-idle) 0 4px, transparent 4px 8px),
+    var(--meter-track);
+}
+
+/* ---------- Swatch / line name ---------- */
+.swatch {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 7px 2px 7px 2px;
+  background: var(--swatch);
+  border: var(--border-width-strong) solid var(--line-outline);
+  flex: none;
+}
+
+.lineName {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+}
+
+.lineName > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Skeleton ---------- */
+.skeleton {
+  display: block;
+  border-radius: var(--radius-chip);
+  background: linear-gradient(90deg, var(--color-canvas) 0%, var(--color-surface-sunk) 50%, var(--color-canvas) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* ---------- Notice ---------- */
+.notice {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  border: var(--border-width) solid var(--color-line);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+
+.notice-info {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.notice-positive {
+  background: var(--color-positive-soft);
+  border-color: var(--color-positive);
+}
+
+.notice-warning {
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning);
+}
+
+.notice-danger {
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger);
+}
+
+.noticeIcon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+}
+
+.notice-info .noticeIcon {
+  color: var(--color-accent-text);
+}
+
+.notice-positive .noticeIcon {
+  color: var(--color-positive);
+}
+
+.notice-warning .noticeIcon {
+  color: var(--color-warning);
+}
+
+.notice-danger .noticeIcon {
+  color: var(--color-danger);
+}
+
+.noticeBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.noticeTitle {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: var(--text-md);
+}
+
+.noticeText {
+  color: var(--color-ink-2);
+}
+
+.noticeAction {
+  flex: none;
+  align-self: center;
+}
+
+@media (max-width: 560px) {
+  .notice {
+    flex-wrap: wrap;
+  }
+
+  .noticeAction {
+    width: 100%;
+    padding-left: calc(20px + var(--space-3));
+  }
+}
+
+/* ---------- Empty ---------- */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: var(--border-width) dashed var(--color-line);
+  border-radius: var(--radius-card);
+}
+
+.emptyTitle {
+  font-family: var(--heading-font);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+  font-size: var(--text-lg);
+}
+
+.emptyText {
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  max-width: 56ch;
+}
+
+/* ---------- Key / value rows ---------- */
+.kv {
+  display: grid;
+  grid-template-columns: minmax(8.5em, 1fr) minmax(0, auto);
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.kv dt {
+  color: var(--color-ink-2);
+}
+
+.kv dd {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.kv .kvRule {
+  grid-column: 1 / -1;
+  height: 1px;
+  background: var(--color-line);
+}
+
+/* ---------- Info tip (disclosure) ---------- */
+.info {
+  font-size: var(--text-sm);
+}
+
+.info summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  color: var(--color-accent-text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.info summary::-webkit-details-marker {
+  display: none;
+}
+
+.info[open] summary {
+  margin-bottom: var(--space-2);
+}
+
+.infoBody {
+  color: var(--color-ink-2);
+  max-width: 64ch;
+}
+
+/* ---------- Section heading ---------- */
+.pageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.pageTitle {
+  font-family: var(--heading-font);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+  font-size: var(--text-4xl);
+  line-height: var(--leading-display);
+}
+
+.pageLead {
+  margin-top: var(--space-3);
+  color: var(--color-ink-2);
+  font-size: var(--text-lg);
+  max-width: 60ch;
+}
+
+@media (max-width: 720px) {
+  .pageTitle {
+    font-size: var(--text-3xl);
+  }
+
+  .pageLead {
+    font-size: var(--text-md);
+  }
+}
+
+.sectionTitle {
+  font-family: var(--heading-font);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.muted {
+  color: var(--color-ink-2);
+}
+
+.small {
+  font-size: var(--text-sm);
+}
+
+/* ---------- Fact list ---------- */
+.facts {
+  list-style: none;
+  display: grid;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.facts li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.factMark {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border-radius: 8px 2px 8px 2px;
+  background: var(--color-accent);
+}

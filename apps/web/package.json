@@ -1,0 +1,33 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Surety web app: credit board, voting, lending, borrowing, sponsoring, auctions and proof.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "sdk": "pnpm --filter @surety/sdk build",
+    "dev": "pnpm run sdk && next dev",
+    "build": "pnpm run sdk && next build",
+    "start": "npx serve@14.2.5 out",
+    "lint": "eslint .",
+    "typecheck": "pnpm run sdk && next typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@surety/sdk": "workspace:*",
+    "@tanstack/react-query": "5.104.1",
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "viem": "2.57.4",
+    "wagmi": "2.19.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.8",
+    "typescript": "5.9.3"
+  }
+}

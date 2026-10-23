@@ -1,0 +1,252 @@
+/*
+ * Surety skin: every colour, typeface, size, radius, shadow and motion value the app uses.
+ * Components read only these custom properties, so a new skin is a new version of this file
+ * (plus src/theme/fonts.ts for the typefaces). Nothing outside src/theme sets a colour or a font.
+ *
+ * Current skin: V14 "Ledge". Light = cream ground with a plum accent; dark = near-black ground with a
+ * lime accent. Only one accent is visible per theme. The theme is chosen with data-theme on <html>.
+ */
+
+:root {
+  /* ---------- Type ---------- */
+  /* Gambetta and Clash Display load from Fontshare (see fonts.ts); Figtree and JetBrains Mono via next/font. */
+  --font-display: "Gambetta", Georgia, "Times New Roman", serif;
+  --font-label: "Clash Display", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: var(--font-body-face), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --weight-display: 600;
+  --weight-label: 500;
+  --weight-body: 400;
+  --weight-strong: 600;
+  --tracking-display: -0.035em;
+  --tracking-label: 0.01em;
+  --tracking-caps: 0.08em;
+  --leading-display: 1.02;
+  --leading-tight: 1.2;
+  --leading-body: 1.5;
+
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13.5px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 21px;
+  --text-2xl: 28px;
+  --text-3xl: 38px;
+  --text-4xl: 52px;
+  --text-5xl: 80px;
+
+  /* ---------- Space (8px base) ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 40px;
+  --space-7: 64px;
+  --space-8: 104px;
+  --gutter: 16px;
+  --container: 1240px;
+  --container-narrow: 880px;
+  --header-height: 72px;
+
+  /* ---------- Shape ---------- */
+  --radius-card: 24px 4px 24px 4px;
+  --radius-button: 24px 4px 24px 4px;
+  --radius-button-sm: 16px 3px 16px 3px;
+  --radius-control: 14px 3px 14px 3px;
+  --radius-chip: 10px 2px 10px 2px;
+  --radius-pill: 999px;
+  --radius-bar: 999px;
+  --border-width: 1px;
+  --border-width-strong: 1.5px;
+
+  /* ---------- Depth: the "ledge" press ---------- */
+  --ledge-depth: 5px;
+  --ledge-depth-hover: 4px;
+  --ledge-depth-sm: 3px;
+  --shadow-soft: 0 6px 12px rgb(0 0 0 / 0.125);
+  --shadow-soft-pressed: 0 1px 2px rgb(0 0 0 / 0.125);
+  --shadow-highlight: inset 0 1px 0 rgb(255 255 255 / 0.2);
+  --shadow-pop: 0 24px 60px rgb(0 0 0 / 0.22);
+
+  /* ---------- Motion ---------- */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-linear: linear;
+  --dur-press: 120ms;
+  --dur-ui: 220ms;
+  --dur-theme: 400ms;
+  --dur-enter: 700ms;
+
+  /* ---------- Theme-invariant paper and ink (labels on line fills, the cream switch, the loan card) ---------- */
+  --color-cream: #f7f5f0;
+  --color-night: #111210;
+
+  /* ---------- Floor (page background layers) ---------- */
+  --floor-grid-size: 48px;
+  --floor-grain-size: 200px;
+  --floor-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- Light: cream + plum ---------- */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-ground: #f7f5f0;
+  --color-canvas: #edeae0;
+  --color-surface: #fbfaf6;
+  --color-surface-sunk: #f1eee6;
+  --color-ink: #111210;
+  --color-ink-2: rgb(17 18 16 / 0.72);
+  --color-ink-3: rgb(17 18 16 / 0.54);
+  --color-line: rgb(17 18 16 / 0.14);
+  --color-line-strong: #111210;
+
+  --color-accent: #6b4fd8;
+  --color-accent-shelf: #4a34a8;
+  --color-on-accent: #f7f5f0;
+  --color-accent-soft: rgb(107 79 216 / 0.11);
+  --color-accent-text: #5b3fd0;
+  --color-focus: #6b4fd8;
+
+  --color-positive: #1d7446;
+  --color-positive-soft: rgb(29 116 70 / 0.12);
+  /* Amber pushed toward gold (hue ~47°) so a warning never reads as BTC orange. */
+  --color-warning: #735a00;
+  --color-warning-soft: rgb(212 172 30 / 0.17);
+  --color-danger: #b8301b;
+  --color-danger-soft: rgb(184 48 27 / 0.1);
+  --color-danger-shelf: #84200f;
+  --color-on-danger: #fffaf5;
+
+  /*
+   * Categorical colours, one per credit line (line id 0 = --line-1): teal, coral, sky, mustard, orchid.
+   * Same hexes in both themes so a line keeps its colour. Below 3:1 against the ground, so every fill
+   * carries an ink outline (--line-outline) and a direct label; text on a fill is --on-line (6.1-8.0:1).
+   * Validated with the dataviz palette script (light, all pairs: worst CVD 6.8 with outline + label relief).
+   */
+  --line-1: #2bbdaa;
+  --line-2: #fa897b;
+  --line-3: #4098e3;
+  --line-4: #bd9605;
+  --line-5: #c86bb0;
+  --line-outline: var(--color-ink);
+  --on-line: #111210;
+  --line-idle: rgb(17 18 16 / 0.16);
+
+  --floor-pool-1: rgb(107 79 216 / 0.08);
+  --floor-pool-2: #edeae0;
+  --floor-grid-color: rgb(107 111 99 / 0.2);
+  --floor-grid-opacity: 1;
+  --floor-grain-opacity: 0.05;
+  --floor-grain-blend: multiply;
+
+  --scrim: rgb(17 18 16 / 0.42);
+
+  /* Landing: a second canvas step, a mid-strength rule, and the two full-bleed bands. */
+  --color-canvas-2: #e2ddcf;
+  --color-line-mid: rgb(17 18 16 / 0.25);
+  --band-ink-bg: #111210;
+  --band-ink-fg: #f3f1ea;
+  --band-ink-fg-2: rgb(243 241 234 / 0.74);
+  --band-ink-line: rgb(243 241 234 / 0.16);
+  --band-ink-panel: #1f201c;
+  --band-ink-accent: #a996ff;
+  --band-ink-reserve: #9a9484;
+  --band-accent-fg: #f7f5f0;
+}
+
+/* ---------- Dark: near-black + lime ---------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-ground: #111210;
+  --color-canvas: #1b1c19;
+  --color-surface: #161714;
+  --color-surface-sunk: #0c0d0b;
+  --color-ink: #f3f1ea;
+  --color-ink-2: rgb(243 241 234 / 0.72);
+  --color-ink-3: rgb(243 241 234 / 0.52);
+  --color-line: rgb(233 236 223 / 0.15);
+  --color-line-strong: #f3f1ea;
+
+  --color-accent: #9be15d;
+  --color-accent-shelf: #5f9a2e;
+  --color-on-accent: #111210;
+  --color-accent-soft: rgb(155 225 93 / 0.13);
+  --color-accent-text: #a9e872;
+  --color-focus: #9be15d;
+
+  --color-positive: #67d4a6;
+  --color-positive-soft: rgb(103 212 166 / 0.14);
+  --color-warning: #f0c75a;
+  --color-warning-soft: rgb(240 199 90 / 0.14);
+  /* Redder than the coral line (#fa897b) so a status never reads as a credit line. */
+  --color-danger: #ff4d5e;
+  --color-danger-soft: rgb(255 77 94 / 0.14);
+  --color-danger-shelf: #b02a3a;
+  --color-on-danger: #111210;
+
+  --line-1: #2bbdaa;
+  --line-2: #fa897b;
+  --line-3: #4098e3;
+  --line-4: #bd9605;
+  --line-5: #c86bb0;
+  --line-outline: var(--color-ink);
+  --on-line: #111210;
+  --line-idle: rgb(243 241 234 / 0.2);
+
+  --floor-pool-1: rgb(155 225 93 / 0.07);
+  --floor-pool-2: #1b1c19;
+  --floor-grid-color: rgb(233 236 223 / 0.17);
+  --floor-grid-opacity: 0.3;
+  --floor-grain-opacity: 0.07;
+  --floor-grain-blend: normal;
+
+  --scrim: rgb(0 0 0 / 0.6);
+
+  /* Landing: in the dark the ink band inverts to cream. */
+  --color-canvas-2: #272823;
+  --color-line-mid: rgb(243 241 234 / 0.25);
+  --band-ink-bg: #f3f1ea;
+  --band-ink-fg: #111210;
+  --band-ink-fg-2: rgb(17 18 16 / 0.77);
+  --band-ink-line: rgb(17 18 16 / 0.16);
+  --band-ink-panel: #e4e0d4;
+  --band-ink-accent: #3d6b14;
+  --band-ink-reserve: #a39d8b;
+  --band-accent-fg: #111210;
+}
+
+/* ---------- Component tokens (derived; a skin may override any of them) ---------- */
+:root {
+  --button-font: var(--font-label);
+  --button-weight: var(--weight-label);
+  --button-primary-bg: var(--color-accent);
+  --button-primary-fg: var(--color-on-accent);
+  --button-primary-shelf: var(--color-accent-shelf);
+  --button-secondary-bg: var(--color-canvas);
+  --button-secondary-fg: var(--color-ink);
+  --button-secondary-shelf: var(--color-line-strong);
+  --button-danger-bg: var(--color-danger);
+  --button-danger-fg: var(--color-on-danger);
+  --button-danger-shelf: var(--color-danger-shelf);
+
+  --card-bg: var(--color-surface);
+  --card-border: var(--border-width) solid var(--color-line);
+  --card-border-strong: var(--border-width-strong) solid var(--color-line-strong);
+  --card-radius: var(--radius-card);
+
+  --control-bg: var(--color-surface);
+  --control-border: var(--border-width-strong) solid var(--color-line-strong);
+  --control-radius: var(--radius-control);
+
+  --meter-track: var(--color-surface-sunk);
+  --meter-border: var(--border-width) solid var(--color-line);
+
+  --heading-font: var(--font-display);
+  --heading-weight: var(--weight-display);
+  --heading-tracking: var(--tracking-display);
+}

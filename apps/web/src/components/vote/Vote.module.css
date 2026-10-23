@@ -1,0 +1,152 @@
+.nftTop {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.nftId {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: var(--text-lg);
+}
+
+.nftMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+  margin-top: 2px;
+}
+
+.ballotRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) 92px;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-width) solid var(--color-line);
+}
+
+@media (max-width: 640px) {
+  .ballotRow {
+    grid-template-columns: minmax(0, 1fr) 92px;
+  }
+
+  .ballotRow > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+.pctInput {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.pctInput input {
+  width: 64px;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: var(--control-border);
+  border-radius: var(--radius-chip);
+  background: var(--control-bg);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.lineSub {
+  font-size: var(--text-xs);
+  color: var(--color-ink-3);
+}
+
+.total {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+}
+
+.totalFigure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xl);
+}
+
+.totalOk {
+  color: var(--color-positive);
+}
+
+.totalBad {
+  color: var(--color-danger);
+}
+
+.firstLoss {
+  font-family: var(--heading-font);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+}
+
+.season {
+  display: inline-flex;
+  gap: 3px;
+  vertical-align: middle;
+}
+
+.seasonTick {
+  width: 14px;
+  height: 10px;
+  border-radius: 6px 1px 6px 1px;
+  background: var(--meter-track);
+  border: var(--border-width) solid var(--color-line);
+}
+
+.seasonTick[data-state="done"] {
+  background: var(--tick, var(--color-ink));
+  border-color: var(--line-outline);
+}
+
+.seasonTick[data-state="now"] {
+  background: var(--color-surface);
+  border: var(--border-width-strong) solid var(--tick, var(--color-ink));
+}
+
+.seasonCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+@media (max-width: 720px) {
+  .seasonCell {
+    align-items: flex-end;
+  }
+}
+
+.slashed {
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+}
+
+.legend {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}

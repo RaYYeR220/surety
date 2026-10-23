@@ -1,0 +1,315 @@
+/* The ink band: near-black in light mode, inverted to cream in dark mode. */
+.band {
+  background: var(--band-ink-bg);
+  color: var(--band-ink-fg);
+  --color-focus: var(--band-ink-accent);
+  transition:
+    background-color var(--dur-theme),
+    color var(--dur-theme);
+}
+
+.wf {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 64px;
+  align-items: start;
+}
+
+.copy {
+  position: sticky;
+  top: 40px;
+}
+
+.lead {
+  margin-top: 22px;
+  color: var(--band-ink-fg-2);
+}
+
+.sim {
+  margin-top: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+/* Cream switch with an accent shelf, the same paper in both themes. */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  border: 0;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 18px;
+  color: var(--color-night);
+  background: var(--color-cream);
+  padding: 12px 20px 12px 12px;
+  border-radius: var(--radius-button);
+  outline: var(--border-width-strong) solid var(--color-night);
+  outline-offset: -1.5px;
+  box-shadow: 0 5px 0 var(--color-accent);
+  transition:
+    transform var(--dur-press),
+    box-shadow var(--dur-press);
+}
+
+.switch:active {
+  transform: translateY(5px);
+  box-shadow: 0 0 0 var(--color-accent);
+}
+
+.switch:focus-visible {
+  outline: 3px solid var(--band-ink-accent);
+  outline-offset: 4px;
+}
+
+.trk {
+  position: relative;
+  width: 54px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--color-canvas-2);
+  border: var(--border-width-strong) solid var(--color-night);
+  transition: background-color 0.3s;
+}
+
+.trk::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 23px;
+  height: 23px;
+  border-radius: var(--radius-pill);
+  background: var(--color-night);
+  transition: transform 0.35s var(--ease);
+}
+
+.switch[aria-checked="true"] .trk {
+  background: var(--color-accent);
+}
+
+.switch[aria-checked="true"] .trk::after {
+  transform: translateX(22px);
+  background: var(--color-cream);
+  box-shadow: 0 0 0 1.5px var(--color-night);
+}
+
+.sizes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 14px;
+  color: var(--band-ink-fg-2);
+}
+
+.lbl {
+  margin-right: 4px;
+}
+
+.sizes button {
+  font: inherit;
+  font-size: 15px;
+  color: var(--band-ink-fg);
+  background: transparent;
+  border: var(--border-width-strong) solid var(--band-ink-fg);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.sizes button[aria-checked="true"] {
+  background: var(--band-ink-fg);
+  color: var(--band-ink-bg);
+}
+
+.giant {
+  margin-top: 44px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: end;
+  column-gap: 18px;
+  border-top: var(--border-width-strong) solid var(--band-ink-line);
+  padding-top: 26px;
+}
+
+.gl {
+  grid-column: 1 / -1;
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--band-ink-fg-2);
+}
+
+.out {
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  font-size: clamp(120px, 13.5vw, 204px);
+  line-height: 0.82;
+  letter-spacing: -0.05em;
+  color: var(--band-ink-accent);
+  font-variant-numeric: tabular-nums;
+  transition: color var(--dur-theme);
+}
+
+.gu {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 20px;
+  padding-bottom: 14px;
+}
+
+.status {
+  margin-top: 22px;
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--band-ink-fg-2);
+  max-width: 460px;
+  min-height: 78px;
+}
+
+.status b {
+  color: var(--band-ink-fg);
+  font-weight: var(--weight-strong);
+}
+
+.fig {
+  margin: 0;
+  min-width: 0;
+}
+
+.fig svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  overflow: visible;
+}
+
+.fig figcaption {
+  margin-top: 18px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--band-ink-fg-2);
+}
+
+.fgk {
+  stroke: var(--band-ink-fg);
+}
+
+.fgf {
+  fill: var(--band-ink-fg);
+}
+
+.bgk {
+  stroke: var(--band-ink-bg);
+}
+
+.pnf {
+  fill: var(--band-ink-panel);
+}
+
+.hb {
+  fill: var(--band-ink-bg);
+}
+
+.hf {
+  fill: var(--band-ink-fg);
+}
+
+.lane {
+  fill: var(--line-2);
+}
+
+.div {
+  stroke: var(--color-on-accent);
+  stroke-width: 1.5;
+  stroke-opacity: 0.5;
+}
+
+.tagBg {
+  fill: var(--color-night);
+}
+
+.fig text {
+  fill: var(--band-ink-fg);
+}
+
+.fig .t1 {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+}
+
+.fig .t2 {
+  font-family: var(--font-body);
+  fill: var(--band-ink-fg-2);
+}
+
+.fig .t3 {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.fig .t4 {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  fill: var(--band-ink-accent);
+}
+
+.fig .t5 {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  letter-spacing: 0.12em;
+  fill: var(--band-ink-fg-2);
+}
+
+.fig .tl {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  fill: var(--on-line);
+}
+
+.fig .tb {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  fill: var(--color-cream);
+}
+
+@media (max-width: 1180px) {
+  .wf {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .copy {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .wf {
+    gap: 40px;
+  }
+
+  .out {
+    font-size: 116px;
+  }
+
+  .gu {
+    font-size: 17px;
+    padding-bottom: 8px;
+  }
+}

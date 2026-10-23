@@ -1,0 +1,97 @@
+/* ---------- Proof transactions: step, what it shows, transaction ---------- */
+.txs {
+  list-style: none;
+  padding: 0 var(--space-5) var(--space-3);
+}
+
+.tx {
+  display: grid;
+  grid-template-columns: 2.6em minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+  font-size: var(--text-sm);
+}
+
+.tx + .tx {
+  border-top: var(--border-width) solid var(--color-line);
+}
+
+.step {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-2);
+}
+
+@media (max-width: 560px) {
+  .tx {
+    grid-template-columns: 2.6em minmax(0, 1fr);
+  }
+
+  .txHash {
+    grid-column: 2;
+  }
+}
+
+/* ---------- Security review ---------- */
+.counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-line);
+}
+
+@media (max-width: 560px) {
+  .counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.findings {
+  list-style: none;
+  display: grid;
+}
+
+/* One finding per row: id and severity, what could go wrong, what changed. */
+.finding {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-5);
+  align-items: start;
+  padding: var(--space-3) 0;
+  font-size: var(--text-sm);
+}
+
+.finding + .finding {
+  border-top: var(--border-width) solid var(--color-line);
+}
+
+.findingId {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.id {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  min-width: 3.4em;
+}
+
+.what {
+  color: var(--color-ink-2);
+}
+
+.fixLabel {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  color: var(--color-positive);
+}
+
+@media (max-width: 760px) {
+  .finding {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
