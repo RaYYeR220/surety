@@ -47,6 +47,9 @@ contract SuretyHandler is Test {
         uint256 slashed;
         uint256 fromReserve;
         uint256 refunded;
+        /// @dev Loss units covered and MUSD moved, from Covered events.
+        uint256 lossUnitsCovered;
+        uint256 coverAssets;
     }
 
     uint256 internal constant BPS = 10_000;
@@ -516,7 +519,10 @@ contract SuretyHandler is Test {
                 if (to == address(pool)) ledger.claimedToReserve += shares;
                 else ledger.claimedToOwners += shares;
             } else if (sig == SuretyPool.Covered.selector) {
-                (, uint256 fromCohorts, uint256 fromReserve) = abi.decode(data, (uint256, uint256, uint256));
+                (uint256 units, uint256 assets, uint256 fromCohorts, uint256 fromReserve) =
+                    abi.decode(data, (uint256, uint256, uint256, uint256));
+                ledger.lossUnitsCovered += units;
+                ledger.coverAssets += assets;
                 ledger.slashed += fromCohorts;
                 ledger.fromReserve += fromReserve;
             }

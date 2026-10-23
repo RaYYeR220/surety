@@ -133,11 +133,17 @@ contract SuretyInvariants is SuretyFixture {
         assertLe(pool.accountedShares(), vault.balanceOf(address(pool)), "accounted shares are held");
     }
 
-    /// @notice Covers never exceed recorded losses, and the veBTC line's recorded loss never exceeds its bad debt.
+    /// @notice Covers never exceed recorded losses (in loss units, which is what `lossCovered` counts and what
+    /// Covered events report), and the veBTC line's recorded loss never exceeds its bad debt.
     function invariant_coverNeverExceedsLoss() public synced {
+        uint256 covered = 0;
         for (uint256 lineId; lineId < 2; ++lineId) {
             assertLe(pool.lossCovered(lineId), pool.lossRecorded(lineId), "covered <= recorded");
+            covered += pool.lossCovered(lineId);
         }
+        SuretyHandler.Ledger memory led = handler.ledgerOf();
+        assertEq(led.lossUnitsCovered, covered, "lossCovered == loss units of Covered events");
+        assertEq(led.coverAssets == 0, covered == 0, "MUSD moves exactly when loss units are covered");
         assertLe(pool.lossRecorded(VE_LINE), line.badDebtTotal(), "recorded <= bad debt");
     }
 

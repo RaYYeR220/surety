@@ -11,6 +11,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {Id, IMorpho, Market, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
 import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
 import {SharesMathLib} from "morpho-blue/libraries/SharesMathLib.sol";
+import {IAdapter} from "vault-v2/interfaces/IAdapter.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 
 import {ICreditVoter} from "./interfaces/ICreditVoter.sol";
@@ -40,7 +41,9 @@ interface IMorphoAdapterShares {
 /// - Claims go to the NFT's current owner, or to the borrower when the owner is a Surety loan escrow. Claims for a
 ///   burned NFT (merged or withdrawn; `ownerOf == 0`) are credited to the reserve.
 /// - Losses: Morpho lines are measured from the market's supply share price against a high-water mark set by the
-///   first checkpoint; the veBTC line reports its cumulative bad debt. `cover` pays at most the recorded loss.
+///   first checkpoint; the veBTC line reports its cumulative bad debt. `cover` covers at most the recorded loss and
+///   sizes the MUSD it moves so that, once VaultV2 has re-recognised it, lenders are back at the pre-loss share price
+///   and the pool bears exactly the loss (see `cover`).
 /// - Covering a Morpho line returns the redeemed MUSD to the vault as idle assets, because
 ///   MorphoMarketV1AdapterV2 values its position from its own supply-share ledger and a Morpho supply made on its
 ///   behalf would be stranded. Covering the veBTC line pays it through `receiveCover`.
@@ -76,6 +79,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// @notice Morpho losses at or below this many MUSD wei are not recorded (the high-water mark is kept).
     uint256 public constant LOSS_DUST = 1e12;
     uint256 public constant MAX_SEASON = 52;
+    uint256 internal constant WAD = 1e18;
 
     IVaultV2 public immutable vault;
     ICreditVoter public immutable voter;
@@ -104,7 +108,8 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     mapping(uint256 epoch => mapping(uint256 lineId => mapping(uint256 tokenId => bool))) internal claimed;
     /// @notice Cumulative loss recorded per line, in MUSD.
     mapping(uint256 lineId => uint256) public lossRecorded;
-    /// @notice Cumulative loss covered per line, in MUSD. Never exceeds `lossRecorded`.
+    /// @notice Cumulative loss covered per line, in the MUSD units of `lossRecorded` (see `cover` for how much MUSD
+    /// a unit moves). Never exceeds `lossRecorded`.
     mapping(uint256 lineId => uint256) public lossCovered;
     mapping(uint256 lineId => HighWaterMark) public highWaterMark;
 
@@ -120,10 +125,14 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     event Claimed(uint256 indexed tokenId, uint256 indexed lineId, uint256 indexed epoch, address to, uint256 shares);
     event LossRecorded(uint256 indexed lineId, uint256 assets);
     event CohortSlashed(uint256 indexed lineId, uint256 indexed epoch, uint256 shares);
-    /// @param assets MUSD restored.
+    /// @param lossUnitsCovered Recorded loss this call covers, added to `lossCovered`.
+    /// @param assetsMoved MUSD withdrawn from the pool's shares and returned to the vault or paid into the line; see
+    /// `cover` for how it relates to the loss units.
     /// @param fromCohorts Vault shares taken from the line's unmatured cohorts.
     /// @param fromReserve Vault shares taken from the reserve.
-    event Covered(uint256 indexed lineId, uint256 assets, uint256 fromCohorts, uint256 fromReserve);
+    event Covered(
+        uint256 indexed lineId, uint256 lossUnitsCovered, uint256 assetsMoved, uint256 fromCohorts, uint256 fromReserve
+    );
 
     error ZeroAddress();
     error AssetMismatch();
@@ -315,12 +324,33 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         return _checkpoint(lineId, voter.line(lineId));
     }
 
-    /// @notice Checkpoints `lineId`, then restores as much of its uncovered loss as the pool and the vault's idle
-    /// MUSD allow. Permissionless and repeatable; it never pays beyond the recorded loss.
+    /// @notice Checkpoints `lineId`, then covers as much of its uncovered loss as the pool and the vault's idle MUSD
+    /// allow. Permissionless and repeatable; `lossCovered` never exceeds `lossRecorded`.
     /// @dev Shares come pro rata from the line's backed, unmatured cohorts, then from the reserve, and are
     /// withdrawn from the vault as MUSD. Morpho line: the MUSD goes back to the vault as idle assets. veBTC line:
-    /// paid in through `receiveCover` and reported to the allocator as a positive adjustment.
-    /// @return covered MUSD restored by this call.
+    /// paid in through `receiveCover` and reported to the allocator as a positive adjustment of the MUSD moved.
+    ///
+    /// Sizing. A loss U leaves A assets for T shares, down from (A+U)/T a share. Withdrawing W burns W*T/A shares at
+    /// the post-loss price, and VaultV2 later recognises the returned W as interest and mints its performance fee f
+    /// on it to the pool: returning U itself would over-slash voters by about U^2/(A+U) and leave lenders about f*W
+    /// short. The cover moves `W = A*U / (A + U - f*A)` instead: once VaultV2 has recognised W, every share is back at
+    /// (A+U)/T and the pool is down exactly U from its pre-loss value, net of the fee shares it got back. A cover cut
+    /// short (by the pool or by idle MUSD) moves less and covers `W*(1-f)*(A+U) / (A - f*W)` loss units: the shares
+    /// it takes, net of their fee shares, priced at (A+U)/T, so covering the rest later ends at the same price as
+    /// one full cover. Returned MUSD that VaultV2 has not recognised yet (R = realAssets - A) enters through
+    /// X = A + (1-f)*R and the gap G = U*X/(A+R): W = A*G/(X + G - f*A), and a partial W closes W*(X + G - f*A)/A
+    /// of G. With R = 0 these reduce to the expressions above.
+    ///
+    /// Lenders get the restoration only as VaultV2 re-recognises the returned MUSD, no faster than `maxRate` (at
+    /// MAX_MAX_RATE, 200% APR, MUSD worth 10% of totalAssets takes about 18 days). The allocator should keep
+    /// `maxRate` at MAX_MAX_RATE: below it recognition is slower, and a loss can land on interest the cap still holds
+    /// back, which the sizing reads as a full loss. The sizing is exact when the recognition happens in one accrual,
+    /// the share supply moves only through covers in between, and only this line's loss is outstanding. Otherwise,
+    /// to second order: recognition over several accruals lets early fee shares share in later recognition (lenders
+    /// end up to about f*(1-f)*W^2/(2*A) short); losses on several lines, each sized against the same depressed
+    /// price, overshoot by about U1*U2/A when covered one after the other; deposits and withdrawals after the loss
+    /// spread the cover over the shares outstanding when it lands.
+    /// @return covered Loss units covered by this call, added to `lossCovered`; zero if nothing moved.
     // The checkpoint and the vault accrual precede the ledger update; nonReentrant closes that window.
     // forge-lint: disable-next-item(reentrancy-no-eth)
     function cover(uint256 lineId) external nonReentrant returns (uint256 covered) {
@@ -333,26 +363,28 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         (uint256[] memory epochs, uint256[] memory held, uint256 cohortShares) = _slashable(lineId);
         uint256 available = cohortShares + reserveShares;
         if (available == 0) return 0;
-        covered = Math.min(uncovered, Math.min(vault.previewRedeem(available), musd.balanceOf(address(vault))));
+        uint256 assets;
+        (covered, assets) =
+            _sizeCover(uncovered, Math.min(vault.previewRedeem(available), musd.balanceOf(address(vault))));
         if (covered == 0) return 0;
 
-        // At most `available`, since `covered` is at most what `available` redeems for.
-        uint256 burn = vault.previewWithdraw(covered);
+        // At most `available`, since `assets` is at most what `available` redeems for.
+        uint256 burn = vault.previewWithdraw(assets);
         uint256 fromCohorts = Math.min(burn, cohortShares);
         uint256 fromReserve = burn - fromCohorts;
         if (fromCohorts != 0) _slash(lineId, epochs, held, fromCohorts, cohortShares);
         reserveShares -= fromReserve;
         accountedShares -= burn;
         lossCovered[lineId] += covered;
-        emit Covered(lineId, covered, fromCohorts, fromReserve);
+        emit Covered(lineId, covered, assets, fromCohorts, fromReserve);
 
-        if (vault.withdraw(covered, address(this), address(this)) != burn) revert WithdrawMismatch();
+        if (vault.withdraw(assets, address(this), address(this)) != burn) revert WithdrawMismatch();
         if (l.kind == ICreditVoter.LineKind.Morpho) {
-            musd.safeTransfer(address(vault), covered);
+            musd.safeTransfer(address(vault), assets);
         } else {
-            musd.forceApprove(l.adapter, covered);
-            ISuretyLine(l.adapter).receiveCover(covered);
-            _noteAdjustment(lineId, SafeCast.toInt256(covered));
+            musd.forceApprove(l.adapter, assets);
+            ISuretyLine(l.adapter).receiveCover(assets);
+            _noteAdjustment(lineId, SafeCast.toInt256(assets));
         }
     }
 
@@ -392,7 +424,9 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     }
 
     /// @notice MUSD value of the shares that can cover `lineId` now: its backed unmatured cohorts plus the reserve.
-    /// @dev Not limited by the vault's idle MUSD, which also bounds a single `cover`.
+    /// @dev Not limited by the vault's idle MUSD, which also bounds a single `cover`. This is MUSD that can move, not
+    /// loss units: `cover` grosses the MUSD up for the performance fee, so it covers about (1 - f) of it in loss
+    /// units (somewhat more for a large loss).
     function coverCapacity(uint256 lineId) external view returns (uint256 assets) {
         (,, uint256 cohortShares) = _slashable(lineId);
         uint256 available = cohortShares + reserveShares;
@@ -454,6 +488,51 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
             total -= held[k];
             cohorts[lineId][epochs[k]].shares -= cut;
             emit CohortSlashed(lineId, epochs[k], cut);
+        }
+    }
+
+    /// @dev Sizes a cover of `uncovered` loss units with at most `maxAssets` MUSD, after the vault's accrual (see
+    /// `cover` for the formulas). Returns the loss units covered and the MUSD to move; (0, 0) when nothing can be
+    /// covered. Rounding favours lenders: the MUSD of a full cover rounds up, the units of a partial one down.
+    function _sizeCover(uint256 uncovered, uint256 maxAssets) internal view returns (uint256 units, uint256 assets) {
+        uint256 a = vault.totalAssets();
+        if (a == 0 || maxAssets == 0) return (0, 0);
+        uint256 fee = _performanceFee();
+        uint256 real = _vaultRealAssets();
+        uint256 pending = real > a ? real - a : 0;
+        // Assets once the pending MUSD is recognised, and what non-fee holders keep of them.
+        uint256 recognised = a + pending;
+        uint256 projected = recognised - Math.mulDiv(pending, fee, WAD);
+        uint256 gap = Math.mulDiv(uncovered, projected, recognised, Math.Rounding.Ceil);
+        uint256 denominator = projected + gap - Math.mulDiv(a, fee, WAD, Math.Rounding.Ceil);
+        uint256 full = Math.mulDiv(a, gap, denominator, Math.Rounding.Ceil);
+
+        assets = Math.min(full, maxAssets);
+        if (assets >= a) return (0, 0);
+        if (assets == full) return (uncovered, assets);
+        uint256 closed = Math.mulDiv(assets, denominator, a);
+        if (closed >= gap) return (uncovered, assets);
+        uint256 left = Math.mulDiv(
+            gap - closed, recognised, projected - Math.mulDiv(assets, fee, WAD, Math.Rounding.Ceil), Math.Rounding.Ceil
+        );
+        if (left >= uncovered) return (0, 0);
+        units = uncovered - left;
+    }
+
+    /// @dev The fee VaultV2 takes on recognised interest: zero if the recipient cannot receive shares.
+    function _performanceFee() internal view returns (uint256 fee) {
+        fee = vault.performanceFee();
+        if (fee != 0 && !vault.canReceiveShares(vault.performanceFeeRecipient())) fee = 0;
+    }
+
+    /// @dev What VaultV2 values its assets at before the max rate: idle MUSD plus every adapter's real assets.
+    function _vaultRealAssets() internal view returns (uint256 real) {
+        real = musd.balanceOf(address(vault));
+        uint256 n = vault.adaptersLength();
+        for (uint256 i; i < n; ++i) {
+            // Bounded by the curator's adapter list (VaultV2 runs the same loop on every accrual).
+            // forge-lint: disable-next-line(calls-loop)
+            real += IAdapter(vault.adapters(i)).realAssets();
         }
     }
 
