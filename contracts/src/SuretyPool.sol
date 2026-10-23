@@ -21,11 +21,6 @@ import {IVeBTC} from "./interfaces/IVeBTC.sol";
 import {IVoteAllocator} from "./interfaces/IVoteAllocator.sol";
 import {EpochLib} from "./libraries/EpochLib.sol";
 
-/// @dev The veBTC token CreditVoter tallies (exposed by CreditVoter, not part of ICreditVoter).
-interface IVeBTCVoter {
-    function veBTC() external view returns (IVeBTC);
-}
-
 /// @dev Supply shares MorphoMarketV1AdapterV2 books per market; its realAssets are valued from these only.
 interface IMorphoAdapterShares {
     function supplyShares(bytes32 marketId) external view returns (uint256);
@@ -174,7 +169,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
 
         vault = IVaultV2(vault_);
         voter = voter_;
-        veBTC = IVeBTCVoter(address(voter_)).veBTC();
+        veBTC = voter_.veBTC();
         musd = musd_;
         morpho = morpho_;
         morphoAdapter = morphoAdapter_;
@@ -309,13 +304,13 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
 
     /* Losses */
 
-    /// @notice Records any new loss of `lineId` and reports it to the allocator. Permissionless.
-    /// @dev Morpho lines: accrues the market and compares its supply share price with the line's high-water mark
+    /// @inheritdoc ISuretyPool
+    /// @dev Permissionless; the VoteAllocator also calls it for every line at each rebalance.
+    /// Morpho lines: accrues the market and compares its supply share price with the line's high-water mark
     /// (set by the first checkpoint). A drop is valued on the adapter's supply shares with Morpho's rounding; drops
     /// worth at most LOSS_DUST are ignored without moving the mark. Losses are measured on the adapter's shares at
     /// checkpoint time, so a checkpoint should precede any reallocation of the line.
     /// veBTC line: the increase in the line's cumulative `badDebtTotal` since the last checkpoint.
-    /// @return newLoss MUSD loss recorded by this call.
     function checkpoint(uint256 lineId) external nonReentrant returns (uint256 newLoss) {
         return _checkpoint(lineId, voter.line(lineId));
     }

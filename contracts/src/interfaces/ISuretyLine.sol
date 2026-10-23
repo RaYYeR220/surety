@@ -22,4 +22,7 @@ interface ISuretyLine is IAdapter {
 
     /// @notice Price source the line values collateral with.
     function oracle() external view returns (IPriceSource);
+
+    /// @notice VaultV2 cap ids every allocation to the line counts against.
+    function ids() external view returns (bytes32[] memory);
 }
