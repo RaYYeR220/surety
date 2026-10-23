@@ -5,7 +5,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {Id, Market, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
+import {Id, Market} from "morpho-blue/interfaces/IMorpho.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 
@@ -13,7 +13,7 @@ import {CreditVoter} from "../../src/CreditVoter.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "../../src/interfaces/IEscrowRegistry.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
-import {MockAllocator, PoolFixture} from "../utils/PoolFixture.sol";
+import {PoolFixture} from "../utils/PoolFixture.sol";
 
 /// @notice SuretyPool against the real VaultV2, Morpho Blue, VeBTCCreditLine and CreditVoter; only the allocator is
 /// mocked. Epochs are one week and SEASON is 4, so a cohort of tally epoch `t` matures at `t + 6 weeks`.
@@ -172,8 +172,8 @@ contract SuretyPoolTest is PoolFixture {
     function test_distributeFees_splitsByInterest_restToReserve() public {
         uint256 a = _lockPermanent(alice, 3e18);
         uint256 b = _lockPermanent(bob, 1e18);
-        vm.prank(admin);
-        uint256 thirdLine = voter.addLine(makeAddr("thirdAdapter"), "", ICreditVoter.LineKind.Morpho, "unvoted");
+        // A line id nobody voted for (attributions name line ids; the voter's tallies decide who gets them).
+        uint256 thirdLine = 2;
         _warpEpochs(1);
         uint256 e1 = _currentEpoch();
         _voteAll(alice, a, MORPHO_LINE);
@@ -380,18 +380,19 @@ contract SuretyPoolTest is PoolFixture {
         _borrowMorpho(morphoBorrower, 1e18, 60_000e18);
         _warp(1 days);
 
-        // The first checkpoint sets the high-water mark; interest only raises it.
+        // The first checkpoint sets the mark; each later one moves it (interest only raises the price).
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
         _warp(1 days);
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
         Market memory m0 = morpho.market(btcMarketId);
-        (uint128 markAssets, uint128 markShares, bool set) = pool.highWaterMark(MORPHO_LINE);
+        bytes32 id = Id.unwrap(btcMarketId);
+        (uint128 markAssets, uint128 markShares, bool set, uint256 markAdapterShares) = pool.highWaterMark(MORPHO_LINE);
         assertTrue(set);
         assertEq(markAssets, m0.totalSupplyAssets);
         assertEq(markShares, m0.totalSupplyShares);
+        assertEq(markAdapterShares, morphoAdapter.supplyShares(id), "the adapter's shares at the mark");
 
         _shock(6000);
-        bytes32 id = Id.unwrap(btcMarketId);
         uint256 assetsBefore = morphoAdapter.expectedSupplyAssets(id);
         _liquidateMorpho(liquidator, morphoBorrower);
         Market memory m1 = morpho.market(btcMarketId);
@@ -407,43 +408,63 @@ contract SuretyPoolTest is PoolFixture {
         assertApproxEqAbs(loss, badDebt, 2, "sole supplier bears the whole bad debt");
         assertEq(pool.lossRecorded(MORPHO_LINE), loss);
         assertEq(pool.uncoveredLoss(MORPHO_LINE), loss);
-        assertEq(mockAllocator.adjustmentCount(), 1);
-        MockAllocator.Adjustment memory adj = mockAllocator.adjustment(0);
-        assertEq(adj.caller, address(pool));
-        assertEq(adj.lineId, MORPHO_LINE);
-        assertEq(adj.delta, -int256(loss));
 
         // Recorded once: the mark moved down to the new price.
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
         _warp(1 hours);
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
         assertEq(pool.lossRecorded(MORPHO_LINE), loss);
-        assertEq(mockAllocator.adjustmentCount(), 1);
     }
 
-    function test_checkpoint_morphoDust_keepsMarkUntilMaterial() public {
+    /// @dev Morpho's supply share price never falls through rounding, so the mark always moves: a dust-sized drop is
+    /// not recorded and not carried over, and a later material loss is measured from the new mark.
+    function test_checkpoint_morphoDust_ignoredAndMarkMoves() public {
         _deposit(lender, 100_000e18);
         _allocateMorpho(100_000e18);
         // A position small enough that its bad debt is dust.
         _borrowMorpho(morphoBorrower, 1e7, 5e11);
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
-        (uint128 markAssets,,) = pool.highWaterMark(MORPHO_LINE);
+        (uint128 markAssets,,,) = pool.highWaterMark(MORPHO_LINE);
 
         _shock(6000);
         _liquidateMorpho(liquidator, morphoBorrower);
-        assertLt(morpho.market(btcMarketId).totalSupplyAssets, markAssets, "dust bad debt realised");
+        uint256 afterDust = morpho.market(btcMarketId).totalSupplyAssets;
+        assertLt(afterDust, markAssets, "dust bad debt realised");
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
-        (uint128 kept,,) = pool.highWaterMark(MORPHO_LINE);
-        assertEq(kept, markAssets, "mark kept so dust accumulates");
+        (uint128 moved,,,) = pool.highWaterMark(MORPHO_LINE);
+        assertEq(moved, afterDust, "the mark moved to the new price");
 
-        // A material loss later is measured from the same mark, dust included.
+        // A material loss later is measured from the new mark only.
         _shock(0);
         _borrowMorpho(carol, 1e18, 60_000e18);
         _shock(6000);
         uint256 before = morphoAdapter.expectedSupplyAssets(Id.unwrap(btcMarketId));
         _liquidateMorpho(liquidator, carol);
         uint256 loss = pool.checkpoint(MORPHO_LINE);
-        assertGt(loss, before - morphoAdapter.expectedSupplyAssets(Id.unwrap(btcMarketId)));
+        assertApproxEqAbs(loss, before - morphoAdapter.expectedSupplyAssets(Id.unwrap(btcMarketId)), 2);
+    }
+
+    /// @dev Shares that leave the adapter after the mark (here, a sentinel deallocating in place of anyone's
+    /// forceDeallocate) left at the impaired price, so the loss is still valued on the shares held at the mark.
+    function test_checkpoint_morphoLoss_valuedOnSharesHeldAtMark() public {
+        _deposit(lender, 100_000e18);
+        _allocateMorpho(100_000e18);
+        _borrowMorpho(morphoBorrower, 1e18, 60_000e18);
+        assertEq(pool.checkpoint(MORPHO_LINE), 0);
+        bytes32 id = Id.unwrap(btcMarketId);
+        uint256 atMark = morphoAdapter.expectedSupplyAssets(id);
+
+        _shock(6000);
+        _liquidateMorpho(liquidator, morphoBorrower);
+        uint256 drop = atMark - morphoAdapter.expectedSupplyAssets(id);
+        assertGt(drop, 25_000e18);
+        _deallocateMorpho(morphoAdapter.expectedSupplyAssets(id) * 95 / 100);
+
+        uint256 loss = pool.checkpoint(MORPHO_LINE);
+        assertApproxEqAbs(loss, drop, 2, "the whole drop, not 5% of it");
+        (,,, uint256 markAdapterShares) = pool.highWaterMark(MORPHO_LINE);
+        assertEq(markAdapterShares, morphoAdapter.supplyShares(id), "the mark now holds the shares left");
+        assertEq(pool.checkpoint(MORPHO_LINE), 0, "recorded once");
     }
 
     function test_checkpoint_veBTCShortfall_recordsLoss() public {
@@ -464,7 +485,6 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(pool.checkpoint(VE_LINE), shortfall);
         assertEq(pool.lossRecorded(VE_LINE), shortfall);
         assertEq(pool.uncoveredLoss(VE_LINE), shortfall);
-        assertEq(mockAllocator.netAdjustment(VE_LINE), -int256(shortfall));
         assertEq(pool.checkpoint(VE_LINE), 0);
 
         // A second shortfall adds only its own amount.
@@ -479,12 +499,22 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(pool.lossRecorded(VE_LINE), line.badDebtTotal());
     }
 
+    /// @dev The CreditVoter only lists Morpho lines on the vault's Morpho adapter; the pool checks again.
     function test_checkpoint_rejectsForeignMorphoAdapter() public {
-        MarketParams memory params = btcMarket;
+        vm.expectRevert(CreditVoter.UnsupportedAdapter.selector);
         vm.prank(admin);
-        uint256 foreign = voter.addLine(makeAddr("otherAdapter"), abi.encode(params), ICreditVoter.LineKind.Morpho, "x");
+        voter.addLine(address(line), abi.encode(btcMarket), ICreditVoter.LineKind.Morpho, "x");
+
+        ICreditVoter.Line memory foreign = ICreditVoter.Line({
+            adapter: makeAddr("otherAdapter"),
+            data: abi.encode(btcMarket),
+            kind: ICreditVoter.LineKind.Morpho,
+            active: true,
+            name: "x"
+        });
+        vm.mockCall(address(voter), abi.encodeCall(ICreditVoter.line, (5)), abi.encode(foreign));
         vm.expectRevert(SuretyPool.UnsupportedAdapter.selector);
-        pool.checkpoint(foreign);
+        pool.checkpoint(5);
     }
 
     /* Cover */
@@ -733,7 +763,7 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(musd.balanceOf(address(pool)), 0);
         assertEq(morpho.position(btcMarketId, address(morphoAdapter)).supplyShares, positionShares);
         assertEq(morphoAdapter.supplyShares(id), positionShares, "no stranded Morpho shares");
-        assertEq(mockAllocator.netAdjustment(MORPHO_LINE), -int256(covered), "the line itself did not grow back");
+        assertEq(morphoAdapter.expectedSupplyAssets(id), adapterPostLoss, "the line itself did not grow back");
 
         // VaultV2 re-recognises the restored assets at most at maxRate; once it has, lenders are back at the pre-loss
         // price: the cover was sized for the 10% performance fee taken on them (which flows back to the pool).
@@ -790,7 +820,6 @@ contract SuretyPoolTest is PoolFixture {
         assertApproxEqAbs(first, units, 2);
         assertEq(line.cash(), cashBefore + 1_000e18, "all the idle MUSD paid in");
         assertEq(pool.uncoveredLoss(VE_LINE), shortfall - first);
-        assertEq(mockAllocator.netAdjustment(VE_LINE), -int256(shortfall) + 1_000e18, "adjusted by the MUSD moved");
         assertEq(musd.allowance(address(pool), address(line)), 0);
         assertEq(pool.cover(VE_LINE), 0, "no idle MUSD left");
 
@@ -801,7 +830,6 @@ contract SuretyPoolTest is PoolFixture {
         uint256 paid = 1_000e18 + line.cash() - cashBefore;
         assertGt(paid, shortfall, "grossed up for the fee VaultV2 takes on it");
         assertEq(pool.uncoveredLoss(VE_LINE), 0);
-        assertEq(mockAllocator.netAdjustment(VE_LINE), int256(paid) - int256(shortfall));
         assertEq(line.realAssets(), preBid - 20_000e18 - shortfall + paid, "line paid its shortfall and the gross-up");
         assertEq(line.badDebtTotal(), shortfall, "ledger stays cumulative");
         assertEq(pool.checkpoint(VE_LINE), 0);
@@ -978,6 +1006,98 @@ contract SuretyPoolTest is PoolFixture {
             _recognise();
             assertApproxEqRel(_valueOf(lender), oneShot, EXACT, "same lender price as one shot");
         }
+    }
+
+    /// @dev Review finding L-04: the fee shares VaultV2 mints as it re-recognises a cover's MUSD go back to the
+    /// slashed cohort as they are minted (here over two distributions), and to the reserve once that cohort matured.
+    function test_distributeFees_creditsCoverFeesToSlashedCohorts() public {
+        uint256 loanId = _sizingScene(VE_LINE);
+        uint256 e1 = _currentEpoch();
+        _takeLoss(VE_LINE, loanId);
+        uint256 cohortBefore = _cohortShares(VE_LINE, e1);
+        pool.cover(VE_LINE);
+        uint256 slashed = cohortBefore - _cohortShares(VE_LINE, e1);
+        uint256 unrecognised = pool.coverUnrecognised();
+        assertGt(unrecognised, 0);
+
+        // A day in, VaultV2 has re-recognised part of the MUSD: that part's fee shares go to the cohort.
+        _warp(1 days);
+        vault.accrueInterest();
+        uint256 minted = _pendingFeeShares();
+        assertGt(minted, 0);
+        _distribute(e1, _arr(VE_LINE), _arr(0));
+        uint256 first = _cohortShares(VE_LINE, e1) + slashed - cohortBefore;
+        assertApproxEqRel(first, minted, 0.001e18, "the minted fee shares went back to the slashed cohort");
+        assertGt(pool.coverUnrecognised(), 0, "the rest is still being re-recognised");
+        assertLt(pool.coverUnrecognised(), unrecognised);
+
+        // The rest after full recognition; nothing is left pending.
+        _recognise();
+        minted = _pendingFeeShares();
+        uint256 reserveBefore = pool.reserveShares();
+        _distribute(e1, _arr(VE_LINE), _arr(0));
+        uint256 second = _cohortShares(VE_LINE, e1) + slashed - cohortBefore - first;
+        assertApproxEqRel(second, minted, 0.001e18);
+        assertLe(second + pool.reserveShares() - reserveBefore, minted, "never more than was minted");
+        assertEq(pool.coverUnrecognised(), 0);
+        assertEq(pool.coverFeeHead(), 1);
+    }
+
+    /// @dev A cover's fee shares credited after the slashed cohort matured go to the reserve (matured cohorts are
+    /// closed to inflows).
+    function test_distributeFees_coverFeeOfMaturedCohortToReserve() public {
+        uint256 loanId = _sizingScene(VE_LINE);
+        uint256 e1 = _currentEpoch();
+        _takeLoss(VE_LINE, loanId);
+        pool.cover(VE_LINE);
+        vm.warp(pool.maturityOf(e1));
+        vault.accrueInterest();
+        uint256 minted = _pendingFeeShares();
+        uint256 held = _cohortShares(VE_LINE, e1);
+        uint256 reserveBefore = pool.reserveShares();
+        _distribute(e1, _arr(VE_LINE), _arr(0));
+        assertEq(_cohortShares(VE_LINE, e1), held, "matured cohort untouched");
+        assertEq(pool.reserveShares(), reserveBefore + minted);
+        assertEq(pool.coverUnrecognised(), 0);
+    }
+
+    /// @dev Review finding M-03: deposits wait from the moment Morpho bad debt exists (before any checkpoint), while
+    /// it is recorded and uncovered, and while VaultV2 re-recognises the cover; they reopen once it has.
+    function test_depositsPaused_followsALossThroughItsCover() public {
+        _sizingScene(MORPHO_LINE);
+        assertFalse(pool.depositsPaused());
+
+        _shock(6000);
+        _liquidateMorpho(liquidator, morphoBorrower);
+        assertTrue(pool.depositsPaused(), "bad debt not checkpointed yet");
+        assertGt(pool.checkpoint(MORPHO_LINE), 1_000e18);
+        assertTrue(pool.depositsPaused(), "recorded and coverable");
+
+        pool.cover(MORPHO_LINE);
+        assertEq(pool.uncoveredLoss(MORPHO_LINE), 0);
+        assertTrue(pool.depositsPaused(), "the cover is being re-recognised");
+        _warp(1 days);
+        assertTrue(pool.depositsPaused());
+        _recognise();
+        assertFalse(pool.depositsPaused(), "recognised");
+    }
+
+    /// @dev Two things that cannot be made whole by waiting do not pause deposits: an uncovered loss the pool has
+    /// nothing to cover with, and MUSD awaiting recognition that no cover returned (a donation).
+    function test_depositsPaused_notForUncoverableLossOrDonation() public {
+        _fundLine(100_000e18);
+        (uint256 loanId,) = _openTimed(borrower, 1e18, 40_000e18);
+        _shock(6000);
+        line.startAuction(loanId);
+        _bid(bidder, loanId);
+        assertTrue(pool.depositsPaused(), "unrecorded shortfall");
+        uint256 loss = pool.checkpoint(VE_LINE);
+        assertEq(pool.uncoveredLoss(VE_LINE), loss);
+        assertEq(pool.coverCapacity(VE_LINE), 0);
+        assertFalse(pool.depositsPaused(), "nothing can cover it: lenders bear it either way");
+
+        musd.mint(address(vault), 10_000e18);
+        assertFalse(pool.depositsPaused(), "a donation alone does not pause deposits");
     }
 
     /// @dev Without a performance fee the cover moves A*U/(A+U) MUSD, which burns U/(A+U) of the supply: exactly the

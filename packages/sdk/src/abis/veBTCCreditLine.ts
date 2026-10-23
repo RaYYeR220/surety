@@ -538,6 +538,19 @@ export const veBTCCreditLineAbi = [
   },
   {
     "type": "function",
+    "name": "interestEarnedTotal",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "irm",
     "inputs": [],
     "outputs": [

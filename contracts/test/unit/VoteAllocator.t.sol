@@ -3,24 +3,23 @@ pragma solidity 0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Position} from "morpho-blue/interfaces/IMorpho.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 import {EventsLib} from "vault-v2/libraries/EventsLib.sol";
 import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 
+import {CreditVoter} from "../../src/CreditVoter.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "../../src/interfaces/IEscrowRegistry.sol";
 import {ISuretyPool} from "../../src/interfaces/ISuretyPool.sol";
-import {IVoteAllocator} from "../../src/interfaces/IVoteAllocator.sol";
 import {LineIds} from "../../src/libraries/LineIds.sol";
 import {VeBTCCreditLine} from "../../src/lines/VeBTCCreditLine.sol";
 import {AllocatorFixture} from "../utils/AllocatorFixture.sol";
 
-/// @notice Stand-in for the SuretyPool: records every fee attribution and can note adjustments and pay covers.
+/// @notice Stand-in for the SuretyPool: records every fee attribution and checkpoint, and can pay covers.
 contract RecordingPool is ISuretyPool {
     struct Attribution {
         address caller;
@@ -30,10 +29,6 @@ contract RecordingPool is ISuretyPool {
     }
 
     Attribution[] internal attributions;
-    /// @dev When non-zero, distributeFees notes this adjustment back into the calling allocator, the way the real
-    /// pool's checkpoint will from inside rebalance.
-    int256 internal reentrantNote;
-    uint256 internal reentrantLine;
     /// @dev Line ids passed to `checkpoint`, in call order.
     uint256[] internal checkpointed;
     /// @dev Number of attributions at the time of each checkpoint, to check ordering against distributeFees.
@@ -50,6 +45,10 @@ contract RecordingPool is ISuretyPool {
         return 0;
     }
 
+    function depositsPaused() external pure returns (bool) {
+        return false;
+    }
+
     function failCheckpoint(uint256 lineId) external {
         failingLine = lineId;
     }
@@ -64,12 +63,6 @@ contract RecordingPool is ISuretyPool {
 
     function distributeFees(uint256 cohortEpoch, uint256[] calldata lineIds, uint256[] calldata interest) external {
         attributions.push(Attribution(msg.sender, cohortEpoch, lineIds, interest));
-        if (reentrantNote != 0) IVoteAllocator(msg.sender).noteAdjustment(reentrantLine, reentrantNote);
-    }
-
-    function noteOnDistribute(uint256 lineId, int256 delta) external {
-        reentrantLine = lineId;
-        reentrantNote = delta;
     }
 
     function count() external view returns (uint256) {
@@ -80,17 +73,10 @@ contract RecordingPool is ISuretyPool {
         return attributions[i];
     }
 
-    /// @notice What SuretyPool.checkpoint does after measuring a loss.
-    function note(IVoteAllocator allocator, uint256 lineId, int256 delta) external {
-        allocator.noteAdjustment(lineId, delta);
-    }
-
-    /// @notice What SuretyPool.cover does for a veBTC line: restore it, then tell the allocator.
-    function cover(VeBTCCreditLine line, IVoteAllocator allocator, uint256 lineId, uint256 assets) external {
+    /// @notice What SuretyPool.cover does for a veBTC line: pay MUSD into it.
+    function cover(VeBTCCreditLine line, uint256 assets) external {
         IERC20(address(line.musd())).approve(address(line), assets);
         line.receiveCover(assets);
-        // forge-lint: disable-next-line(unsafe-typecast)
-        allocator.noteAdjustment(lineId, int256(assets));
     }
 }
 
@@ -317,7 +303,9 @@ contract VoteAllocatorTest is AllocatorFixture {
 
     /* Fail-closed and illiquid lines */
 
-    function test_rebalance_staleOracleLineTargetsZero() public {
+    /// @dev Review finding L-02: a line whose oracle is stale takes no new money but is not pulled either; its share
+    /// is not handed to the other lines, and votes moving off it still pull it (Morpho withdrawals need no price).
+    function test_rebalance_staleOracleLineHolds() public {
         _deposit(lender, DEPOSIT);
         uint256 aliceId = _voterLock(alice, 6e18);
         uint256 bobId = _voterLock(bob, 2e18);
@@ -330,42 +318,57 @@ contract VoteAllocatorTest is AllocatorFixture {
         _rebalance();
         assertApproxEqAbs(allocator.lineAssets(CBTC_LINE), 180_000e18, DUST);
 
-        // cbBTC's feed goes stale: its line drops out and its votes stop counting.
+        // cbBTC's feed goes stale and lenders double the vault: cbBTC holds, the others grow to their own shares.
         cbtcAggregator.setUpdatedAt(vm.getBlockTimestamp() - ORACLE_MAX_AGE - 1);
+        _deposit(lender, DEPOSIT);
         _rebalance();
         (uint256 btcAssets, uint256 veAssets, uint256 cbtcAssets) = _assets();
-        assertEq(cbtcAssets, 0);
-        assertApproxEqAbs(btcAssets, DEPLOYABLE * 6 / 8, DUST);
-        assertApproxEqAbs(veAssets, DEPLOYABLE * 2 / 8, DUST);
+        assertApproxEqAbs(cbtcAssets, 180_000e18, DUST, "no new money, no pull");
+        assertApproxEqAbs(btcAssets, 1_080_000e18, 2 * DUST);
+        assertEq(veAssets, 360_000e18);
+        (, uint256[] memory planned) = allocator.targets();
+        assertApproxEqAbs(planned[CBTC_LINE], 180_000e18, DUST);
 
-        // The BTC feed goes stale instead: the BTC Morpho line and the veBTC line both price with it.
+        // The BTC feed goes stale instead: the BTC Morpho line and the veBTC line both price with it and hold.
         cbtcAggregator.setLive();
         _makeStale();
         _rebalance();
         (btcAssets, veAssets, cbtcAssets) = _assets();
-        assertEq(btcAssets, 0);
-        assertEq(veAssets, 0);
-        assertApproxEqAbs(cbtcAssets, DEPLOYABLE, 2 * DUST);
+        assertApproxEqAbs(btcAssets, 1_080_000e18, 2 * DUST);
+        assertEq(veAssets, 360_000e18);
+        assertApproxEqAbs(cbtcAssets, 360_000e18, 4 * DUST);
 
-        // Feeds recover: back to the vote split.
+        // Next epoch carol's votes move to BTC while cbBTC's feed is stale again: unvoted, it is pulled anyway.
         aggregator.setLive();
+        voter.poke(aliceId);
+        voter.poke(bobId);
+        _vote(carol, carolId, BTC_LINE);
+        _warpEpochs(1);
+        cbtcAggregator.setUpdatedAt(vm.getBlockTimestamp() - ORACLE_MAX_AGE - 1);
         _rebalance();
         (btcAssets, veAssets, cbtcAssets) = _assets();
-        assertApproxEqAbs(btcAssets, 540_000e18, 4 * DUST);
-        assertApproxEqAbs(veAssets, 180_000e18, 4 * DUST);
-        assertApproxEqAbs(cbtcAssets, 180_000e18, 4 * DUST);
+        assertEq(cbtcAssets, 0);
+        assertApproxEqAbs(btcAssets, 1_440_000e18, 4 * DUST);
+        assertEq(veAssets, 360_000e18);
     }
 
-    function test_rebalance_pausedLineTargetsZero() public {
+    /// @dev Review finding L-02: a paused veBTC line holds its allocation; its share is not handed out.
+    function test_rebalance_pausedLineHolds() public {
         _seed60_40();
         _warpEpochs(1);
         _rebalance();
 
         vm.prank(admin);
         line.pause(true);
+        _deposit(lender, DEPOSIT);
         _rebalance();
-        assertEq(allocator.lineAssets(VE_LINE), 0);
-        assertApproxEqAbs(allocator.lineAssets(BTC_LINE), DEPLOYABLE, DUST);
+        assertEq(allocator.lineAssets(VE_LINE), 360_000e18, "no new money, no pull");
+        assertApproxEqAbs(allocator.lineAssets(BTC_LINE), 1_080_000e18, 2 * DUST, "only its own share");
+
+        vm.prank(admin);
+        line.pause(false);
+        _rebalance();
+        assertEq(allocator.lineAssets(VE_LINE), 720_000e18);
     }
 
     /// @dev Review Focus 4: a fully borrowed Morpho market and a veBTC line whose cash is below its cut.
@@ -435,8 +438,7 @@ contract VoteAllocatorTest is AllocatorFixture {
         uint256 btcMidPost = allocator.lineAssets(BTC_LINE);
         uint256 veMidPost = allocator.lineAssets(VE_LINE);
         assertEq(recorder.count(), 0);
-        (, uint256 pendingBtc,) = allocator.ledger(BTC_LINE);
-        assertEq(pendingBtc, btcMidPre - btcStart);
+        assertEq(allocator.ledger(BTC_LINE).pendingInterest, btcMidPre - btcStart);
 
         // Ballots carried into E2 make it the next tally.
         voter.poke(aliceId);
@@ -491,64 +493,19 @@ contract VoteAllocatorTest is AllocatorFixture {
         voter.poke(bobId);
         _warp(1 days);
         bare.rebalance();
-        (, uint256 pending,) = bare.ledger(BTC_LINE);
-        assertGt(pending, 0);
+        assertGt(bare.ledger(BTC_LINE).pendingInterest, 0);
 
         // The epoch still closes and switches tally; the interest it measured is dropped, not carried over.
         _warpEpochs(1);
         bare.rebalance();
         assertEq(recorder.count(), 0);
         assertEq(bare.activeTallyEpoch(), e2);
-        (, pending,) = bare.ledger(BTC_LINE);
-        assertEq(pending, 0);
+        assertEq(bare.ledger(BTC_LINE).pendingInterest, 0);
     }
 
-    function test_noteAdjustment_onlyPool() public {
-        vm.expectRevert(VoteAllocator.NotSuretyPool.selector);
-        vm.prank(admin);
-        allocator.noteAdjustment(VE_LINE, -1e18);
-
-        vm.expectRevert(VoteAllocator.NotSuretyPool.selector);
-        allocator.noteAdjustment(VE_LINE, 1e18);
-
-        // Before any rebalance the line has no ledger yet; the note is accepted and has no effect.
-        recorder.note(allocator, VE_LINE, -1e18);
-        (int256 baseline,,) = allocator.ledger(VE_LINE);
-        assertEq(baseline, 0);
-
-        _seed60_40();
-        _warpEpochs(1);
-        _rebalance();
-        recorder.note(allocator, VE_LINE, 5e18);
-        (baseline,,) = allocator.ledger(VE_LINE);
-        assertEq(baseline, 360_005e18);
-
-        // With no pool set, nobody can note.
-        VoteAllocator bare = new VoteAllocator(address(vault), voter, admin, IDLE_BUFFER_BPS);
-        vm.expectRevert(VoteAllocator.NotSuretyPool.selector);
-        recorder.note(bare, VE_LINE, 1);
-    }
-
-    /// @dev The pool records losses from inside rebalance (SuretyPool.checkpoint); noteAdjustment must not share the
-    /// rebalance lock, and the note lands in the ledger.
-    function test_noteAdjustment_callableFromInsideRebalance() public {
-        (uint256 aliceId, uint256 bobId) = _seed60_40();
-        _warpEpochs(1);
-        _rebalance();
-        voter.poke(aliceId);
-        voter.poke(bobId);
-        _warpEpochs(1);
-
-        recorder.noteOnDistribute(VE_LINE, -1e18);
-        _rebalance();
-        assertEq(recorder.count(), 1);
-        (int256 baseline,,) = allocator.ledger(VE_LINE);
-        assertEq(baseline, SafeCast.toInt256(allocator.lineAssets(VE_LINE)) - 1e18);
-    }
-
-    /// @dev A recorded loss noted before the next rebalance and the cover that follows are both excluded: the line
-    /// reports exactly the interest its loans paid.
-    function test_noteAdjustment_lossAndCoverNotCountedAsInterest() public {
+    /// @dev A veBTC loss recorded and covered between two rebalances moves the line's assets down and back up; the
+    /// line still reports exactly the interest its loan paid (up to the wei the borrow rounds up at open).
+    function test_measure_lossAndCoverNotCountedAsInterest() public {
         (uint256 aliceId, uint256 bobId) = _seed60_40();
         _warpEpochs(1);
         _rebalance();
@@ -561,20 +518,20 @@ contract VoteAllocatorTest is AllocatorFixture {
         uint256 earned = lastDebt - 100_000e18;
         assertGt(shortfall, earned);
 
-        recorder.note(allocator, VE_LINE, -int256(shortfall));
-        musd.mint(address(recorder), shortfall);
-        recorder.cover(line, allocator, VE_LINE, shortfall);
+        // A cover larger than the loss, as the pool's fee gross-up makes it.
+        musd.mint(address(recorder), shortfall * 2);
+        recorder.cover(line, shortfall * 2);
 
         voter.poke(aliceId);
         voter.poke(bobId);
         _warpEpochs(1);
         _rebalance();
-        assertEq(recorder.at(0).interest[VE_LINE], earned);
+        assertApproxEqAbs(recorder.at(0).interest[VE_LINE], earned, 1);
     }
 
-    /// @dev A loss the pool records only after a rebalance already absorbed it (that period's interest floored to
-    /// zero) is netted against the absorbed drop, so it never reappears as interest later.
-    function test_noteAdjustment_lateLossNotCountedAsInterest() public {
+    /// @dev A loss nobody has recorded when the rebalance runs does not hide the interest the line earned before it,
+    /// and is never read as negative interest later.
+    function test_measure_unrecordedLossDoesNotHideInterest() public {
         (uint256 aliceId, uint256 bobId) = _seed60_40();
         _warpEpochs(1);
         _rebalance();
@@ -583,27 +540,50 @@ contract VoteAllocatorTest is AllocatorFixture {
         _warp(2 days);
         uint256 shortfall = _liquidateAtLoss(loanId);
         uint256 earned = lastDebt - 100_000e18;
+        assertGt(shortfall, earned);
 
         voter.poke(aliceId);
         voter.poke(bobId);
         _warpEpochs(1);
         _rebalance();
-        // The unrecorded loss outweighs the interest: nothing attributed, the drop is remembered.
-        assertEq(recorder.at(0).interest[VE_LINE], 0);
-        (,, uint256 unexplained) = allocator.ledger(VE_LINE);
-        assertEq(unexplained, shortfall - earned);
-
-        // The pool records the loss late.
-        recorder.note(allocator, VE_LINE, -int256(shortfall));
-        (,, unexplained) = allocator.ledger(VE_LINE);
-        assertEq(unexplained, 0);
+        assertApproxEqAbs(recorder.at(0).interest[VE_LINE], earned, 1, "interest paid before the loss");
 
         voter.poke(aliceId);
         voter.poke(bobId);
         _warpEpochs(1);
         _rebalance();
-        // The interest the loan paid before the loss surfaces; the loss itself does not.
-        assertEq(recorder.at(1).interest[VE_LINE], earned);
+        assertEq(recorder.at(1).interest[VE_LINE], 0, "no loan, no interest; the loss is not netted");
+    }
+
+    /// @dev Capital anyone moves with VaultV2's permissionless forceDeallocate changes a line's assets but not its
+    /// measured interest: Morpho interest comes from the supply share price, veBTC interest from the line's counter.
+    function test_measure_forceDeallocateDoesNotMoveInterest() public {
+        (uint256 aliceId, uint256 bobId) = _seed60_40();
+        _warpEpochs(1);
+        _rebalance();
+        _borrowMorpho(btcBorrower, 10e18, 270_000e18);
+        _openTimed(borrower, 10e18, 180_000e18);
+        _warp(3 days);
+        voter.poke(aliceId);
+        voter.poke(bobId);
+        _warpEpochs(1);
+        uint256 snap = vm.snapshotState();
+
+        _rebalance();
+        uint256[] memory honest = recorder.at(0).interest;
+        assertGt(honest[BTC_LINE], 0);
+        assertGt(honest[VE_LINE], 0);
+
+        vm.revertToState(snap);
+        _deposit(carol, 10_000e18);
+        uint256 btcAssets = allocator.lineAssets(BTC_LINE);
+        vm.startPrank(carol);
+        vault.forceDeallocate(address(morphoAdapter), abi.encode(btcMarket), btcAssets / 100, carol);
+        vault.forceDeallocate(address(line), "", line.cash() / 2, carol);
+        vm.stopPrank();
+        _rebalance();
+        assertEq(recorder.at(0).interest[BTC_LINE], honest[BTC_LINE], "Morpho interest unchanged");
+        assertEq(recorder.at(0).interest[VE_LINE], honest[VE_LINE], "veBTC interest unchanged");
     }
 
     /// @dev Crashes the price by 90%, auctions `loanId` and bids at once; returns the shortfall.
@@ -618,15 +598,16 @@ contract VoteAllocatorTest is AllocatorFixture {
 
     /* Loss checkpoints */
 
-    /// @dev Every listed line is checkpointed on every run, before the epoch's fees are handed to the pool.
+    /// @dev Every listed line is checkpointed twice on every run, before measuring and after the moves, both before
+    /// the epoch's fees are handed to the pool.
     function test_rebalance_checkpointsEveryLineBeforeMeasuring() public {
         (uint256 aliceId, uint256 bobId) = _seed60_40();
         _warpEpochs(1);
         _rebalance();
-        assertEq(recorder.checkpointCount(), 3);
-        for (uint256 i; i < 3; ++i) {
+        assertEq(recorder.checkpointCount(), 6);
+        for (uint256 i; i < 6; ++i) {
             (uint256 lineId, uint256 attributionsBefore) = recorder.checkpointAt(i);
-            assertEq(lineId, i);
+            assertEq(lineId, i % 3);
             assertEq(attributionsBefore, 0);
         }
 
@@ -635,10 +616,10 @@ contract VoteAllocatorTest is AllocatorFixture {
         _warpEpochs(1);
         _rebalance();
         assertEq(recorder.count(), 1);
-        assertEq(recorder.checkpointCount(), 6);
-        for (uint256 i = 3; i < 6; ++i) {
+        assertEq(recorder.checkpointCount(), 12);
+        for (uint256 i = 6; i < 12; ++i) {
             (uint256 lineId, uint256 attributionsBefore) = recorder.checkpointAt(i);
-            assertEq(lineId, i - 3);
+            assertEq(lineId, i % 3);
             assertEq(attributionsBefore, 0, "checkpointed before the epoch's fees were attributed");
         }
     }
@@ -652,7 +633,7 @@ contract VoteAllocatorTest is AllocatorFixture {
         emit VoteAllocator.CheckpointFailed(VE_LINE, abi.encodeWithSelector(RecordingPool.CheckpointBroken.selector));
         _rebalance();
 
-        assertEq(recorder.checkpointCount(), 2);
+        assertEq(recorder.checkpointCount(), 4, "the other two lines, before and after the moves");
         (uint256 btcAssets, uint256 veAssets,) = _assets();
         assertApproxEqAbs(btcAssets, 540_000e18, DUST);
         assertEq(veAssets, 360_000e18);
@@ -733,9 +714,9 @@ contract VoteAllocatorTest is AllocatorFixture {
     /// deallocate, which VaultV2 restricts to its adapters, so even a line listed with a foreign contract as its
     /// "adapter" receives nothing. The allocator itself never holds MUSD or vault shares.
     function test_onlyVaultOpsPossible() public {
-        // State-changing: rebalance (permissionless), noteAdjustment (pool), setMaxRate / setSuretyPool and the
+        // State-changing: rebalance (permissionless), setMaxRate / setSuretyPool and the
         // Ownable2Step functions (owner). Everything else is a view.
-        string[22] memory surface = [
+        string[21] memory surface = [
             "BPS()",
             "EPOCH_LENGTH()",
             "acceptOwnership()",
@@ -745,7 +726,6 @@ contract VoteAllocatorTest is AllocatorFixture {
             "lastRebalanceEpoch()",
             "ledger(uint256)",
             "lineAssets(uint256)",
-            "noteAdjustment(uint256,int256)",
             "owner()",
             "pendingOwner()",
             "rebalance()",
@@ -783,18 +763,22 @@ contract VoteAllocatorTest is AllocatorFixture {
         allocator.renounceOwnership();
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
         allocator.acceptOwnership();
-        vm.expectRevert(VoteAllocator.NotSuretyPool.selector);
-        allocator.noteAdjustment(BTC_LINE, 1);
         vm.stopPrank();
 
-        // A line whose adapter the vault never added: a working VeBTCCreditLine on the same vault, listed in the
-        // voter and even given caps, so the allocator does try to fund it.
+        // A line whose adapter is no longer one of the vault's: a working VeBTCCreditLine on the same vault, listed
+        // in the voter while it was an adapter (the CreditVoter refuses anything else) and even given caps, then
+        // removed by the curator, so the allocator does try to fund it.
         VeBTCCreditLine rogue = new VeBTCCreditLine(
             address(vault), musd, ve, poolsVoter, distributor, stressedSource, lineIrm, _lineParams(), stranger
         );
+        vm.expectRevert(CreditVoter.NotVaultAdapter.selector);
+        vm.prank(admin);
+        voter.addLine(address(rogue), "", ICreditVoter.LineKind.VeBTC, "rogue");
+        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(rogue))));
         vm.prank(admin);
         uint256 rogueLine = voter.addLine(address(rogue), "", ICreditVoter.LineKind.VeBTC, "rogue");
         _setCaps(LineIds.adapterIdData(address(rogue)), LINE_CAP);
+        _curate(abi.encodeCall(IVaultV2.removeAdapter, (address(rogue))));
 
         (uint256 aliceId,) = _seed60_40();
         _vote(alice, aliceId, rogueLine);
@@ -902,15 +886,15 @@ contract VoteAllocatorLossTest is AllocatorFixture {
         _vote(alice, aliceId, BTC_LINE);
         _warpEpochs(1);
         _rebalance();
-        (,, bool markSet) = pool.highWaterMark(BTC_LINE);
+        (,, bool markSet,) = pool.highWaterMark(BTC_LINE);
         assertTrue(markSet, "first rebalance set the loss mark");
         assertApproxEqAbs(allocator.lineAssets(BTC_LINE), 90_000e18, 2);
-        (int256 baseline,,) = allocator.ledger(BTC_LINE);
+        uint256 position = allocator.lineAssets(BTC_LINE);
 
         _borrowMorpho(btcBorrower, 1e18, 60_000e18);
         _warp(3 days);
         uint256 preLoss = allocator.lineAssets(BTC_LINE);
-        uint256 earned = preLoss - SafeCast.toUint256(baseline);
+        uint256 earned = preLoss - position;
         assertGt(earned, 0);
 
         _shock(6000);
@@ -927,14 +911,12 @@ contract VoteAllocatorLossTest is AllocatorFixture {
         uint256 loss = pool.lossRecorded(BTC_LINE);
         assertApproxEqAbs(loss, drop - earned, 2, "the rebalance records the loss below the mark");
         assertEq(pool.uncoveredLoss(BTC_LINE), loss);
-        (,, uint256 unexplained) = allocator.ledger(BTC_LINE);
-        assertEq(unexplained, 0, "no drop left unexplained");
 
         uint256[] memory interest = _attributedInterest();
         assertLe(interest[BTC_LINE], 2, "the loss is not attributed as interest");
         assertEq(interest[VE_LINE], 0);
 
-        // Interest earned after the loss is measured against the lowered baseline.
+        // Interest earned after the loss is measured from the post-loss snapshot.
         _borrowMorpho(btcBorrower, 1e18, 20_000e18);
         uint256 start = allocator.lineAssets(BTC_LINE);
         _warp(2 days);

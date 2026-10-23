@@ -7,5 +7,5 @@
       "@surety/sdk/testing": ["../packages/sdk/src/testing/index.ts"]
     }
   },
-  "include": ["src", "test", "tsup.config.ts", "vitest.config.ts"]
+  "include": ["src", "scripts", "test", "tsup.config.ts", "vitest.config.ts"]
 }

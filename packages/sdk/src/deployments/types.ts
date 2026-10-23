@@ -38,6 +38,9 @@ export interface SuretyContracts {
   priceSource: Address;
   skipSource: Address;
   morphoOracle: Address;
+  /** The vault's receive-shares gate (holds new shares back while a loss is pending or a cover is re-recognised).
+   * Absent in deployments made before it existed. */
+  depositGate?: Address;
 }
 
 export interface ExternalContracts {

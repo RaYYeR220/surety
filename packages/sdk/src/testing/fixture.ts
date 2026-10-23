@@ -163,6 +163,8 @@ export interface FixtureState {
     pendingLoss: bigint[];
     /** Whether each line has a supply-price high-water mark. */
     markSet: boolean[];
+    /** What SuretyPool.depositsPaused reports. */
+    depositsPaused: boolean;
   };
   /** Ballots cast, as `Voted` logs: token, voter, block. */
   votes: { tokenId: bigint; voter: Address; block: bigint }[];
@@ -273,6 +275,7 @@ export function defaultFixtureState(): FixtureState {
       claimed: {},
       pendingLoss: [0n, 0n],
       markSet: [true, false],
+      depositsPaused: false,
     },
     votes: [
       { tokenId: 9n, voter: ALICE, block: 16_305_000n },
@@ -452,7 +455,8 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
         functions: {
           SEASON: () => s.season,
           checkpoint: (l: bigint) => s.pool.pendingLoss[Number(l)] ?? 0n,
-          highWaterMark: (l: bigint) => [0n, 0n, s.pool.markSet[Number(l)] ?? false],
+          highWaterMark: (l: bigint) => [0n, 0n, s.pool.markSet[Number(l)] ?? false, 0n],
+          depositsPaused: () => s.pool.depositsPaused,
           cover: (l: bigint) => {
             const n = Number(l);
             const uncovered = (s.pool.lossRecorded[n] ?? 0n) - (s.pool.lossCovered[n] ?? 0n) + (s.pool.pendingLoss[n] ?? 0n);

@@ -12,7 +12,9 @@
     "build": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "build:cycle": "tsup --config scripts/tsup.config.ts",
+    "cycle": "node dist/scripts/testnet-cycle.js"
   },
   "dependencies": {
     "@surety/sdk": "workspace:*",

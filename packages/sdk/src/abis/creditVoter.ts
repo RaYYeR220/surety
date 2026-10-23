@@ -18,6 +18,21 @@ export const creditVoterAbi = [
         "name": "owner_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "vault_",
+        "type": "address",
+        "internalType": "contract IVaultV2"
+      },
+      {
+        "name": "morphoAdapter_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "lineTimelock",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
@@ -50,7 +65,33 @@ export const creditVoterAbi = [
   },
   {
     "type": "function",
+    "name": "LINE_TIMELOCK",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_LINES_PER_BALLOT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MEZO_MAINNET",
     "inputs": [],
     "outputs": [
       {
@@ -133,6 +174,19 @@ export const creditVoterAbi = [
   },
   {
     "type": "function",
+    "name": "bootstrapEnded",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "currentEpoch",
     "inputs": [],
     "outputs": [
@@ -146,6 +200,13 @@ export const creditVoterAbi = [
   },
   {
     "type": "function",
+    "name": "endBootstrap",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "escrowRegistry",
     "inputs": [],
     "outputs": [
@@ -156,6 +217,25 @@ export const creditVoterAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "executeLine",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "lineId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -242,6 +322,19 @@ export const creditVoterAbi = [
   },
   {
     "type": "function",
+    "name": "morphoAdapter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -277,6 +370,99 @@ export const creditVoterAbi = [
       }
     ],
     "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "proposal",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct CreditVoter.ProposedLine",
+        "components": [
+          {
+            "name": "adapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "enum ICreditVoter.LineKind"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "executableAt",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proposalCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proposeLine",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "enum ICreditVoter.LineKind"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -380,6 +566,19 @@ export const creditVoterAbi = [
   },
   {
     "type": "function",
+    "name": "vault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IVaultV2"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "veBTC",
     "inputs": [],
     "outputs": [
@@ -413,6 +612,12 @@ export const creditVoterAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "BootstrapEnded",
+    "inputs": [],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -473,6 +678,43 @@ export const creditVoterAbi = [
         "type": "string",
         "indexed": false,
         "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LineProposed",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum ICreditVoter.LineKind"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "executableAt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -585,7 +827,17 @@ export const creditVoterAbi = [
   },
   {
     "type": "error",
+    "name": "BadMarketParams",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BadWeights",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BootstrapOver",
     "inputs": []
   },
   {
@@ -630,6 +882,11 @@ export const creditVoterAbi = [
   },
   {
     "type": "error",
+    "name": "NotVaultAdapter",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NothingToPoke",
     "inputs": []
   },
@@ -662,6 +919,11 @@ export const creditVoterAbi = [
   },
   {
     "type": "error",
+    "name": "TimelockPending",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "TooManyLines",
     "inputs": []
   },
@@ -672,12 +934,27 @@ export const creditVoterAbi = [
   },
   {
     "type": "error",
+    "name": "UnknownProposal",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedAdapter",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAddress",
     "inputs": []
   },
   {
     "type": "error",
     "name": "ZeroEpochLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroLineTimelock",
     "inputs": []
   }
 ] as const;

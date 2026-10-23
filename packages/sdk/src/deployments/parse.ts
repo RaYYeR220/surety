@@ -113,6 +113,9 @@ export function parseDeployment(raw: unknown): SuretyDeployment {
 
   const contracts = {} as SuretyContracts;
   for (const key of CONTRACT_KEYS) contracts[key] = address(contractsRaw[key], `contracts.${key}`);
+  if (contractsRaw.depositGate !== undefined) {
+    contracts.depositGate = address(contractsRaw.depositGate, "contracts.depositGate");
+  }
   const external = {} as ExternalContracts;
   for (const key of EXTERNAL_KEYS) external[key] = address(externalRaw[key], `external.${key}`);
 

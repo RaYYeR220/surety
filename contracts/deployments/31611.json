@@ -1,21 +1,22 @@
 {
   "chainId": 31611,
   "epochLength": 3600,
-  "deployedAt": 16324963,
+  "deployedAt": 16327001,
   "contracts": {
-    "vault": "0x68715685C8E8e5f1c459aeE54f41D7d741C3A2bc",
-    "morphoAdapter": "0x63d3baEfA3F437530Cf146e17638965A6af432BF",
-    "morpho": "0xcEE819d8EF9204E37f3b54e7A83D3381CAE14258",
-    "irm": "0xaFFC37C5a28d8bF490d1c8F3518da52594C822a4",
-    "creditVoter": "0x2E52C7315f652f648b723757676FDeEaEAd7F607",
-    "voteAllocator": "0x04949403293BcEE7449ca248cC56633197E8bB4f",
-    "suretyPool": "0x5116E7D0a9E1C3e3c9e58E6137c3afed58662D47",
-    "veBTCLine": "0x18658108AE2a280e7540A20Eb4661618cAE87D41",
-    "loanEscrowImpl": "0x7E368a2b2dD5C877639724420FB1cD27E12247C9",
-    "irmLine": "0x703C6971c7cAc75bd88d21a3a01158ef34eE8bbF",
-    "priceSource": "0x2C08eeE2d31f2AC47e1343d4AA186A581fc3feee",
-    "skipSource": "0x0d3E30098ed91D08C797210eAB8Ea9D6AA3cafBE",
-    "morphoOracle": "0xed59443c8E756608888c9ab4a15D5739Bb9dB0e0"
+    "vault": "0xdb2526679a0F285aEF9B31507364c4DD8CE59481",
+    "morphoAdapter": "0x3Dc62001022DdeBf0C8963dDEbC584f5d9635c63",
+    "morpho": "0xF191f133ecCC997D36713A6c4ee64c24E7e261Ef",
+    "irm": "0x8Fa08ff73618EC1ac3844a975d5Ee41b96f45028",
+    "creditVoter": "0x3e9D39CeF152006831574b604435D22fAd631304",
+    "voteAllocator": "0x66541B50a2F5bF7cFFcF623Fa02386e282cDe0E9",
+    "suretyPool": "0xEF54E2e74118B0ea58Eb422660cdd902352aB357",
+    "depositGate": "0x202129dF9f6Ebd83f508bc34D6C20F41fDCa22b2",
+    "veBTCLine": "0x11A87EA0E77261Eedd2C8F2f27B0bB4D6391bE68",
+    "loanEscrowImpl": "0x5480eC4D37Fe1eb31793d7FEC4BE6B3Ab3806417",
+    "irmLine": "0x3195fe2Ff429DeC76389947c36A093fd14839949",
+    "priceSource": "0xf57424252c4D4EB015c0f1851a4D64EF5D84150F",
+    "skipSource": "0x5b2889271154adD90BC4b33EaE3Bb5dDC09d6BFC",
+    "morphoOracle": "0x7fe38beE73412FFC05263606Bc0caD7bB7632e06"
   },
   "external": {
     "musd": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
@@ -30,13 +31,13 @@
       "id": 0,
       "kind": "Morpho",
       "name": "BTC / MUSD (Morpho)",
-      "adapter": "0x63d3baEfA3F437530Cf146e17638965A6af432BF",
-      "marketId": "0x6cd3cbe5b88c01424558664c8be3b715a03adbfd84a878af4e0331a65a7a230a",
+      "adapter": "0x3Dc62001022DdeBf0C8963dDEbC584f5d9635c63",
+      "marketId": "0x025a6a60f6623ed3ecc87a27c02816a91cad719ee1711b6861d77805c7ac4455",
       "marketParams": {
         "loanToken": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
         "collateralToken": "0x7b7C000000000000000000000000000000000000",
-        "oracle": "0xed59443c8E756608888c9ab4a15D5739Bb9dB0e0",
-        "irm": "0xaFFC37C5a28d8bF490d1c8F3518da52594C822a4",
+        "oracle": "0x7fe38beE73412FFC05263606Bc0caD7bB7632e06",
+        "irm": "0x8Fa08ff73618EC1ac3844a975d5Ee41b96f45028",
         "lltv": "860000000000000000"
       }
     },
@@ -44,7 +45,7 @@
       "id": 1,
       "kind": "VeBTC",
       "name": "veBTC credit line",
-      "adapter": "0x18658108AE2a280e7540A20Eb4661618cAE87D41"
+      "adapter": "0x11A87EA0E77261Eedd2C8F2f27B0bB4D6391bE68"
     }
   ],
   "proof": {

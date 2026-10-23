@@ -129,9 +129,9 @@ export function rebalanceDue(s: KeeperSnapshot, flipDelaySeconds = 5n): boolean 
 
 /**
  * Loss handling per line: `cover` (which checkpoints first) when there is a loss and something to pay it with,
- * otherwise `checkpoint` alone so a new loss is at least recorded and reported to the allocator. Morpho lines are
- * also checkpointed when they have no high-water mark yet, and before each rebalance, because SuretyPool measures
- * Morpho losses against the supply price of the line's last checkpoint.
+ * otherwise `checkpoint` alone so a new loss is at least recorded (until it is, the vault's DepositGate holds new
+ * deposits back). Morpho lines are also checkpointed when they have no mark yet, and before each rebalance, because
+ * SuretyPool measures Morpho losses against the supply price and adapter shares of the line's last checkpoint.
  */
 export function lossActions(s: KeeperSnapshot, options: { rebalancing?: boolean } = {}): Action[] {
   const out: Action[] = [];
