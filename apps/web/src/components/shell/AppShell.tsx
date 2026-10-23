@@ -3,7 +3,7 @@
 import { MEZO_MAINNET_ID, MEZO_TESTNET_ID, isMezoChainId } from "@surety/sdk";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useAccount, useSwitchChain } from "wagmi";
 
 import { Container } from "@/components/layout/Layout";
@@ -113,9 +113,12 @@ function WalletButton() {
 }
 
 function Header() {
-  const [open, setOpen] = useState(false);
   const path = usePathname();
-  useEffect(() => setOpen(false), [path]);
+  // The menu belongs to the page it was opened on, so navigating closes it.
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const open = openOn !== null && openOn === path;
+  const setOpen = (next: boolean | ((o: boolean) => boolean)) =>
+    setOpenOn((typeof next === "function" ? next(open) : next) ? path : null);
   return (
     <header className={styles.header}>
       <Container>

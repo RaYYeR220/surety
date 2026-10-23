@@ -2,13 +2,13 @@
 
 import type { Board, BorrowIneligibility, VeBTCPosition } from "@surety/sdk";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Split, Stack } from "@/components/layout/Layout";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
 import { useWalletDialog } from "@/components/shell/WalletDialog";
 import { useTx, type TxPlan } from "@/components/tx/TxProvider";
-import { Empty, KeyValues, Muted, Notice, PageHead, Pill, Skeleton } from "@/components/ui/Bits";
+import { Empty, FactList, KeyValues, Muted, Notice, PageHead, Pill, Skeleton } from "@/components/ui/Bits";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { AmountField, ChoiceList, TabPanel, Tabs } from "@/components/ui/Controls";
@@ -24,7 +24,7 @@ import {
   parseAmount,
   toInput,
 } from "@/lib/format";
-import { useBoard, useChainNow, usePositions, useQuote } from "@/lib/queries";
+import { useBoard, useChainNow, useLineParams, usePositions, useQuote } from "@/lib/queries";
 
 import styles from "./Borrow.module.css";
 import { Loans } from "./Loans";
@@ -71,7 +71,7 @@ function BorrowView({ env }: { env: ReadyEnv }) {
         {tab === "vebtc" ? (
           <Stack gap={6}>
             <Split main="3fr" side="2fr" gap={5}>
-              {board.data ? <OpenLoan env={env} board={board.data} /> : <Skeleton height={420} label="Loading" />}
+              {board.data ? <OpenLoan env={env} /> : <Skeleton height={420} label="Loading" />}
               <HowItWorks board={board.data} />
             </Split>
             <Loans env={env} board={board.data} />
@@ -98,20 +98,16 @@ const REASONS: Record<BorrowIneligibility, string> = {
   "above-max": "That is more than this veBTC can borrow now. Lower the amount.",
 };
 
-function OpenLoan({ env, board }: { env: ReadyEnv; board: Board }) {
+function OpenLoan({ env }: { env: ReadyEnv }) {
   const tx = useTx();
   const wallet = useWalletDialog();
   const positions = usePositions();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [picked, setSelected] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const free = (positions.data ?? []).filter((p) => !p.escrowed);
-
-  useEffect(() => {
-    if (selected === null && free.length) {
-      const best = [...free].sort((a, b) => Number((b.maxBorrow ?? 0n) - (a.maxBorrow ?? 0n)))[0]!;
-      setSelected(best.tokenId.toString());
-    }
-  }, [free, selected]);
+  // Until the user picks, preselect the NFT that can borrow the most.
+  const best = [...free].sort((a, b) => Number((b.maxBorrow ?? 0n) - (a.maxBorrow ?? 0n)))[0];
+  const selected = picked ?? best?.tokenId.toString() ?? null;
 
   const position = free.find((p) => p.tokenId.toString() === selected) ?? null;
   const amount = parseAmount(input);
@@ -277,33 +273,33 @@ function NftLine({ p }: { p: VeBTCPosition }) {
 
 function HowItWorks({ board }: { board: Board | undefined }) {
   const line = board?.lines.find((l) => l.kind === "VeBTC");
+  const p = useLineParams().data;
   return (
     <Card tone="accent" eyebrow="While it is borrowed" title="Your veBTC keeps working">
-      <ul className={styles.facts}>
-        <li>
-          <span className={styles.factMark} aria-hidden="true" />
-          <span>It moves into its own escrow contract, one per loan. No pooled custody, no generic calls.</span>
-        </li>
-        <li>
-          <span className={styles.factMark} aria-hidden="true" />
-          <span>It keeps its boost, keeps voting on Mezo (you steer it from here) and keeps earning fees, bribes and rebase.</span>
-        </li>
-        <li>
-          <span className={styles.factMark} aria-hidden="true" />
-          <span>Max loan-to-value 50% for timed locks, 40% for permanent ones. MUSD is valued at $1.</span>
-        </li>
-        <li>
-          <span className={styles.factMark} aria-hidden="true" />
-          <span>
-            The loan matures at the lock end: repay or extend before it. At 70% LTV, or after maturity, anyone can start a
-            Dutch auction from 100% down to 70% of the collateral value; any surplus comes back to you.
-          </span>
-        </li>
-        <li>
-          <span className={styles.factMark} aria-hidden="true" />
-          <span>No redemptions: nobody can repay your loan with your collateral while it is healthy.</span>
-        </li>
-      </ul>
+      <FactList
+        items={[
+          <>It moves into its own escrow contract, one per loan. No pooled custody, no generic calls.</>,
+          <>It keeps its boost, keeps voting on Mezo (you steer it from here) and keeps earning fees, bribes and rebase.</>,
+          p ? (
+            <>
+              Max loan-to-value {formatBps(p.maxLtvTimedBps, 0)} for timed locks, {formatBps(p.maxLtvPermanentBps, 0)} for
+              permanent ones. MUSD is valued at $1.
+            </>
+          ) : (
+            <>Loan-to-value is capped lower for permanent locks than for timed ones. MUSD is valued at $1.</>
+          ),
+          p ? (
+            <>
+              The loan matures at the lock end: repay or extend before it. At {formatBps(p.liqLtvBps, 0)} LTV, or after
+              maturity, anyone can start a Dutch auction from 100% down to {formatBps(p.floorBps, 0)} of the collateral
+              value over {formatDuration(p.auctionDuration)}; any surplus comes back to you.
+            </>
+          ) : (
+            <>The loan matures at the lock end: repay or extend before it, or the NFT can be auctioned.</>
+          ),
+          <>No redemptions: nobody can repay your loan with your collateral while it is healthy.</>,
+        ]}
+      />
       {line ? (
         <div style={{ marginTop: "var(--space-4)", display: "flex", gap: "6px", flexWrap: "wrap" }}>
           {line.oracleLive === false ? <Pill tone="danger" dot>Price feed stale: new loans refused</Pill> : null}

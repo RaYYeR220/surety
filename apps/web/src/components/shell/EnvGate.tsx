@@ -58,7 +58,7 @@ export function EnvGate({ children }: { children: (env: ReadyEnv) => ReactNode }
           }
         >
           <Stack gap={4}>
-            <p>Until then you can click through every page with example data from the SDK's test fixture. Nothing is sent in that mode.</p>
+            <p>Until then you can click through every page with example data from the SDK&apos;s test fixture. Nothing is sent in that mode.</p>
             <Cluster gap={3}>
               <Button onClick={() => router.push(`${path}?demo=1`)}>Show example data</Button>
               {!onTestnet ? (

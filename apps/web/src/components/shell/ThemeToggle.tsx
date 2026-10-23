@@ -1,26 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 import styles from "./Shell.module.css";
 import { THEME_KEY } from "./themeScript";
 
+/** The theme lives on <html data-theme>; watch that attribute. */
+function subscribe(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => observer.disconnect();
+}
+
+const isDark = () => document.documentElement.dataset.theme === "dark";
+
 /** "Lights" switch: light (cream + plum) or dark (near-black + lime). */
 export function ThemeToggle() {
-  const [dark, setDark] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    setDark(document.documentElement.dataset.theme === "dark");
-  }, []);
+  const dark = useSyncExternalStore(subscribe, isDark, () => false);
 
   const toggle = () => {
-    const next = !(document.documentElement.dataset.theme === "dark");
-    document.documentElement.dataset.theme = next ? "dark" : "light";
-    setDark(next);
+    const next = isDark() ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
     try {
-      window.localStorage.setItem(THEME_KEY, next ? "dark" : "light");
+      window.localStorage.setItem(THEME_KEY, next);
     } catch {
-      /* storage unavailable */
+      /* storage unavailable: the switch still works for this visit */
     }
   };
 
@@ -28,7 +32,7 @@ export function ThemeToggle() {
     <button
       type="button"
       className={styles.toggle}
-      aria-pressed={dark ?? false}
+      aria-pressed={dark}
       aria-label="Lights: switch between light and dark"
       onClick={toggle}
     >

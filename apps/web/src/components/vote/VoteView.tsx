@@ -1,7 +1,7 @@
 "use client";
 
-import type { Board, CohortPosition, VeBTCPosition } from "@surety/sdk";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import type { Ballot, Board, CohortPosition, VeBTCPosition } from "@surety/sdk";
+import { useMemo, useState, type CSSProperties } from "react";
 
 import { Grid, Split, Stack } from "@/components/layout/Layout";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
@@ -28,15 +28,11 @@ function VoteView({ env }: { env: ReadyEnv }) {
   const wallet = useWalletDialog();
   const board = useBoard();
   const positions = usePositions();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [picked, setSelected] = useState<string | null>(null);
 
   const list = positions.data ?? [];
-  useEffect(() => {
-    if (selected === null && list.length) {
-      const first = list.find((p) => !p.escrowed) ?? list[0]!;
-      setSelected(first.tokenId.toString());
-    }
-  }, [list, selected]);
+  // Until the user picks, preselect the first NFT that can vote here.
+  const selected = picked ?? (list.find((p) => !p.escrowed) ?? list[0])?.tokenId.toString() ?? null;
   const position = list.find((p) => p.tokenId.toString() === selected) ?? null;
 
   return (
@@ -165,25 +161,33 @@ function FirstLossCard({ season, epochLength }: { season: bigint | undefined; ep
 
 /* ---------- Ballot ---------- */
 
+function evenSplit(lines: Board["lines"]): Record<number, number> {
+  const next: Record<number, number> = {};
+  for (const l of lines) next[l.id] = 0;
+  const active = lines.filter((l) => l.active);
+  active.forEach((l, k) => (next[l.id] = Math.floor(100 / active.length) + (k < 100 % active.length ? 1 : 0)));
+  return next;
+}
+
+/** The stored ballot in whole percent, or an even split when there is none. */
+function startingWeights(b: Ballot | undefined, lines: Board["lines"]): Record<number, number> {
+  if (!b || b.lineIds.length === 0) return evenSplit(lines);
+  const next: Record<number, number> = {};
+  for (const l of lines) next[l.id] = 0;
+  b.lineIds.forEach((id, k) => (next[id] = Math.round((b.weightsBps[k] ?? 0) / 100)));
+  return next;
+}
+
 function BallotEditor({ env, board, position }: { env: ReadyEnv; board: Board; position: VeBTCPosition }) {
   const tx = useTx();
   const ballot = useBallot(position.tokenId);
   const lines = board.lines;
-  const [weights, setWeights] = useState<Record<number, number>>({});
+  // Edits belong to one NFT and stored ballot; a different NFT or a new ballot starts from the stored one again.
   const key = `${position.tokenId}:${ballot.data?.epochCast ?? "-"}`;
-
-  useEffect(() => {
-    const b = ballot.data;
-    const next: Record<number, number> = {};
-    for (const l of lines) next[l.id] = 0;
-    if (b && b.lineIds.length) b.lineIds.forEach((id, k) => (next[id] = Math.round((b.weightsBps[k] ?? 0) / 100)));
-    else {
-      const active = lines.filter((l) => l.active);
-      active.forEach((l, k) => (next[l.id] = Math.floor(100 / active.length) + (k < 100 % active.length ? 1 : 0)));
-    }
-    setWeights(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  const [edit, setEdit] = useState<{ key: string; weights: Record<number, number> } | null>(null);
+  const weights = edit && edit.key === key ? edit.weights : startingWeights(ballot.data, lines);
+  const setWeights = (next: Record<number, number> | ((w: Record<number, number>) => Record<number, number>)) =>
+    setEdit({ key, weights: typeof next === "function" ? next(weights) : next });
 
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   const power = ballot.data?.powerAtEpochStart ?? position.powerAtEpochStart;
@@ -195,13 +199,7 @@ function BallotEditor({ env, board, position }: { env: ReadyEnv; board: Board; p
       : null;
 
   const set = (id: number, v: number) => setWeights((w) => ({ ...w, [id]: Math.max(0, Math.min(100, Math.round(v))) }));
-  const even = () => {
-    const active = lines.filter((l) => l.active);
-    const next: Record<number, number> = {};
-    for (const l of lines) next[l.id] = 0;
-    active.forEach((l, k) => (next[l.id] = Math.floor(100 / active.length) + (k < 100 % active.length ? 1 : 0)));
-    setWeights(next);
-  };
+  const even = () => setWeights(evenSplit(lines));
 
   const plan = (): TxPlan => ({
     title: `Vote with veBTC #${position.tokenId}`,

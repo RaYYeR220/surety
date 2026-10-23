@@ -390,3 +390,20 @@ export async function readSlashes(client: SuretyClient): Promise<Record<string, 
   }
   return out;
 }
+
+/* veBTC line parameters (LTV limits, liquidation fee, auction shape) */
+
+export interface LineParams {
+  maxLtvTimedBps: number;
+  maxLtvPermanentBps: number;
+  liqLtvBps: number;
+  liqFeeBps: number;
+  floorBps: number;
+  auctionDuration: number;
+  minTerm: number;
+}
+
+export async function readLineParams(client: SuretyClient): Promise<LineParams | null> {
+  const [p] = await client.reader.settle([call(client.deployment.contracts.veBTCLine, veBTCCreditLineAbi, "params")] as const);
+  return orNull(p);
+}

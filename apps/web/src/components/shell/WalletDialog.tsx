@@ -103,7 +103,11 @@ function WalletPanel({ onDone }: { onDone: () => void }) {
                   }
                 }}
               >
-                {c.icon ? <img src={c.icon} alt="" width={20} height={20} /> : null}
+                {c.icon ? (
+                  // Wallet icons are data URIs announced by the wallet itself (EIP-6963); next/image adds nothing here.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={c.icon} alt="" width={20} height={20} />
+                ) : null}
                 {label}
               </Button>
             </li>

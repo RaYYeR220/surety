@@ -10,6 +10,7 @@ import { useReady, type ReadyEnv } from "./env";
 import {
   readCaps,
   readIncentives,
+  readLineParams,
   readLossChecks,
   readMorphoPosition,
   readReserve,
@@ -220,4 +221,14 @@ export function useChainNow(): number | null {
   const wall = useTicker(1000);
   if (wall === null || !board.data) return null;
   return Number(board.data.epoch.now) + Math.max(0, (wall - board.dataUpdatedAt) / 1000);
+}
+
+export function useLineParams() {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "line-params"],
+    queryFn: () => readLineParams(env!.client),
+    enabled: !!env,
+    staleTime: 5 * 60_000,
+  });
 }

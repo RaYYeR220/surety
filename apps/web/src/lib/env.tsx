@@ -12,7 +12,7 @@ import {
   type SuretyDeployment,
 } from "@surety/sdk";
 import { useQuery } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import type { Address } from "viem";
 import { useAccount } from "wagmi";
 
@@ -60,6 +60,38 @@ const SuretyContext = createContext<SuretyEnv | null>(null);
 
 const CHAIN_KEY = "surety-chain";
 
+/* The network picked in the header, kept in localStorage (testnet when nothing is saved). */
+const chainListeners = new Set<() => void>();
+let memoryChain: number = MEZO_TESTNET_ID;
+
+function readSavedChain(): number {
+  try {
+    const saved = Number(window.localStorage.getItem(CHAIN_KEY));
+    return isMezoChainId(saved) ? saved : memoryChain;
+  } catch {
+    return memoryChain;
+  }
+}
+
+function saveChain(id: number) {
+  memoryChain = id;
+  try {
+    window.localStorage.setItem(CHAIN_KEY, String(id));
+  } catch {
+    /* storage unavailable: kept in memory for this visit */
+  }
+  chainListeners.forEach((l) => l());
+}
+
+function subscribeChain(onChange: () => void) {
+  chainListeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    chainListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
 const liveClients = new Map<number, SuretyClient>();
 
 function liveClient(chainId: number, deployment: SuretyDeployment): SuretyClient {
@@ -73,29 +105,13 @@ function liveClient(chainId: number, deployment: SuretyDeployment): SuretyClient
 
 export function SuretyProvider({ demo, children }: { demo: DemoScenario | null | undefined; children: ReactNode }) {
   const { address, chainId: walletChainId, isConnected } = useAccount();
-  const [selected, setSelected] = useState<number>(MEZO_TESTNET_ID);
-
-  useEffect(() => {
-    try {
-      const saved = Number(window.localStorage.getItem(CHAIN_KEY));
-      if (isMezoChainId(saved)) setSelected(saved);
-    } catch {
-      /* storage unavailable: keep the default */
-    }
-  }, []);
+  const selected = useSyncExternalStore(subscribeChain, readSavedChain, () => MEZO_TESTNET_ID);
 
   // A wallet on a Mezo chain decides the network; otherwise the picker does.
   const walletOnMezo = isConnected && walletChainId !== undefined && isMezoChainId(walletChainId);
   const chainId = demo ? MEZO_TESTNET_ID : walletOnMezo ? walletChainId : selected;
 
-  const selectChain = useCallback((id: number) => {
-    setSelected(id);
-    try {
-      window.localStorage.setItem(CHAIN_KEY, String(id));
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const selectChain = useCallback((id: number) => saveChain(id), []);
 
   const demoQuery = useQuery({
     queryKey: ["demo-fixture", demo ?? "off"],

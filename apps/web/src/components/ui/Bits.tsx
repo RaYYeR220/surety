@@ -339,3 +339,17 @@ export function SectionTitle({ children, id }: { children: ReactNode; id?: strin
 export function Muted({ children, small }: { children: ReactNode; small?: boolean }) {
   return <span className={cx(styles.muted, small && styles.small)}>{children}</span>;
 }
+
+/** Bulleted list of short facts with the accent mark. */
+export function FactList({ items }: { items: ReactNode[] }) {
+  return (
+    <ul className={styles.facts}>
+      {items.map((item, i) => (
+        <li key={i}>
+          <span className={styles.factMark} aria-hidden="true" />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
