@@ -16,7 +16,8 @@ import {MockAggregator} from "../mocks/MockAggregator.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {LineFixture} from "./LineFixture.sol";
 
-/// @notice LineFixture plus a CreditVoter with three lines and a VoteAllocator holding the vault's allocator role.
+/// @notice Unit fixture: LineFixture plus a CreditVoter with three lines and a VoteAllocator holding the vault's
+/// allocator role. No SuretyPool is set; tests install their own.
 /// @dev
 /// - Lines: 0 = BTC Morpho market (fixture market, priced by `stressedSource`), 1 = the VeBTCCreditLine (also
 ///   `stressedSource`), 2 = a second Morpho market on the same adapter with "cbBTC" collateral and its own feed, so
@@ -25,23 +26,14 @@ import {LineFixture} from "./LineFixture.sol";
 /// - `admin` stays a vault allocator from SuretyFixture; tests only move capital through the VoteAllocator.
 /// - Voters lock permanently, so their power is exactly the BTC amount in every epoch after the lock.
 abstract contract AllocatorFixture is LineFixture {
-    uint256 internal constant BTC_LINE = 0;
-    uint256 internal constant VE_LINE = 1;
+    uint256 internal constant BTC_LINE = MORPHO_LINE;
     uint256 internal constant CBTC_LINE = 2;
-    uint256 internal constant IDLE_BUFFER_BPS = 1000;
 
     MockERC20 internal cbtc;
     MockAggregator internal cbtcAggregator;
     SkipPriceSource internal cbtcSource;
     MorphoPriceOracle internal cbtcOracle;
     MarketParams internal cbtcMarket;
-
-    CreditVoter internal voter;
-    VoteAllocator internal allocator;
-
-    address internal alice = makeAddr("alice");
-    address internal bob = makeAddr("bob");
-    address internal carol = makeAddr("carol");
 
     function setUp() public virtual override {
         super.setUp();
@@ -87,31 +79,14 @@ abstract contract AllocatorFixture is LineFixture {
     }
 
     function _vote(address user, uint256 tokenId, uint256 lineId) internal {
-        uint256[] memory lineIds = new uint256[](1);
-        uint256[] memory weights = new uint256[](1);
-        lineIds[0] = lineId;
-        weights[0] = BPS;
-        vm.prank(user);
-        voter.vote(tokenId, lineIds, weights);
+        _voteAll(user, tokenId, lineId);
     }
 
     function _vote2(address user, uint256 tokenId, uint256 lineA, uint256 weightA, uint256 lineB) internal {
-        uint256[] memory lineIds = new uint256[](2);
-        uint256[] memory weights = new uint256[](2);
-        lineIds[0] = lineA;
-        lineIds[1] = lineB;
-        weights[0] = weightA;
-        weights[1] = BPS - weightA;
-        vm.prank(user);
-        voter.vote(tokenId, lineIds, weights);
+        _vote(user, tokenId, _arr(lineA, lineB), _arr(weightA, BPS - weightA));
     }
 
     /* Rebalancing */
-
-    function _rebalance() internal {
-        vm.prank(keeper);
-        allocator.rebalance();
-    }
 
     /// @notice Assets the vault would hold in lines at a perfect rebalance: total assets minus the idle buffer.
     function _deployable() internal view returns (uint256) {

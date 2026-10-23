@@ -16,7 +16,7 @@ import {LineFixture} from "../utils/LineFixture.sol";
 /// @notice VeBTCCreditLine as a VaultV2 adapter (real vault) and as an isolated veBTC-collateral market.
 contract VeBTCCreditLineTest is LineFixture {
     address internal other = makeAddr("other");
-    address internal pool = makeAddr("suretyPool");
+    address internal fakePool = makeAddr("suretyPool");
 
     /* Adapter */
 
@@ -679,22 +679,22 @@ contract VeBTCCreditLineTest is LineFixture {
         uint256 shortfall = line.badDebtTotal();
         assertEq(line.realAssets(), assetsBefore - shortfall);
 
-        musd.mint(pool, shortfall);
-        vm.prank(pool);
+        musd.mint(fakePool, shortfall);
+        vm.prank(fakePool);
         musd.approve(address(line), shortfall);
         vm.expectRevert(VeBTCCreditLine.NotSuretyPool.selector);
-        vm.prank(pool);
+        vm.prank(fakePool);
         line.receiveCover(shortfall);
 
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, keeper));
         vm.prank(keeper);
-        line.setSuretyPool(pool);
+        line.setSuretyPool(fakePool);
         vm.prank(admin);
-        line.setSuretyPool(pool);
+        line.setSuretyPool(fakePool);
         vm.expectRevert(VeBTCCreditLine.SuretyPoolAlreadySet.selector);
         vm.prank(admin);
         line.setSuretyPool(keeper);
-        assertEq(line.suretyPool(), pool);
+        assertEq(line.suretyPool(), fakePool);
 
         vm.expectRevert(VeBTCCreditLine.NotSuretyPool.selector);
         vm.prank(keeper);
@@ -702,11 +702,11 @@ contract VeBTCCreditLineTest is LineFixture {
 
         vm.expectEmit(address(line));
         emit VeBTCCreditLine.CoverReceived(shortfall);
-        vm.prank(pool);
+        vm.prank(fakePool);
         line.receiveCover(shortfall);
 
         assertEq(line.realAssets(), assetsBefore);
-        assertEq(musd.balanceOf(pool), 0);
+        assertEq(musd.balanceOf(fakePool), 0);
         // The ledger is cumulative; the pool tracks what it has already covered.
         assertEq(line.badDebtTotal(), shortfall);
     }

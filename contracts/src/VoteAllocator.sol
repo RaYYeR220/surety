@@ -21,11 +21,6 @@ import {ISuretyPool} from "./interfaces/ISuretyPool.sol";
 import {IVoteAllocator} from "./interfaces/IVoteAllocator.sol";
 import {LineIds} from "./libraries/LineIds.sol";
 
-/// @notice VaultV2 cap ids a Surety-native line reports on allocate/deallocate (VeBTCCreditLine.ids()).
-interface ILineCapIds {
-    function ids() external view returns (bytes32[] memory);
-}
-
 /// @title VoteAllocator
 /// @notice Holds the Surety vault's allocator role and sizes each credit line from CreditVoter tallies, then
 /// measures what each line earned so the SuretyPool can split the voters' fee shares by line.
@@ -41,6 +36,9 @@ interface ILineCapIds {
 /// - Moves: overweight lines are deallocated first, bounded by what they can pay out now (Morpho market liquidity,
 ///   veBTC line cash), then underweight lines are allocated from idle assets above the buffer. Nothing reverts on an
 ///   illiquid line; a re-run inside the epoch continues the move. A move the vault rejects is skipped and reported.
+/// - Losses: before measuring, each rebalance has the pool checkpoint every line, so a loss taken since the previous
+///   rebalance is noted (lowering the baseline) before interest is measured. A checkpoint that fails is reported
+///   and skipped; it never blocks the run.
 /// - Interest: each rebalance measures `assets - baseline` per line, where the baseline is the line's assets after
 ///   the previous rebalance moved by the adjustments the pool noted since (losses down, covers up). Drops are not
 ///   negative interest; they are kept as unexplained loss that a later noted loss is netted against first.
@@ -122,6 +120,8 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     event InterestAttributed(uint256 indexed cohortEpoch, uint256[] lineIds, uint256[] interest);
     /// @notice The vault rejected a move; capital stays where it is until a later rebalance.
     event MoveFailed(uint256 indexed lineId, bool allocation, uint256 assets, bytes reason);
+    /// @notice The pool's loss checkpoint of `lineId` reverted; the line's losses wait for a later checkpoint.
+    event CheckpointFailed(uint256 indexed lineId, bytes reason);
     event AdjustmentNoted(uint256 indexed lineId, int256 delta);
     event SuretyPoolSet(address indexed pool);
     event MaxRateSet(uint256 maxRate);
@@ -195,6 +195,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         vault.accrueInterest();
         uint256 epoch = voter.currentEpoch();
         LineState[] memory lines = _loadLines();
+        _checkpointLosses(lines.length);
         uint256[] memory interest = _measure(lines);
 
         bool newEpoch = epoch > lastRebalanceEpoch;
@@ -264,7 +265,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
                 l.eligible = info.active && _quotes(params.oracle, IOracle.price.selector);
             } else {
                 ISuretyLine suretyLine = ISuretyLine(info.adapter);
-                l.ids = ILineCapIds(info.adapter).ids();
+                l.ids = suretyLine.ids();
                 l.eligible = info.active && !suretyLine.paused()
                     && _quotes(address(suretyLine.oracle()), IPriceSource.priceWad.selector);
             }
@@ -431,6 +432,20 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     }
 
     /* Internals: interest */
+
+    /// @dev Has the pool record each line's new losses, which it notes back through `noteAdjustment`, so they lower
+    /// the baselines before `_measure` instead of reading as unexplained drops. Covers every listed line, so a line's
+    /// loss mark is set from its first rebalance on. Skipped while no pool is set.
+    function _checkpointLosses(uint256 n) internal {
+        address pool = suretyPool;
+        if (pool == address(0)) return;
+        for (uint256 i; i < n; ++i) {
+            try ISuretyPool(pool).checkpoint(i) {}
+            catch (bytes memory reason) {
+                emit CheckpointFailed(i, reason);
+            }
+        }
+    }
 
     /// @dev Interest of each tracked line since the previous rebalance, added to its pending interest. Drops are
     /// recorded as unexplained loss instead. Untracked (newly listed) lines report zero.
