@@ -107,17 +107,17 @@ export function formatCountdown(seconds: number): string {
 /** Seconds as a human duration, e.g. "3 days", "5 h 20 min", "45 min". */
 export function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
-  if (s >= 2 * 86_400) return `${Math.round(s / 86_400)} days`;
-  if (s >= 86_400) {
-    const h = Math.round((s - 86_400) / 3600);
-    return h ? `1 day ${h} h` : "1 day";
-  }
-  if (s >= 3600) {
-    const h = Math.floor(s / 3600);
-    const m = Math.round((s % 3600) / 60);
+  // Round to the unit shown first, so 13 h 59.6 min reads "14 h", never "13 h 60 min".
+  const hours = Math.round(s / 3600);
+  if (hours >= 48) return `${Math.round(s / 86_400)} days`;
+  if (hours >= 24) return hours === 24 ? "1 day" : `1 day ${hours - 24} h`;
+  const minutes = Math.round(s / 60);
+  if (minutes >= 60) {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
     return m ? `${h} h ${m} min` : `${h} h`;
   }
-  if (s >= 60) return `${Math.round(s / 60)} min`;
+  if (s >= 60) return `${minutes} min`;
   return `${s} s`;
 }
 
