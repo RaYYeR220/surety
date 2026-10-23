@@ -380,18 +380,19 @@ contract SuretyPoolTest is PoolFixture {
         _borrowMorpho(morphoBorrower, 1e18, 60_000e18);
         _warp(1 days);
 
-        // The first checkpoint sets the high-water mark; interest only raises it.
+        // The first checkpoint sets the mark; each later one moves it (interest only raises the price).
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
         _warp(1 days);
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
         Market memory m0 = morpho.market(btcMarketId);
-        (uint128 markAssets, uint128 markShares, bool set) = pool.highWaterMark(MORPHO_LINE);
+        bytes32 id = Id.unwrap(btcMarketId);
+        (uint128 markAssets, uint128 markShares, bool set, uint256 markAdapterShares) = pool.highWaterMark(MORPHO_LINE);
         assertTrue(set);
         assertEq(markAssets, m0.totalSupplyAssets);
         assertEq(markShares, m0.totalSupplyShares);
+        assertEq(markAdapterShares, morphoAdapter.supplyShares(id), "the adapter's shares at the mark");
 
         _shock(6000);
-        bytes32 id = Id.unwrap(btcMarketId);
         uint256 assetsBefore = morphoAdapter.expectedSupplyAssets(id);
         _liquidateMorpho(liquidator, morphoBorrower);
         Market memory m1 = morpho.market(btcMarketId);
@@ -415,29 +416,55 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(pool.lossRecorded(MORPHO_LINE), loss);
     }
 
-    function test_checkpoint_morphoDust_keepsMarkUntilMaterial() public {
+    /// @dev Morpho's supply share price never falls through rounding, so the mark always moves: a dust-sized drop is
+    /// not recorded and not carried over, and a later material loss is measured from the new mark.
+    function test_checkpoint_morphoDust_ignoredAndMarkMoves() public {
         _deposit(lender, 100_000e18);
         _allocateMorpho(100_000e18);
         // A position small enough that its bad debt is dust.
         _borrowMorpho(morphoBorrower, 1e7, 5e11);
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
-        (uint128 markAssets,,) = pool.highWaterMark(MORPHO_LINE);
+        (uint128 markAssets,,,) = pool.highWaterMark(MORPHO_LINE);
 
         _shock(6000);
         _liquidateMorpho(liquidator, morphoBorrower);
-        assertLt(morpho.market(btcMarketId).totalSupplyAssets, markAssets, "dust bad debt realised");
+        uint256 afterDust = morpho.market(btcMarketId).totalSupplyAssets;
+        assertLt(afterDust, markAssets, "dust bad debt realised");
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
-        (uint128 kept,,) = pool.highWaterMark(MORPHO_LINE);
-        assertEq(kept, markAssets, "mark kept so dust accumulates");
+        (uint128 moved,,,) = pool.highWaterMark(MORPHO_LINE);
+        assertEq(moved, afterDust, "the mark moved to the new price");
 
-        // A material loss later is measured from the same mark, dust included.
+        // A material loss later is measured from the new mark only.
         _shock(0);
         _borrowMorpho(carol, 1e18, 60_000e18);
         _shock(6000);
         uint256 before = morphoAdapter.expectedSupplyAssets(Id.unwrap(btcMarketId));
         _liquidateMorpho(liquidator, carol);
         uint256 loss = pool.checkpoint(MORPHO_LINE);
-        assertGt(loss, before - morphoAdapter.expectedSupplyAssets(Id.unwrap(btcMarketId)));
+        assertApproxEqAbs(loss, before - morphoAdapter.expectedSupplyAssets(Id.unwrap(btcMarketId)), 2);
+    }
+
+    /// @dev Shares that leave the adapter after the mark (here, a sentinel deallocating in place of anyone's
+    /// forceDeallocate) left at the impaired price, so the loss is still valued on the shares held at the mark.
+    function test_checkpoint_morphoLoss_valuedOnSharesHeldAtMark() public {
+        _deposit(lender, 100_000e18);
+        _allocateMorpho(100_000e18);
+        _borrowMorpho(morphoBorrower, 1e18, 60_000e18);
+        assertEq(pool.checkpoint(MORPHO_LINE), 0);
+        bytes32 id = Id.unwrap(btcMarketId);
+        uint256 atMark = morphoAdapter.expectedSupplyAssets(id);
+
+        _shock(6000);
+        _liquidateMorpho(liquidator, morphoBorrower);
+        uint256 drop = atMark - morphoAdapter.expectedSupplyAssets(id);
+        assertGt(drop, 25_000e18);
+        _deallocateMorpho(morphoAdapter.expectedSupplyAssets(id) * 95 / 100);
+
+        uint256 loss = pool.checkpoint(MORPHO_LINE);
+        assertApproxEqAbs(loss, drop, 2, "the whole drop, not 5% of it");
+        (,,, uint256 markAdapterShares) = pool.highWaterMark(MORPHO_LINE);
+        assertEq(markAdapterShares, morphoAdapter.supplyShares(id), "the mark now holds the shares left");
+        assertEq(pool.checkpoint(MORPHO_LINE), 0, "recorded once");
     }
 
     function test_checkpoint_veBTCShortfall_recordsLoss() public {

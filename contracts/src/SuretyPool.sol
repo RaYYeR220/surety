@@ -10,6 +10,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {Id, IMorpho, Market, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
 import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
 import {SharesMathLib} from "morpho-blue/libraries/SharesMathLib.sol";
+import {IMorphoMarketV1AdapterV2} from "vault-v2/adapters/interfaces/IMorphoMarketV1AdapterV2.sol";
 import {IAdapter} from "vault-v2/interfaces/IAdapter.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 
@@ -19,11 +20,6 @@ import {ISuretyLine} from "./interfaces/ISuretyLine.sol";
 import {ISuretyPool} from "./interfaces/ISuretyPool.sol";
 import {IVeBTC} from "./interfaces/IVeBTC.sol";
 import {EpochLib} from "./libraries/EpochLib.sol";
-
-/// @dev Supply shares MorphoMarketV1AdapterV2 books per market; its realAssets are valued from these only.
-interface IMorphoAdapterShares {
-    function supplyShares(bytes32 marketId) external view returns (uint256);
-}
 
 /// @title SuretyPool
 /// @notice Voter rewards as first loss. Rewards for backing a credit line (sponsor incentives and the vault's
@@ -38,8 +34,8 @@ interface IMorphoAdapterShares {
 ///   at maturity is final; it is frozen into `finalShares` at the first claim.
 /// - Claims go to the NFT's current owner, or to the borrower when the owner is a Surety loan escrow. Claims for a
 ///   burned NFT (merged or withdrawn; `ownerOf == 0`) are credited to the reserve.
-/// - Losses: Morpho lines are measured from the market's supply share price against a high-water mark set by the
-///   first checkpoint; the veBTC line reports its cumulative bad debt. `cover` covers at most the recorded loss and
+/// - Losses: Morpho lines are measured from the market's supply share price against the mark of the line's last
+///   checkpoint (price and the adapter's shares then); the veBTC line reports its cumulative bad debt. `cover` covers at most the recorded loss and
 ///   sizes the MUSD it moves so that, once VaultV2 has re-recognised it, lenders are back at the pre-loss share price
 ///   and the pool bears exactly the loss (see `cover`).
 /// - Covering a Morpho line returns the redeemed MUSD to the vault as idle assets, because
@@ -65,15 +61,20 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         bool frozen;
     }
 
-    /// @notice A Morpho market's supply totals at the line's reference share price: raised by every checkpoint that
-    /// sees a higher price, lowered only when a loss is recorded.
+    /// @notice A Morpho line's state at its last checkpoint: the market's supply totals (its supply share price) and
+    /// the adapter's supply shares in the market. Every checkpoint moves it to the current state after measuring.
+    /// @param set Whether a checkpoint has run; losses before the first one are not measured.
+    /// @param adapterShares The adapter's supply shares at the checkpoint (the VoteAllocator checkpoints again after
+    /// its own moves, so this is current except for moves made by others, such as VaultV2's `forceDeallocate`).
     struct HighWaterMark {
         uint128 totalSupplyAssets;
         uint128 totalSupplyShares;
         bool set;
+        uint256 adapterShares;
     }
 
-    /// @notice Morpho losses at or below this many MUSD wei are not recorded (the high-water mark is kept).
+    /// @notice Morpho losses at or below this many MUSD wei are not recorded (Morpho's supply share price never falls
+    /// through rounding, so a drop is always bad debt; a dust-sized one is ignored).
     uint256 public constant LOSS_DUST = 1e12;
     uint256 public constant MAX_SEASON = 52;
     uint256 internal constant WAD = 1e18;
@@ -312,10 +313,13 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
 
     /// @inheritdoc ISuretyPool
     /// @dev Permissionless; the VoteAllocator also calls it for every line at each rebalance.
-    /// Morpho lines: accrues the market and compares its supply share price with the line's high-water mark
-    /// (set by the first checkpoint). A drop is valued on the adapter's supply shares with Morpho's rounding; drops
-    /// worth at most LOSS_DUST are ignored without moving the mark. Losses are measured on the adapter's shares at
-    /// checkpoint time, so a checkpoint should precede any reallocation of the line.
+    /// Morpho lines: accrues the market and compares its supply share price with the line's mark (set by the first
+    /// checkpoint). A drop is valued with Morpho's rounding on `max(sharesAtMark, sharesNow)` of the adapter: shares
+    /// that left after the mark (a permissionless `forceDeallocate`, possibly bundled with the liquidation that made
+    /// the bad debt) left at the impaired price, so their part of the loss is real for the vault and is recorded too.
+    /// If a forced exit came before the bad debt within the same window this over-records, which is the lender-safe
+    /// direction. Drops worth at most LOSS_DUST are not recorded. The mark then moves to the current price and
+    /// shares, so a line whose adapter holds no shares never carries a stale price into its next position.
     /// veBTC line: the increase in the line's cumulative `badDebtTotal` since the last checkpoint.
     function checkpoint(uint256 lineId) external nonReentrant returns (uint256 newLoss) {
         return _checkpoint(lineId, voter.line(lineId));
@@ -547,23 +551,34 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         emit LossRecorded(lineId, newLoss);
     }
 
+    /// @dev Measures the line's Morpho loss since its mark on the accrued market, then moves the mark.
     function _morphoLoss(uint256 lineId, MarketParams memory params) internal returns (uint256 loss) {
         Id id = params.id();
         morpho.accrueInterest(params);
         Market memory m = morpho.market(id);
+        uint256 sharesNow = IMorphoMarketV1AdapterV2(morphoAdapter).supplyShares(Id.unwrap(id));
         HighWaterMark storage mark = highWaterMark[lineId];
+        loss = _lossBelowMark(mark, m.totalSupplyAssets, m.totalSupplyShares, sharesNow);
+
+        mark.totalSupplyAssets = m.totalSupplyAssets;
+        mark.totalSupplyShares = m.totalSupplyShares;
+        mark.adapterShares = sharesNow;
+        mark.set = true;
+    }
+
+    /// @dev Loss of `max(sharesAtMark, sharesNow)` adapter shares from the mark's supply share price down to the
+    /// price of the supply totals (a, s); zero if no mark is set, the price did not fall, or the loss is dust.
+    function _lossBelowMark(HighWaterMark storage mark, uint256 a, uint256 s, uint256 sharesNow)
+        internal
+        view
+        returns (uint256 loss)
+    {
         uint256 markAssets = mark.totalSupplyAssets;
         uint256 markShares = mark.totalSupplyShares;
-        if (!mark.set || !_priceBelow(m.totalSupplyAssets, m.totalSupplyShares, markAssets, markShares)) {
-            _setMark(mark, m);
-            return 0;
-        }
-
-        uint256 shares = IMorphoAdapterShares(morphoAdapter).supplyShares(Id.unwrap(id));
-        uint256 atMark = shares.toAssetsDown(markAssets, markShares);
-        loss = atMark - shares.toAssetsDown(m.totalSupplyAssets, m.totalSupplyShares);
+        if (!mark.set || !_priceBelow(a, s, markAssets, markShares)) return 0;
+        uint256 shares = Math.max(mark.adapterShares, sharesNow);
+        loss = shares.toAssetsDown(markAssets, markShares) - shares.toAssetsDown(a, s);
         if (loss <= LOSS_DUST) return 0;
-        _setMark(mark, m);
     }
 
     /// @dev Whether Morpho's supply share price, (assets + VIRTUAL_ASSETS) / (shares + VIRTUAL_SHARES), is lower
@@ -571,12 +586,6 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     function _priceBelow(uint256 a, uint256 s, uint256 markA, uint256 markS) internal pure returns (bool) {
         return (a + SharesMathLib.VIRTUAL_ASSETS) * (markS + SharesMathLib.VIRTUAL_SHARES)
             < (markA + SharesMathLib.VIRTUAL_ASSETS) * (s + SharesMathLib.VIRTUAL_SHARES);
-    }
-
-    function _setMark(HighWaterMark storage mark, Market memory m) internal {
-        mark.totalSupplyAssets = m.totalSupplyAssets;
-        mark.totalSupplyShares = m.totalSupplyShares;
-        mark.set = true;
     }
 
     // forge-lint: disable-end(reentrancy-events)

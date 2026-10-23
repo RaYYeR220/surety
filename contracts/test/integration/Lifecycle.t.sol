@@ -65,7 +65,7 @@ contract LifecycleTest is SuretyFixture {
         assertEq(line.suretyPool(), address(pool));
         assertEq(address(pool.escrows()), address(line));
         assertEq(pool.SEASON(), SEASON);
-        (,, bool markSet) = pool.highWaterMark(MORPHO_LINE);
+        (,, bool markSet,) = pool.highWaterMark(MORPHO_LINE);
         assertTrue(markSet, "the Morpho line was checkpointed when listed");
     }
 

@@ -38,7 +38,8 @@ import {LineIds} from "./libraries/LineIds.sol";
 /// - Moves: overweight lines are deallocated first, bounded by what they can pay out now (Morpho market liquidity,
 ///   veBTC line cash), then underweight lines are allocated from idle assets above the buffer. Nothing reverts on an
 ///   illiquid line; a re-run inside the epoch continues the move. A move the vault rejects is skipped and reported.
-/// - Losses: each rebalance has the pool checkpoint every line before it measures. A checkpoint that fails is
+/// - Losses: each rebalance has the pool checkpoint every line before it measures, and again after its moves so the
+///   pool values a later Morpho loss on the adapter's shares as this run left them. A checkpoint that fails is
 ///   reported and skipped; it never blocks the run.
 /// - Interest is never read from changes in a line's assets, which anyone can move through VaultV2's permissionless
 ///   `forceDeallocate` (and covers and losses move too). Each rebalance snapshots, after its own moves:
@@ -191,6 +192,8 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         _setTargets(lines, tallyEpoch, total, firstTotal);
         _deallocateOverweight(lines);
         _allocateUnderweight(lines, total, firstTotal);
+        // Again after the moves, so the pool's Morpho marks hold the adapter's shares as this run left them.
+        _checkpointLosses(lines.length);
 
         (uint256[] memory lineIds, uint256[] memory targetAssets) = _snapshot(lines);
         emit Rebalanced(epoch, tallyEpoch, lineIds, targetAssets, interest);

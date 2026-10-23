@@ -576,15 +576,16 @@ contract VoteAllocatorTest is AllocatorFixture {
 
     /* Loss checkpoints */
 
-    /// @dev Every listed line is checkpointed on every run, before the epoch's fees are handed to the pool.
+    /// @dev Every listed line is checkpointed twice on every run, before measuring and after the moves, both before
+    /// the epoch's fees are handed to the pool.
     function test_rebalance_checkpointsEveryLineBeforeMeasuring() public {
         (uint256 aliceId, uint256 bobId) = _seed60_40();
         _warpEpochs(1);
         _rebalance();
-        assertEq(recorder.checkpointCount(), 3);
-        for (uint256 i; i < 3; ++i) {
+        assertEq(recorder.checkpointCount(), 6);
+        for (uint256 i; i < 6; ++i) {
             (uint256 lineId, uint256 attributionsBefore) = recorder.checkpointAt(i);
-            assertEq(lineId, i);
+            assertEq(lineId, i % 3);
             assertEq(attributionsBefore, 0);
         }
 
@@ -593,10 +594,10 @@ contract VoteAllocatorTest is AllocatorFixture {
         _warpEpochs(1);
         _rebalance();
         assertEq(recorder.count(), 1);
-        assertEq(recorder.checkpointCount(), 6);
-        for (uint256 i = 3; i < 6; ++i) {
+        assertEq(recorder.checkpointCount(), 12);
+        for (uint256 i = 6; i < 12; ++i) {
             (uint256 lineId, uint256 attributionsBefore) = recorder.checkpointAt(i);
-            assertEq(lineId, i - 3);
+            assertEq(lineId, i % 3);
             assertEq(attributionsBefore, 0, "checkpointed before the epoch's fees were attributed");
         }
     }
@@ -610,7 +611,7 @@ contract VoteAllocatorTest is AllocatorFixture {
         emit VoteAllocator.CheckpointFailed(VE_LINE, abi.encodeWithSelector(RecordingPool.CheckpointBroken.selector));
         _rebalance();
 
-        assertEq(recorder.checkpointCount(), 2);
+        assertEq(recorder.checkpointCount(), 4, "the other two lines, before and after the moves");
         (uint256 btcAssets, uint256 veAssets,) = _assets();
         assertApproxEqAbs(btcAssets, 540_000e18, DUST);
         assertEq(veAssets, 360_000e18);
@@ -857,7 +858,7 @@ contract VoteAllocatorLossTest is AllocatorFixture {
         _vote(alice, aliceId, BTC_LINE);
         _warpEpochs(1);
         _rebalance();
-        (,, bool markSet) = pool.highWaterMark(BTC_LINE);
+        (,, bool markSet,) = pool.highWaterMark(BTC_LINE);
         assertTrue(markSet, "first rebalance set the loss mark");
         assertApproxEqAbs(allocator.lineAssets(BTC_LINE), 90_000e18, 2);
         uint256 position = allocator.lineAssets(BTC_LINE);
