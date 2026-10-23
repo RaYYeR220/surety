@@ -38,7 +38,8 @@ import {LineIds} from "./libraries/LineIds.sol";
 /// - Losses: Morpho lines are measured from the market's supply share price against the mark of the line's last
 ///   checkpoint (price and the adapter's shares then); the veBTC line reports its cumulative bad debt. `cover` covers at most the recorded loss and
 ///   sizes the MUSD it moves so that, once VaultV2 has re-recognised it, lenders are back at the pre-loss share price
-///   and the pool bears exactly the loss (see `cover`).
+///   and the pool bears exactly the loss (see `cover`). The fee shares VaultV2 mints on the re-recognised MUSD go
+///   back to whoever the cover slashed, so the slashed cohorts themselves net exactly the loss.
 /// - Covering a Morpho line returns the redeemed MUSD to the vault as idle assets, because
 ///   MorphoMarketV1AdapterV2 values its position from its own supply-share ledger and a Morpho supply made on its
 ///   behalf would be stranded. Covering the veBTC line pays it through `receiveCover`.
@@ -74,6 +75,22 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         uint256 adapterShares;
     }
 
+    /// @notice The fee shares VaultV2 owes back on one cover: it mints its performance fee on the cover's MUSD as it
+    /// re-recognises it, and those shares go to the cohorts the cover slashed, pro rata to what each paid.
+    /// @param lineId The covered line.
+    /// @param unrecognised MUSD of the cover not re-recognised yet, as far as the pool can tell.
+    /// @param burned Vault shares the cover burned (cohorts and reserve).
+    /// @param epochs Slashed cohorts' epochs, with `cuts` the shares each lost; the reserve paid the rest of `burned`.
+    struct CoverFee {
+        uint256 lineId;
+        uint256 unrecognised;
+        uint256 burned;
+        uint256[] epochs;
+        uint256[] cuts;
+    }
+
+    /// @notice Covers whose fee shares one `distributeFees` credits at most (the rest wait for the next one).
+    uint256 public constant MAX_COVER_FEES_PER_DISTRIBUTION = 8;
     /// @notice Morpho losses at or below this many MUSD wei are not recorded (Morpho's supply share price never falls
     /// through rounding, so a drop is always bad debt; a dust-sized one is ignored).
     uint256 public constant LOSS_DUST = 1e12;
@@ -113,6 +130,12 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     mapping(uint256 lineId => HighWaterMark) public highWaterMark;
     /// @notice The vault's allocation through the line's adapter at the line's last checkpoint (see `checkpoint`).
     mapping(uint256 lineId => uint256) public allocationAtCheckpoint;
+    /// @dev Covers in order; those before `coverFeeHead` are fully credited.
+    CoverFee[] internal coverFees;
+    /// @notice First cover whose fee shares are not fully credited yet.
+    uint256 public coverFeeHead;
+    /// @notice MUSD of all covers not re-recognised by VaultV2 yet (the sum of their `unrecognised`).
+    uint256 public coverUnrecognised;
 
     event AllocatorSet(address indexed allocator);
     event IncentivePosted(
@@ -134,6 +157,11 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     event Covered(
         uint256 indexed lineId, uint256 lossUnitsCovered, uint256 assetsMoved, uint256 fromCohorts, uint256 fromReserve
     );
+    /// @notice Fee shares VaultV2 minted on a cover's re-recognised MUSD, credited back to whoever the cover slashed
+    /// (part of the `FeesDistributed` totals of the same call).
+    /// @param toCohorts Shares credited to the slashed cohorts.
+    /// @param toReserve Shares credited to the reserve: its own part, and the part of cohorts that matured since.
+    event CoverFeeCredited(uint256 indexed lineId, uint256 toCohorts, uint256 toReserve);
 
     error ZeroAddress();
     error AssetMismatch();
@@ -243,39 +271,26 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
 
     /// @inheritdoc ISuretyPool
     /// @dev Distributes the vault shares received since the last call (performance fees, plus anything sent to the
-    /// pool directly). Each line's part is pro rata to `interest`; it goes to the reserve when the line had no votes
-    /// in `cohortEpoch`, as do rounding dust, a zero total, and every part when `cohortEpoch` is not an ended,
-    /// unmatured epoch.
+    /// pool directly). First, the fee shares VaultV2 minted on covers' re-recognised MUSD go back to whoever each
+    /// cover slashed (see `_creditCoverFees`). Each line's part of the rest is pro rata to `interest`; it goes to the
+    /// reserve when the line had no votes in `cohortEpoch`, as do rounding dust, a zero total, and every part when
+    /// `cohortEpoch` is not an ended, unmatured epoch.
     function distributeFees(uint256 cohortEpoch, uint256[] calldata lineIds, uint256[] calldata interest)
         external
         nonReentrant
     {
         if (msg.sender != allocator) revert NotAllocator();
-        uint256 n = lineIds.length;
-        if (n != interest.length) revert LengthMismatch();
+        if (lineIds.length != interest.length) revert LengthMismatch();
 
         vault.accrueInterest();
         uint256 shares = vault.balanceOf(address(this)) - accountedShares;
         accountedShares += shares;
+        (uint256 coverToCohorts, uint256 coverToReserve) = _creditCoverFees(shares);
+        uint256 left = shares - coverToCohorts - coverToReserve;
 
         uint256 toCohorts = 0;
-        if (shares != 0 && _feeEpoch(cohortEpoch)) {
-            uint256 totalInterest = 0;
-            for (uint256 i; i < n; ++i) {
-                totalInterest += interest[i];
-            }
-            if (totalInterest != 0) {
-                // Bounded by the allocator's line list.
-                for (uint256 i; i < n; ++i) {
-                    // forge-lint: disable-next-line(calls-loop)
-                    if (interest[i] == 0 || voter.lineVotes(cohortEpoch, lineIds[i]) == 0) continue;
-                    uint256 part = Math.mulDiv(shares, interest[i], totalInterest);
-                    cohorts[lineIds[i]][cohortEpoch].shares += part;
-                    toCohorts += part;
-                }
-            }
-        }
-        uint256 toReserve = shares - toCohorts;
+        if (left != 0 && _feeEpoch(cohortEpoch)) toCohorts = _splitByInterest(left, cohortEpoch, lineIds, interest);
+        uint256 toReserve = left - toCohorts + coverToReserve;
         reserveShares += toReserve;
         emit FeesDistributed(cohortEpoch, shares, toReserve);
     }
@@ -344,7 +359,9 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// the post-loss price, and VaultV2 later recognises the returned W as interest and mints its performance fee f
     /// on it to the pool: returning U itself would over-slash voters by about U^2/(A+U) and leave lenders about f*W
     /// short. The cover moves `W = A*U / (A + U - f*A)` instead: once VaultV2 has recognised W, every share is back at
-    /// (A+U)/T and the pool is down exactly U from its pre-loss value, net of the fee shares it got back. A cover cut
+    /// (A+U)/T and the pool is down exactly U from its pre-loss value, net of the fee shares it got back. Those fee
+    /// shares are credited back to the cohorts (and reserve) the cover slashed, pro rata to what each paid, by the
+    /// `distributeFees` calls that follow the re-recognition, so the slashed cohorts net exactly U. A cover cut
     /// short (by the pool or by idle MUSD) moves less and covers `W*(1-f)*(A+U) / (A - f*W)` loss units: the shares
     /// it takes, net of their fee shares, priced at (A+U)/T, so covering the rest later ends at the same price as
     /// one full cover. Returned MUSD that VaultV2 has not recognised yet (R = realAssets - A) enters through
@@ -382,10 +399,12 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         uint256 burn = vault.previewWithdraw(assets);
         uint256 fromCohorts = Math.min(burn, cohortShares);
         uint256 fromReserve = burn - fromCohorts;
-        if (fromCohorts != 0) _slash(lineId, epochs, held, fromCohorts, cohortShares);
+        uint256[] memory cuts;
+        if (fromCohorts != 0) cuts = _slash(lineId, epochs, held, fromCohorts, cohortShares);
         reserveShares -= fromReserve;
         accountedShares -= burn;
         lossCovered[lineId] += covered;
+        _recordCoverFee(lineId, assets, burn, epochs, cuts);
         emit Covered(lineId, covered, assets, fromCohorts, fromReserve);
 
         if (vault.withdraw(assets, address(this), address(this)) != burn) revert WithdrawMismatch();
@@ -487,17 +506,126 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
 
     /// @dev Takes `amount` shares from the cohorts in `held`, pro rata to their holdings. Each cut is rounded down
     /// against what is still owed and still held, so the cuts sum to `amount` and none exceeds its cohort.
+    /// @return cuts Shares taken from each cohort, indexed like `held`.
     function _slash(uint256 lineId, uint256[] memory epochs, uint256[] memory held, uint256 amount, uint256 total)
         internal
+        returns (uint256[] memory cuts)
     {
+        cuts = new uint256[](held.length);
         for (uint256 k; k < held.length; ++k) {
             if (held[k] == 0) continue;
             uint256 cut = Math.mulDiv(amount, held[k], total);
             amount -= cut;
             total -= held[k];
+            cuts[k] = cut;
             cohorts[lineId][epochs[k]].shares -= cut;
             emit CohortSlashed(lineId, epochs[k], cut);
         }
+    }
+
+    /// @dev Credits `shares` to the cohorts of `cohortEpoch` pro rata to each line's interest, skipping lines without
+    /// votes in it. Returns what it credited; the rest is left for the reserve.
+    function _splitByInterest(
+        uint256 shares,
+        uint256 cohortEpoch,
+        uint256[] calldata lineIds,
+        uint256[] calldata interest
+    ) internal returns (uint256 toCohorts) {
+        uint256 n = lineIds.length;
+        uint256 totalInterest = 0;
+        for (uint256 i; i < n; ++i) {
+            totalInterest += interest[i];
+        }
+        if (totalInterest == 0) return 0;
+        // Bounded by the allocator's line list.
+        for (uint256 i; i < n; ++i) {
+            // forge-lint: disable-next-line(calls-loop)
+            if (interest[i] == 0 || voter.lineVotes(cohortEpoch, lineIds[i]) == 0) continue;
+            uint256 part = Math.mulDiv(shares, interest[i], totalInterest);
+            cohorts[lineIds[i]][cohortEpoch].shares += part;
+            toCohorts += part;
+        }
+    }
+
+    /// @dev Remembers who a cover slashed, so the fee shares VaultV2 will mint on its MUSD can be credited back.
+    /// Nothing to remember without a performance fee.
+    function _recordCoverFee(
+        uint256 lineId,
+        uint256 assets,
+        uint256 burned,
+        uint256[] memory epochs,
+        uint256[] memory cuts
+    ) internal {
+        if (_performanceFee() == 0) return;
+        CoverFee storage c = coverFees.push();
+        c.lineId = lineId;
+        c.unrecognised = assets;
+        c.burned = burned;
+        for (uint256 k; k < cuts.length; ++k) {
+            if (cuts[k] == 0) continue;
+            c.epochs.push(epochs[k]);
+            c.cuts.push(cuts[k]);
+        }
+        coverUnrecognised += assets;
+    }
+
+    /// @dev Credits, out of `available` newly received shares, the fee shares VaultV2 minted on covers' MUSD since the
+    /// last call. Covers' MUSD counts as re-recognised to the extent the vault's real assets no longer exceed its
+    /// total assets, oldest cover first (exact when the covers' MUSD is the only amount awaiting recognition, as after
+    /// a loss; anything else awaiting recognition, such as a donation, delays the credit). Each recognised MUSD earns
+    /// VaultV2's performance fee, converted to shares at the price after this transaction's accrual (as
+    /// `convertToShares` would); at most MAX_COVER_FEES_PER_DISTRIBUTION covers are credited per call.
+    function _creditCoverFees(uint256 available) internal returns (uint256 toCohorts, uint256 toReserve) {
+        uint256 head = coverFeeHead;
+        uint256 end = coverFees.length;
+        if (head == end || available == 0) return (0, 0);
+        uint256 unrecognised = coverUnrecognised;
+        uint256 recognised = _floorSub(unrecognised, _pendingRecognition());
+        if (recognised == 0) return (0, 0);
+
+        // Fee shares per recognised MUSD: fee * (totalSupply + virtualShares) / (WAD * (totalAssets + 1)).
+        uint256 num = _performanceFee() * (vault.totalSupply() + vault.virtualShares());
+        uint256 den = WAD * (vault.totalAssets() + 1);
+        end = Math.min(end, head + MAX_COVER_FEES_PER_DISTRIBUTION);
+        for (uint256 k = head; k < end && recognised != 0; ++k) {
+            CoverFee storage c = coverFees[k];
+            uint256 r = Math.min(c.unrecognised, recognised);
+            recognised -= r;
+            unrecognised -= r;
+            c.unrecognised -= r;
+            uint256 owed = Math.min(available, Math.mulDiv(r, num, den));
+            available -= owed;
+            uint256 cohortPart = _creditCover(c, owed);
+            toCohorts += cohortPart;
+            toReserve += owed - cohortPart;
+            if (c.unrecognised == 0) {
+                delete coverFees[k];
+                head = k + 1;
+            }
+        }
+        coverFeeHead = head;
+        coverUnrecognised = unrecognised;
+    }
+
+    /// @dev Splits `shares` over a cover's slashed cohorts pro rata to their cuts and returns what they got; the rest
+    /// is the reserve's: the part of the burn it paid, the part of cohorts that have matured since (closed to
+    /// inflows) and the rounding dust.
+    function _creditCover(CoverFee storage c, uint256 shares) internal returns (uint256 toCohorts) {
+        if (shares == 0) return 0;
+        uint256 lineId = c.lineId;
+        uint256 n = c.epochs.length;
+        for (uint256 i; i < n; ++i) {
+            uint256 epoch = c.epochs[i];
+            if (block.timestamp >= maturityOf(epoch)) continue;
+            uint256 part = Math.mulDiv(shares, c.cuts[i], c.burned);
+            cohorts[lineId][epoch].shares += part;
+            toCohorts += part;
+        }
+        emit CoverFeeCredited(lineId, toCohorts, shares - toCohorts);
+    }
+
+    function _floorSub(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a - b : 0;
     }
 
     /// @dev Sizes a cover of `uncovered` loss units with at most `maxAssets` MUSD, after the vault's accrual (see
@@ -532,6 +660,13 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     function _performanceFee() internal view returns (uint256 fee) {
         fee = vault.performanceFee();
         if (fee != 0 && !vault.canReceiveShares(vault.performanceFeeRecipient())) fee = 0;
+    }
+
+    /// @dev MUSD VaultV2 holds but has not recognised in its total assets yet (held back by its max rate).
+    function _pendingRecognition() internal view returns (uint256) {
+        uint256 real = _vaultRealAssets();
+        uint256 total = vault.totalAssets();
+        return real > total ? real - total : 0;
     }
 
     /// @dev What VaultV2 values its assets at before the max rate: idle MUSD plus every adapter's real assets.

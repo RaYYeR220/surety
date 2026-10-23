@@ -1008,6 +1008,59 @@ contract SuretyPoolTest is PoolFixture {
         }
     }
 
+    /// @dev Review finding L-04: the fee shares VaultV2 mints as it re-recognises a cover's MUSD go back to the
+    /// slashed cohort as they are minted (here over two distributions), and to the reserve once that cohort matured.
+    function test_distributeFees_creditsCoverFeesToSlashedCohorts() public {
+        uint256 loanId = _sizingScene(VE_LINE);
+        uint256 e1 = _currentEpoch();
+        _takeLoss(VE_LINE, loanId);
+        uint256 cohortBefore = _cohortShares(VE_LINE, e1);
+        pool.cover(VE_LINE);
+        uint256 slashed = cohortBefore - _cohortShares(VE_LINE, e1);
+        uint256 unrecognised = pool.coverUnrecognised();
+        assertGt(unrecognised, 0);
+
+        // A day in, VaultV2 has re-recognised part of the MUSD: that part's fee shares go to the cohort.
+        _warp(1 days);
+        vault.accrueInterest();
+        uint256 minted = _pendingFeeShares();
+        assertGt(minted, 0);
+        _distribute(e1, _arr(VE_LINE), _arr(0));
+        uint256 first = _cohortShares(VE_LINE, e1) + slashed - cohortBefore;
+        assertApproxEqRel(first, minted, 0.001e18, "the minted fee shares went back to the slashed cohort");
+        assertGt(pool.coverUnrecognised(), 0, "the rest is still being re-recognised");
+        assertLt(pool.coverUnrecognised(), unrecognised);
+
+        // The rest after full recognition; nothing is left pending.
+        _recognise();
+        minted = _pendingFeeShares();
+        uint256 reserveBefore = pool.reserveShares();
+        _distribute(e1, _arr(VE_LINE), _arr(0));
+        uint256 second = _cohortShares(VE_LINE, e1) + slashed - cohortBefore - first;
+        assertApproxEqRel(second, minted, 0.001e18);
+        assertLe(second + pool.reserveShares() - reserveBefore, minted, "never more than was minted");
+        assertEq(pool.coverUnrecognised(), 0);
+        assertEq(pool.coverFeeHead(), 1);
+    }
+
+    /// @dev A cover's fee shares credited after the slashed cohort matured go to the reserve (matured cohorts are
+    /// closed to inflows).
+    function test_distributeFees_coverFeeOfMaturedCohortToReserve() public {
+        uint256 loanId = _sizingScene(VE_LINE);
+        uint256 e1 = _currentEpoch();
+        _takeLoss(VE_LINE, loanId);
+        pool.cover(VE_LINE);
+        vm.warp(pool.maturityOf(e1));
+        vault.accrueInterest();
+        uint256 minted = _pendingFeeShares();
+        uint256 held = _cohortShares(VE_LINE, e1);
+        uint256 reserveBefore = pool.reserveShares();
+        _distribute(e1, _arr(VE_LINE), _arr(0));
+        assertEq(_cohortShares(VE_LINE, e1), held, "matured cohort untouched");
+        assertEq(pool.reserveShares(), reserveBefore + minted);
+        assertEq(pool.coverUnrecognised(), 0);
+    }
+
     /// @dev Without a performance fee the cover moves A*U/(A+U) MUSD, which burns U/(A+U) of the supply: exactly the
     /// shares the loss is worth at the pre-loss price (A+U)/T.
     function test_cover_feeZero_burnsExactlyAUoverAplusU() public {

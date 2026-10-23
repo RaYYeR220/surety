@@ -2,9 +2,11 @@
 pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 
 import {CreditVoter} from "../../src/CreditVoter.sol";
+import {SuretyPool} from "../../src/SuretyPool.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {SuretyFixture} from "../utils/SuretyFixture.sol";
 
@@ -250,6 +252,53 @@ contract AuditPoCTest is SuretyFixture {
     }
 
     /* ------------------------------------------------------------------ */
+    /* L-04  The cover's fee shares go back to the slashed cohort           */
+    /* ------------------------------------------------------------------ */
+
+    /// @dev The review's book: alice backs the veBTC line, a sponsor's 1,000 MUSD sits in its E1 cohort, a loan
+    /// settles ~858 MUSD short. The cohort used to pay ~U/(1-f) because the fee shares VaultV2 mints on the returned
+    /// MUSD went to other cohorts or the reserve. They are now credited back to the slashed cohort at the next
+    /// distribution after VaultV2 re-recognised the MUSD, so it nets exactly the recorded loss.
+    function test_L04_slashedCohortNetsExactlyTheRecordedLoss() public {
+        _deposit(lender, 10_000e18);
+        uint256 aliceId = _lockPermanent(alice, 6e18);
+        _warpEpochs(1);
+        uint256 e1 = _currentEpoch();
+        _voteAll(alice, aliceId, VE_LINE);
+        _post(sponsor, VE_LINE, 1_000e18);
+        _warpEpochs(1);
+        _rebalance();
+        (uint256 loanId,) = _openTimed(borrower, 0.05e18, 2_000e18);
+        uint256 p0 = vault.previewRedeem(1e18); // pre-loss share price
+        _shock(6000);
+        line.startAuction(loanId);
+        _warp(AUCTION_DURATION);
+        _shock(6000);
+        _bid(bidder, loanId);
+        vm.prank(keeper);
+        uint256 loss = pool.checkpoint(VE_LINE);
+        assertGt(loss, 800e18);
+
+        uint256 cohortBefore = _shares(VE_LINE, e1);
+        uint256 reserveBefore = pool.reserveShares();
+        vm.prank(keeper);
+        pool.cover(VE_LINE);
+        uint256 slashed = cohortBefore - _shares(VE_LINE, e1);
+        assertGt(slashed * p0 / 1e18, loss * 108 / 100, "the cover itself burns ~U/(1-f)");
+
+        // VaultV2 re-recognises the returned MUSD; the next epoch's first rebalance distributes the fee shares.
+        _warp(30 days);
+        vm.recordLogs();
+        _rebalance();
+        uint256 creditedBack = _coverFeeCreditedToCohorts(VE_LINE);
+        assertGt(creditedBack, 0);
+        uint256 netPaid = (slashed - creditedBack) * p0 / 1e18;
+        assertApproxEqRel(netPaid, loss, 0.0001e18, "the slashed cohort nets the recorded loss");
+        assertEq(pool.reserveShares(), reserveBefore, "the reserve paid nothing and gets nothing");
+        assertEq(pool.coverUnrecognised(), 0);
+    }
+
+    /* ------------------------------------------------------------------ */
     /* M-04  Lines are validated and timelocked; a bad line cannot drain    */
     /* ------------------------------------------------------------------ */
 
@@ -334,5 +383,18 @@ contract AuditPoCTest is SuretyFixture {
 
     function _shares(uint256 lineId, uint256 epoch) internal view returns (uint256 s) {
         (s,,) = pool.cohort(lineId, epoch);
+    }
+
+    /// @dev Shares the recorded CoverFeeCredited events of `lineId` credited to cohorts.
+    function _coverFeeCreditedToCohorts(uint256 lineId) internal returns (uint256 total) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(pool) || logs[i].topics[0] != SuretyPool.CoverFeeCredited.selector) {
+                continue;
+            }
+            if (uint256(logs[i].topics[1]) != lineId) continue;
+            (uint256 toCohorts,) = abi.decode(logs[i].data, (uint256, uint256));
+            total += toCohorts;
+        }
     }
 }
