@@ -100,7 +100,8 @@ function LoanCard({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: 
         {inAuction ? (
           <Notice tone="danger" title="Your veBTC is being auctioned" role="alert">
             The auction started {loan.auctionStart ? formatDateTime(loan.auctionStart) : ""}. Repay the full debt before
-            someone bids and the NFT comes back to you. Repaying works even while the price feed is stale.
+            someone bids and the NFT comes back to you. Repaying works even while the price feed is stale. Until then
+            the escrow cannot vote or reset the NFT on Mezo; claiming its fees, bribes and rebase still works.
           </Notice>
         ) : loan.liquidatable ? (
           <Notice tone="danger" title="Past the liquidation line" role="alert">
@@ -171,7 +172,7 @@ function LoanCard({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: 
                     ["extend", "Extend lock"],
                     ["collateral", "Add collateral"],
                   ] as const)),
-              ["escrow", "Vote and rewards"],
+              ["escrow", inAuction ? "Rewards" : "Vote and rewards"],
             ] as [Action, string][]
           ).map(([id, label]) => (
             <Button
@@ -421,13 +422,18 @@ function EscrowForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
   const listed = all.filter((p) => p.alive || current.includes(p.pool));
   const max = voting.data?.maxVotingNum ?? 30;
   const rewards = voting.data?.rewards ?? [];
-  const blocked = !voting.data
-    ? undefined
-    : voting.data.votedThisEpoch
-      ? "Mezo takes one vote or reset per NFT per Mezo epoch, and this veBTC has used it. It can vote again after Mezo's weekly flip (Thursday 00:00 UTC)."
-      : !voting.data.inVoteWindow
-        ? `Mezo's voting window is closed right now (it opens ${formatDateTime(voting.data.voteStart)} and closes ${formatDateTime(voting.data.voteEnd)}).`
-        : undefined;
+  // The line refuses escrowVote / escrowReset once the loan is in auction (claims stay open): Mezo allows one vote
+  // or reset per NFT per Mezo epoch, and a vote just before a bid would hand the bidder an NFT it cannot reset.
+  const inAuction = loan.state === "Auction";
+  const blocked = inAuction
+    ? "No Mezo vote or reset while the loan is in auction: the buyer must get an NFT that can still act this Mezo epoch. Claims still work."
+    : !voting.data
+      ? undefined
+      : voting.data.votedThisEpoch
+        ? "Mezo takes one vote or reset per NFT per Mezo epoch, and this veBTC has used it. It can vote again after Mezo's weekly flip (Thursday 00:00 UTC)."
+        : !voting.data.inVoteWindow
+          ? `Mezo's voting window is closed right now (it opens ${formatDateTime(voting.data.voteStart)} and closes ${formatDateTime(voting.data.voteEnd)}).`
+          : undefined;
 
   const vote = (): TxPlan => ({
     title: `Vote veBTC #${loan.tokenId} on Mezo`,
@@ -504,6 +510,13 @@ function EscrowForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
         The escrow can only vote, reset, claim, extend and add BTC for this one NFT, and only on your instruction. Fees
         and bribes it claims are forwarded to you.
       </Muted>
+      {inAuction ? (
+        <Notice tone="warning" title="Mezo voting is off during the auction">
+          Mezo allows one vote or reset per NFT per Mezo epoch, so a vote now would leave the buyer an NFT it cannot
+          reset, withdraw or merge for up to a week. The line refuses both until the loan is repaid. Fees, bribes and
+          the rebase the NFT already earned stay yours to claim.
+        </Notice>
+      ) : null}
       {err ? (
         <ReadError
           what="Mezo's pools"
@@ -526,7 +539,7 @@ function EscrowForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
               : "Reading the NFT's vote…"}
           </Muted>
         </div>
-        {blocked ? <Notice tone="warning">{blocked}</Notice> : null}
+        {blocked && !inAuction ? <Notice tone="warning">{blocked}</Notice> : null}
         {pools.isPending ? (
           <Skeleton height={180} label="Loading Mezo's pools" />
         ) : (
