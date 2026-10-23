@@ -3,6 +3,7 @@
 import type { Board } from "@surety/sdk";
 import { useState } from "react";
 
+import { GATE_BLOCKED, GateNotice, isPaused } from "@/components/gate/DepositGate";
 import { Split, Stack } from "@/components/layout/Layout";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
 import { useWalletDialog } from "@/components/shell/WalletDialog";
@@ -176,12 +177,16 @@ function IncentivesTable({ env, board }: { env: ReadyEnv; board: Board }) {
     epochLength: board.epoch.epochLength,
   });
   const name = (id: number) => board.lines.find((l) => l.id === id)?.name ?? `Line ${id}`;
+  // Refunds pay srMUSD, which the DepositGate holds back while a loss or its cover is pending.
+  const gated = isPaused(board);
+  const anyRefund = (incentives.data ?? []).some((r) => statusOf(r) === "refundable");
 
   const refund = (r: IncentiveRow): TxPlan => ({
     title: "Refund an incentive",
     summary: `${name(r.lineId)} drew no votes in the epoch from ${formatDateTime(r.epoch)}, so your incentive comes back to you as srMUSD.`,
     rows: [{ label: "You get back (about)", value: `${formatMusd(r.mineAssets)} MUSD in srMUSD` }],
     notes: ["If a loss was covered while the epoch was open, the refund is what is left of your part."],
+    blocked: gated ? GATE_BLOCKED.refund : undefined,
     steps: [
       {
         label: "Refund",
@@ -229,8 +234,8 @@ function IncentivesTable({ env, board }: { env: ReadyEnv; board: Board }) {
       align: "end",
       cell: (r) =>
         statusOf(r) === "refundable" ? (
-          <Button size="sm" onClick={() => tx.review(refund(r))}>
-            Refund
+          <Button size="sm" disabled={gated} title={gated ? GATE_BLOCKED.refund : undefined} onClick={() => tx.review(refund(r))}>
+            {gated ? "Waits" : "Refund"}
           </Button>
         ) : null,
     },
@@ -238,6 +243,11 @@ function IncentivesTable({ env, board }: { env: ReadyEnv; board: Board }) {
 
   return (
     <Card flat title="Incentives" description="Every incentive posted in the last 8 epochs, per line.">
+      {gated && anyRefund ? (
+        <div style={{ padding: "0 var(--space-5) var(--space-4)" }}>
+          <GateNotice board={board} context="refund" />
+        </div>
+      ) : null}
       <div style={{ marginTop: "var(--space-2)" }}>
         {incentives.error ? (
           <div style={{ padding: "var(--space-5)" }}>

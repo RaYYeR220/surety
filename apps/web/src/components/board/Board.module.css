@@ -102,6 +102,61 @@
   }
 }
 
+/* DepositGate state under the vault stats (the paused state is a Notice). */
+.gate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-line);
+}
+
+/* ---------- Proposed lines ---------- */
+.proposed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.proposals {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
+  gap: var(--space-5);
+}
+
+.proposal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width-strong) dashed var(--color-line-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunk);
+}
+
+.proposalHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.proposalName {
+  font-family: var(--heading-font);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+}
+
+.proposalWhen {
+  font-size: var(--text-sm);
+}
+
 /* ---------- Lines ---------- */
 .linesHead {
   display: flex;

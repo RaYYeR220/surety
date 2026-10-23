@@ -14,7 +14,7 @@ import { WalletDialogProvider } from "./WalletDialog";
 
 function demoFrom(param: string | null): DemoScenario | null {
   if (param === null || param === "0" || param === "false") return null;
-  return param === "stale" ? "stale" : "default";
+  return param === "stale" || param === "paused" ? param : "default";
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {

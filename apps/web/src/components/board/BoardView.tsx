@@ -3,6 +3,7 @@
 import type { Board, BoardLine } from "@surety/sdk";
 import type { CSSProperties } from "react";
 
+import { GateNotice } from "@/components/gate/DepositGate";
 import { Stack } from "@/components/layout/Layout";
 import { AppLink } from "@/components/shell/AppLink";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/Bits";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ExplorerLink } from "@/components/ui/Controls";
 import type { ReadyEnv } from "@/lib/env";
 import {
   formatBps,
@@ -33,7 +35,7 @@ import {
   wadToFraction,
 } from "@/lib/format";
 import { epochCadence, kindLabel, lineColor } from "@/lib/lines";
-import { useBoard, useCaps, useChainNow, useLossChecks } from "@/lib/queries";
+import { useBoard, useCaps, useChainNow, useLineListing, useLossChecks } from "@/lib/queries";
 import type { LineCap, LossCheck } from "@/lib/reads";
 
 import styles from "./Board.module.css";
@@ -75,6 +77,7 @@ export function BoardView({ env }: { env: ReadyEnv }) {
                 />
               ))}
             </div>
+            <ProposedLines />
           </Stack>
           <StressPanel env={env} />
         </>
@@ -118,7 +121,7 @@ function EpochStrip({ board, env }: { board: Board; env: ReadyEnv }) {
   const runEpoch = (): TxPlan => ({
     title: "Run epoch",
     summary:
-      "Moves the vault's MUSD toward the vote-weighted targets: each line gets its share of the last closed tally, inside its cap. Lines with a stale price feed or a pause get nothing new. Anyone can run it; you only pay gas.",
+      "Moves the vault's MUSD toward the vote-weighted targets: each line gets its share of the last closed tally, inside its cap. A line with a stale price feed or a pause keeps what it has but gets nothing new. Anyone can run it; you only pay gas.",
     rows: [
       { label: "Allocation follows", value: epoch.rebalanceDue ? "the tally that just closed" : tallyLabel },
       ...board.lines.map((l) => ({
@@ -129,7 +132,7 @@ function EpochStrip({ board, env }: { board: Board; env: ReadyEnv }) {
     ],
     notes: [
       "Safe to run more than once: it finishes a partial rebalance and otherwise changes nothing.",
-      "It also books each line's interest since the last run, which becomes the voters' fee share.",
+      "It also books each line's interest since the last run (Morpho's share price, the veBTC line's interest counter), which sets each line's share of the voters' fee.",
     ],
     steps: [{ label: "Rebalance the vault", detail: "VoteAllocator.rebalance()", tx: env.client.buildRebalance() }],
     confirmLabel: "Run epoch",
@@ -200,33 +203,111 @@ function VaultSummary({ board }: { board: Board }) {
   const idleShare = fraction(v.idle, v.totalAssets);
   return (
     <Card label="Vault">
-      <div className={styles.vault}>
-        <Stat label="Total lent in (TVL)" value={formatMusd(v.totalAssets, 0)} unit="MUSD" size="lg" />
-        <Stat
-          label={`1 ${v.symbol || "srMUSD"} is worth`}
-          value={formatMusd(v.sharePrice, 4)}
-          unit="MUSD"
-          hint="Rises as interest accrues"
-        />
-        <Stat
-          label="Idle in the vault"
-          value={formatMusd(v.idle, 0)}
-          unit="MUSD"
-          hint={`${formatPct(idleShare)} now · target ${formatBps(v.idleBufferBps, 0)} for withdrawals and cover`}
-        />
-        <Stat
-          label="Voters' fee"
-          value={formatPct(wadToFraction(v.performanceFee), 0)}
-          hint="Of interest, paid to the voters of each line"
-        />
-        <Stat
-          label="Depositor APY"
-          tag="est."
-          value={formatPct(v.supplyApy, 2)}
-          hint="Line rates weighted by allocation, after fees"
-        />
-      </div>
+      <Stack gap={5}>
+        <div className={styles.vault}>
+          <Stat label="Total lent in (TVL)" value={formatMusd(v.totalAssets, 0)} unit="MUSD" size="lg" />
+          <Stat
+            label={`1 ${v.symbol || "srMUSD"} is worth`}
+            value={formatMusd(v.sharePrice, 4)}
+            unit="MUSD"
+            hint="Rises as interest accrues"
+          />
+          <Stat
+            label="Idle in the vault"
+            value={formatMusd(v.idle, 0)}
+            unit="MUSD"
+            hint={`${formatPct(idleShare)} now · target ${formatBps(v.idleBufferBps, 0)} for withdrawals and cover`}
+          />
+          <Stat
+            label="Voters' fee"
+            value={formatPct(wadToFraction(v.performanceFee), 0)}
+            hint="Of interest, paid to the voters of each line"
+          />
+          <Stat
+            label="Depositor APY"
+            tag="est."
+            value={formatPct(v.supplyApy, 2)}
+            hint="Line rates weighted by allocation, after fees"
+          />
+        </div>
+        {v.depositsPaused === true ? (
+          <GateNotice board={board} context="deposit" />
+        ) : v.depositsPaused === false ? (
+          <div className={styles.gate}>
+            <Pill tone="positive" dot>
+              Deposits open
+            </Pill>
+            <Muted small>
+              The vault&apos;s DepositGate pauses deposits only while a loss or its cover is pending, so newcomers
+              cannot skim the voters&apos; cover. Withdrawals never pause.
+            </Muted>
+          </div>
+        ) : null}
+      </Stack>
     </Card>
+  );
+}
+
+/* ---------- Proposed lines (CreditVoter listing timelock) ---------- */
+
+function listingRule(bootstrapEnded: boolean, timelock: bigint): string {
+  if (!bootstrapEnded) {
+    return "Lines are still being listed at launch. Once that bootstrap ends, a new line is proposed on chain and waits out a timelock before it can be listed.";
+  }
+  if (timelock === 0n) {
+    return "A new line is proposed on chain first and listed after a timelock: none on this testnet, a day on mainnet.";
+  }
+  return `A new line is proposed on chain first and can be listed only ${formatDuration(Number(timelock))} later, so voters and lenders see it coming.`;
+}
+
+function ProposedLines() {
+  const listing = useLineListing();
+  const now = useChainNow();
+  const l = listing.data;
+  if (!l) return null;
+  const rule = listingRule(l.bootstrapEnded, l.timelock);
+  if (l.pending.length === 0) {
+    return (
+      <Muted small>
+        {rule} No line is proposed right now.
+      </Muted>
+    );
+  }
+  return (
+    <div className={styles.proposed}>
+      <div className={styles.linesHead}>
+        <SectionTitle>Proposed lines</SectionTitle>
+        <Muted small>Not listed yet, so they take no votes and no capital.</Muted>
+      </div>
+      <ul className={styles.proposals}>
+        {l.pending.map((p) => {
+          const left = now === null ? null : Number(p.executableAt) - now;
+          const ready = left !== null && left <= 0;
+          return (
+            <li key={p.proposalId} className={styles.proposal}>
+              <div className={styles.proposalHead}>
+                <span className={styles.proposalName}>{p.name}</span>
+                <span className={styles.pills}>
+                  <Pill tone="outline">{kindLabel(p.kind)}</Pill>
+                  <Pill tone={ready ? "positive" : "warning"} dot>
+                    Proposed
+                  </Pill>
+                </span>
+              </div>
+              <p className={styles.proposalWhen}>
+                {ready
+                  ? "The timelock has passed: the owner can list it now."
+                  : `Can be listed after ${formatDateTime(p.executableAt)}${left !== null ? ` (in ${formatDuration(left)})` : ""}.`}
+              </p>
+              <Muted small>
+                Proposal #{p.proposalId} · adapter <ExplorerLink kind="address" value={p.adapter} />
+              </Muted>
+            </li>
+          );
+        })}
+      </ul>
+      <Muted small>{rule}</Muted>
+    </div>
   );
 }
 
@@ -270,6 +351,8 @@ function LineCard({
   const scale = capOnBar && cap.cap > exposure ? cap.cap : exposure === 0n ? 1n : (exposure * 5n) / 4n;
   const coverRatio = allocation === 0n ? (coverCap > 0n ? 1 : 0) : fraction(coverCap, allocation);
   const failClosed = line.oracleLive === false;
+  // Cohorts and reserve exhausted: a cover would move nothing, so the loss stays with lenders.
+  const coverSpent = line.coverCapacity !== null && coverCap === 0n && (check?.coverable ?? 0n) === 0n;
 
   const coverPlan = (): TxPlan => {
     const amount = check?.coverable ?? (uncovered < coverCap ? uncovered : coverCap);
@@ -286,7 +369,11 @@ function LineCard({
           value: `${formatMusd(uncovered - coverCap)} MUSD`,
         },
       ],
-      notes: ["Seasoning voters of this line lose that amount pro rata. Matured, already-claimable rewards are not touched."],
+      notes: [
+        "Seasoning voters of this line lose that amount pro rata. Matured, already-claimable rewards are not touched.",
+        "The vault's fee on the returned MUSD goes back to the slashed voters, so together they pay the recorded loss.",
+        "Deposits stay paused until the cover is back in the share price, so newcomers cannot skim it. Withdrawals stay open.",
+      ],
       steps: [{ label: "Checkpoint and cover", detail: "SuretyPool.cover(lineId)", tx: env.client.buildCover({ lineId: line.id }) }],
       confirmLabel: "Cover the loss",
     };
@@ -404,14 +491,18 @@ function LineCard({
             <span className={styles.blockTitle}>Recorded loss not covered yet</span>
             <span className={styles.lossFigure}>{formatMusd(uncovered)} MUSD</span>
             <span className={styles.lossText}>
-              Lenders carry this until someone runs cover. Recorded so far {formatMusd(line.lossRecorded)} MUSD, covered{" "}
-              {formatMusd(line.lossCovered)} MUSD.
+              {coverSpent
+                ? "Nothing is left to cover it: this line's seasoning rewards and the pool reserve are spent, so lenders bear it through the share price. A loss nothing can cover does not hold deposits."
+                : "Lenders carry this until someone runs cover."}{" "}
+              Recorded so far {formatMusd(line.lossRecorded)} MUSD, covered {formatMusd(line.lossCovered)} MUSD.
             </span>
-            <div>
-              <Button variant="danger" size="sm" onClick={() => tx.review(coverPlan())}>
-                Cover now
-              </Button>
-            </div>
+            {coverSpent ? null : (
+              <div>
+                <Button variant="danger" size="sm" onClick={() => tx.review(coverPlan())}>
+                  Cover now
+                </Button>
+              </div>
+            )}
           </div>
         ) : (line.lossRecorded ?? 0n) > 0n ? (
           <Muted small>

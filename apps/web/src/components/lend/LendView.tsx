@@ -3,6 +3,7 @@
 import type { Board } from "@surety/sdk";
 import { useState } from "react";
 
+import { GATE_BLOCKED, GateNotice, isPaused } from "@/components/gate/DepositGate";
 import { Split, Stack } from "@/components/layout/Layout";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
 import { useWalletDialog } from "@/components/shell/WalletDialog";
@@ -32,6 +33,7 @@ function LendView({ env }: { env: ReadyEnv }) {
         lead="Deposit MUSD into the Surety vault and get srMUSD. The vault lends it to the lines veBTC holders vote for, and the voters' rewards stand in front of you if a line takes a loss."
       />
       {board.error ? <ReadError what="the vault" error={board.error} onRetry={() => void board.refetch()} /> : null}
+      {board.data ? <GateNotice board={board.data} context="deposit" /> : null}
       <Split main="1fr" side="1fr" gap={5}>
         <Stack gap={5}>
           <PositionCard env={env} board={board.data} />
@@ -92,6 +94,8 @@ function DepositWithdraw({ env, board }: { env: ReadyEnv; board: Board }) {
   const symbol = board.vault.symbol || "srMUSD";
   const w = wallet.data;
   const account = env.account;
+  // The DepositGate refuses new srMUSD while a loss or its cover is pending; withdrawals are never gated.
+  const gated = mode === "deposit" && isPaused(board);
 
   let error: string | null = null;
   if (input && amount === null) error = "Enter a number, like 250 or 99.5.";
@@ -101,7 +105,7 @@ function DepositWithdraw({ env, board }: { env: ReadyEnv; board: Board }) {
     else if (mode === "withdraw" && w.maxWithdraw !== null && amount > w.maxWithdraw)
       error = `The vault can pay ${formatMusd(w.maxWithdraw)} MUSD right now from idle funds. The rest frees up at the next rebalance.`;
   }
-  const ready = !!account && amount !== null && amount > 0n && !error;
+  const ready = !!account && amount !== null && amount > 0n && !error && !gated;
 
   const depositPlan = async (): Promise<TxPlan> => {
     const a = amount!;
@@ -136,7 +140,9 @@ function DepositWithdraw({ env, board }: { env: ReadyEnv; board: Board }) {
         "veBTC votes decide which lines your MUSD goes to, inside caps set per line.",
         "If a line takes bad debt, the voters' seasoning rewards and the reserve pay first; lenders only lose what is left.",
         `Withdrawals are paid from idle MUSD (target ${formatBps(board.vault.idleBufferBps, 0)} of the vault).`,
+        "While a loss or its cover is pending, the vault's DepositGate pauses deposits so newcomers cannot skim the cover. Withdrawals never pause.",
       ],
+      blocked: isPaused(board) ? GATE_BLOCKED.deposit : undefined,
       steps,
       confirmLabel: steps.length > 1 ? "Approve and deposit" : "Deposit",
     };
@@ -220,17 +226,27 @@ function DepositWithdraw({ env, board }: { env: ReadyEnv; board: Board }) {
               help={
                 mode === "deposit"
                   ? `Est. APY ${formatPct(board.vault.supplyApy, 2)} · voters' fee ${formatPct(wadToFraction(board.vault.performanceFee), 0)} of interest`
-                  : "No fee to withdraw. Large exits can wait for idle MUSD after the next rebalance."
+                  : isPaused(board)
+                    ? "Withdrawals stay open while deposits are paused. Large exits can wait for idle MUSD after the next rebalance."
+                    : "No fee to withdraw. Large exits can wait for idle MUSD after the next rebalance."
               }
             />
             <Button
               block
               disabled={!ready}
+              title={gated ? GATE_BLOCKED.deposit : undefined}
               onClick={() => tx.review(mode === "deposit" ? depositPlan : withdrawPlan)}
             >
-              {mode === "deposit" ? "Review deposit" : "Review withdrawal"}
+              {gated ? "Deposits paused" : mode === "deposit" ? "Review deposit" : "Review withdrawal"}
             </Button>
-            {!account ? <Muted small>Connect a wallet to deposit.</Muted> : null}
+            {gated ? (
+              <Muted small>
+                Deposits reopen on their own once the loss is covered and back in the share price. Withdrawals stay
+                open: switch to Withdraw.
+              </Muted>
+            ) : !account ? (
+              <Muted small>Connect a wallet to deposit.</Muted>
+            ) : null}
           </Stack>
         </TabPanel>
       </Stack>
@@ -316,7 +332,7 @@ function Waterfall({ board }: { board: Board }) {
           <div className={styles.fallValue}>
             {cohorts.map(({ l, amount }) => (
               <div key={l.id}>
-                {formatMusd(amount, 0)} <Muted small>{l.name.split(" (")[0]}</Muted>
+                <Muted small>{l.kind === "Morpho" ? "Morpho" : "veBTC"}</Muted> {formatMusd(amount, 0)} MUSD
               </div>
             ))}
           </div>

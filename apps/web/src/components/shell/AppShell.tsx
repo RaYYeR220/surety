@@ -179,7 +179,9 @@ function DemoBanner() {
             <span className={styles.bannerBadge}>Example data</span>
             {env.demo === "stale"
               ? "Mocked testnet with the BTC price feed down, to show how lines fail closed. Nothing is live and nothing is sent."
-              : "Every number comes from the SDK's mocked testnet fixture. Nothing is live and nothing is sent."}
+              : env.demo === "paused"
+                ? "Mocked testnet with a loss waiting for cover, to show how deposits pause. Nothing is live and nothing is sent."
+                : "Every number comes from the SDK's mocked testnet fixture. Nothing is live and nothing is sent."}
           </span>
           <Link className={styles.bannerLink} href={path}>
             Leave example mode

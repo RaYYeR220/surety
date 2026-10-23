@@ -27,8 +27,13 @@ import type { Address, Hex } from "viem";
 
 import { poolMetaAbi, poolsVoterAbi, votingRewardAbi } from "./mezoAbis";
 
-/** default: the fixture as shipped. stale: the BTC price feed is down, so lines fail closed. */
-export type DemoScenario = "default" | "stale";
+/**
+ * default: the fixture with its past losses covered. stale: the BTC price feed is down, so lines fail closed.
+ * paused: a recorded loss waits for cover, so the DepositGate holds deposits, claims and refunds.
+ */
+export type DemoScenario = "default" | "stale" | "paused";
+
+export const DEMO_SCENARIOS: readonly DemoScenario[] = ["default", "stale", "paused"];
 
 export interface Demo {
   client: SuretyClient;
@@ -46,14 +51,21 @@ export function createDemo(scenario: DemoScenario): Demo {
     patch: (s) => {
       const cur = s.now - (s.now % s.epochLength);
       const prev = cur - s.epochLength;
-      // The veBTC line's recorded loss was partly covered by slashing its seasoning cohort.
+      // The veBTC line took a loss that was covered by slashing its seasoning cohort. In the paused scenario only
+      // part of it is covered yet, so the gate holds new shares until the rest is (SuretyPool.depositsPaused).
       s.pool.lossRecorded[1] = e18(14);
-      s.pool.lossCovered[1] = e18(4);
+      s.pool.lossCovered[1] = scenario === "paused" ? e18(4) : e18(14);
+      s.pool.depositsPaused = scenario === "paused";
+      // Same stress: Alice's veBTC loan is in its Dutch auction, so the escrow can no longer vote on Mezo.
+      if (scenario === "paused" && s.loans[0]) {
+        s.loans[0].state = 2;
+        s.loans[0].auctionStart = s.now - 120n;
+      }
       s.extraLogs.push(
         mockLog({
           abi: suretyPoolAbi,
           eventName: "CohortSlashed",
-          args: { lineId: 1n, epoch: prev, shares: e18(4) },
+          args: { lineId: 1n, epoch: prev, shares: s.pool.lossCovered[1]! },
           address: fixtureDeployment.contracts.suretyPool,
           blockNumber: 16_390_000n,
         }),
@@ -113,6 +125,24 @@ export function createDemo(scenario: DemoScenario): Demo {
     [c.veBTCLine.toLowerCase()]: {
       functions: {
         ids: () => [id(0xa1), id(0xa2)],
+      },
+    },
+    // Listing is past its bootstrap: a second Morpho market is proposed and waits out the line timelock.
+    [c.creditVoter.toLowerCase()]: {
+      functions: {
+        bootstrapEnded: true,
+        LINE_TIMELOCK: 86_400n,
+        proposalCount: 1n,
+        proposal: (i: bigint) => {
+          if (i !== 0n) throw new MockRevert("0x", "UnknownProposal");
+          return {
+            adapter: c.morphoAdapter,
+            data: "0x",
+            kind: 0,
+            name: "BTC / MUSD 77% LLTV (Morpho)",
+            executableAt: s.now + 14n * 3600n,
+          };
+        },
       },
     },
     [c.suretyPool.toLowerCase()]: {

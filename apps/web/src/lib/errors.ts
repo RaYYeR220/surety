@@ -58,7 +58,7 @@ const MESSAGES: Record<string, string> = {
   NoLock: "This veBTC has no BTC locked.",
   NotTokenOwner: "Your wallet does not own this veBTC.",
   NotBorrower: "Only the borrower of this loan can do that.",
-  LoanNotActive: "This loan is not active any more.",
+  LoanNotActive: "This loan is not active: it is closed, or in auction, where the escrow cannot vote or reset on Mezo.",
   LoanClosed: "This loan is already closed.",
   InsufficientBalance: "Your wallet does not hold enough for this.",
   // Auctions
@@ -86,6 +86,8 @@ const MESSAGES: Record<string, string> = {
   // Vault
   AbsoluteCapExceeded: "The vault's cap for this line is reached, so it cannot take more right now.",
   RelativeCapExceeded: "The vault's share cap for this line is reached, so it cannot take more right now.",
+  CannotReceiveShares:
+    "Deposits are paused while voters' cover is being re-recognised, so new srMUSD (deposits, claims, refunds, transfers) waits. Withdrawals stay open.",
   // Stress oracle
   HaircutTooHigh: "The price shock can be at most 90%.",
   ShockTooLong: "A price shock can last at most 2 hours.",

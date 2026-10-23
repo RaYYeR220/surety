@@ -3,6 +3,7 @@
 import type { Ballot, Board, CohortPosition, VeBTCPosition } from "@surety/sdk";
 import { useMemo, useState, type CSSProperties } from "react";
 
+import { GATE_BLOCKED, GateNotice, isPaused } from "@/components/gate/DepositGate";
 import { Grid, Split, Stack } from "@/components/layout/Layout";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
 import { useWalletDialog } from "@/components/shell/WalletDialog";
@@ -410,10 +411,13 @@ function CohortsSection({ env, board, position }: { env: ReadyEnv; board: Board;
       detail: "SuretyPool.claim(tokenId, lineId, epoch)",
       tx: env.client.buildClaim({ tokenId: position.tokenId, lineId: c.lineId, epoch: c.epoch }),
     })),
+    blocked: isPaused(board) ? GATE_BLOCKED.claim : undefined,
     confirmLabel: "Claim",
   });
 
   const claimable = rows.filter((r) => r.status === "claimable");
+  // Claims pay srMUSD, which the DepositGate holds back while a loss or its cover is pending.
+  const gated = isPaused(board);
   const columns: Column<CohortRow>[] = [
     { key: "line", header: "Line", cell: (r) => <LineName id={r.lineId} name={r.lineName} /> },
     { key: "epoch", header: "Voted in epoch", cell: (r) => <span className="num">{formatDateTime(r.epoch)}</span> },
@@ -449,8 +453,8 @@ function CohortsSection({ env, board, position }: { env: ReadyEnv; board: Board;
       align: "end",
       cell: (r) =>
         r.status === "claimable" ? (
-          <Button size="sm" onClick={() => tx.review(claimPlan([r]))}>
-            Claim
+          <Button size="sm" disabled={gated} title={gated ? GATE_BLOCKED.claim : undefined} onClick={() => tx.review(claimPlan([r]))}>
+            {gated ? "Waits" : "Claim"}
           </Button>
         ) : null,
     },
@@ -462,13 +466,18 @@ function CohortsSection({ env, board, position }: { env: ReadyEnv; board: Board;
       title={`Rewards of veBTC #${position.tokenId}`}
       description="One cohort per line and epoch you voted in: your share of that line's voter fees and incentives."
       actions={
-        claimable.length > 1 ? (
+        claimable.length > 1 && !gated ? (
           <Button size="sm" onClick={() => tx.review(claimPlan(claimable))}>
             Claim all ({claimable.length})
           </Button>
         ) : undefined
       }
     >
+      {gated ? (
+        <div style={{ padding: "0 var(--space-5) var(--space-4)" }}>
+          <GateNotice board={board} context="claim" />
+        </div>
+      ) : null}
       {cohorts.data ? (
         <Grid min="160px" gap={4} className="">
           <div style={{ padding: "0 var(--space-5)" }}>

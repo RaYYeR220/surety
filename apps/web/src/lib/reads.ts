@@ -18,6 +18,7 @@ import {
   veBTCCreditLineAbi,
   creditVoterAbi,
   type BoardLine,
+  type LineKind,
   type MarketParams,
   type SuretyClient,
 } from "@surety/sdk";
@@ -391,6 +392,56 @@ export async function readSlashes(client: SuretyClient): Promise<Record<string, 
     out[key] = (out[key] ?? 0n) + log.args.shares;
   }
   return out;
+}
+
+/* Line listing (CreditVoter): bootstrap, timelock and lines proposed but not listed yet */
+
+export interface ProposedLine {
+  proposalId: number;
+  name: string;
+  kind: LineKind;
+  adapter: Address;
+  /** When `executeLine` may list it (unix seconds). */
+  executableAt: bigint;
+}
+
+export interface LineListing {
+  /** Lines are listed only through proposeLine / executeLine from now on. */
+  bootstrapEnded: boolean;
+  /** Seconds a proposed line waits before it can be listed. */
+  timelock: bigint;
+  /** Proposals not executed yet, oldest first. */
+  pending: ProposedLine[];
+}
+
+const LINE_KINDS: LineKind[] = ["Morpho", "VeBTC"];
+/** Proposals read per refresh (the newest ones; the owner proposes rarely). */
+const MAX_PROPOSALS = 20;
+
+/** Null when the deployment's CreditVoter predates timelocked listing. */
+export async function readLineListing(client: SuretyClient): Promise<LineListing | null> {
+  const voter = client.deployment.contracts.creditVoter;
+  const head = await client.reader.settle(
+    [
+      call(voter, creditVoterAbi, "bootstrapEnded"),
+      call(voter, creditVoterAbi, "LINE_TIMELOCK"),
+      call(voter, creditVoterAbi, "proposalCount"),
+    ] as const,
+  );
+  const bootstrapEnded = orNull(head[0]);
+  const timelock = orNull(head[1]);
+  const count = orNull(head[2]);
+  if (bootstrapEnded === null || timelock === null || count === null) return null;
+  const n = Number(count);
+  const first = Math.max(0, n - MAX_PROPOSALS);
+  const ids = Array.from({ length: n - first }, (_, i) => first + i);
+  const rows = await client.reader.settle(ids.map((id) => call(voter, creditVoterAbi, "proposal", [BigInt(id)])));
+  const pending = ids.flatMap((proposalId, i) => {
+    const p = orNull(rows[i]!) as { adapter: Address; kind: number; name: string; executableAt: bigint } | null;
+    if (!p || p.executableAt === 0n) return [];
+    return [{ proposalId, name: p.name, kind: LINE_KINDS[p.kind] ?? "VeBTC", adapter: p.adapter, executableAt: p.executableAt }];
+  });
+  return { bootstrapEnded, timelock, pending };
 }
 
 /* veBTC line parameters (LTV limits, liquidation fee, auction shape) */

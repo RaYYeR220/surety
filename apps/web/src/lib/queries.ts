@@ -11,6 +11,7 @@ import {
   readCaps,
   readEscrowVoting,
   readIncentives,
+  readLineListing,
   readLineParams,
   readLossChecks,
   readMezoPools,
@@ -224,6 +225,17 @@ export function useChainNow(): number | null {
   const wall = useTicker(1000);
   if (wall === null || !board.data) return null;
   return Number(board.data.epoch.now) + Math.max(0, (wall - board.dataUpdatedAt) / 1000);
+}
+
+/** How new lines get listed, and the proposed lines still waiting out the timelock. */
+export function useLineListing() {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "line-listing"],
+    queryFn: () => readLineListing(env!.client),
+    enabled: !!env,
+    refetchInterval: env?.mode === "live" ? 60_000 : false,
+  });
 }
 
 export function useLineParams() {
