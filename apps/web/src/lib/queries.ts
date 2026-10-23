@@ -9,14 +9,17 @@ import { useEffect, useState } from "react";
 import { useReady, type ReadyEnv } from "./env";
 import {
   readCaps,
+  readEscrowVoting,
   readIncentives,
   readLineParams,
   readLossChecks,
+  readMezoPools,
   readMorphoPosition,
   readReserve,
   readSlashes,
   readStress,
   readWallet,
+  type MezoPool,
 } from "./reads";
 
 const LIVE_REFRESH = 15_000;
@@ -230,5 +233,27 @@ export function useLineParams() {
     queryFn: () => readLineParams(env!.client),
     enabled: !!env,
     staleTime: 5 * 60_000,
+  });
+}
+
+/** Every pool on Mezo's PoolsVoter (the list changes rarely). */
+export function useMezoPools() {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "mezo-pools"],
+    queryFn: () => readMezoPools(env!.client),
+    enabled: !!env,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** An escrowed veBTC's Mezo vote, the voting window, and the fees and bribes it can claim. */
+export function useEscrowVoting(tokenId: bigint | null, pools: MezoPool[] | undefined) {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "escrow-voting", tokenId?.toString() ?? "-", pools?.length ?? 0],
+    queryFn: () => readEscrowVoting(env!.client, pools!, tokenId!),
+    enabled: !!env && tokenId !== null && !!pools,
+    refetchInterval: env?.mode === "live" ? 60_000 : false,
   });
 }

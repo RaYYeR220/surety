@@ -23,6 +23,8 @@ import {
 } from "@surety/sdk";
 import { getAbiItem, type Address, type Hex } from "viem";
 
+import { poolMetaAbi, poolsVoterAbi, votingRewardAbi } from "./mezoAbis";
+
 /* Vault caps per line (VaultV2 ids of the line's adapter) */
 
 export interface LineCap {
@@ -406,4 +408,209 @@ export interface LineParams {
 export async function readLineParams(client: SuretyClient): Promise<LineParams | null> {
   const [p] = await client.reader.settle([call(client.deployment.contracts.veBTCLine, veBTCCreditLineAbi, "params")] as const);
   return orNull(p);
+}
+
+/* Mezo pools (PoolsVoter), for voting an escrowed veBTC and claiming its fees and bribes */
+
+const NO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+const isSet = (a: Address | null | undefined): a is Address => !!a && a.toLowerCase() !== NO_ADDRESS;
+
+export interface MezoPool {
+  pool: Address;
+  gauge: Address | null;
+  /** The gauge takes votes (killed gauges keep their rewards claimable). */
+  alive: boolean;
+  /** The pool's symbol ("vAMM-MUSD/BTC"), its token pair ("MUSD/BTC · CL"), or its name. */
+  label: string;
+  fees: Address | null;
+  bribe: Address | null;
+}
+
+/** Every pool on Mezo's PoolsVoter with its gauge, reward contracts and a readable label. */
+export async function readMezoPools(client: SuretyClient): Promise<MezoPool[]> {
+  const voter = client.deployment.external.poolsVoter;
+  const [n] = await client.reader.values([call(voter, poolsVoterAbi, "length")] as const);
+  const count = Number(n > 200n ? 200n : n);
+  const poolReads = await client.reader.settle(
+    Array.from({ length: count }, (_, i) => call(voter, poolsVoterAbi, "pools", [BigInt(i)])),
+  );
+  const pools = poolReads.map((r) => orNull(r) as Address | null).filter(isSet);
+  const gaugeReads = await client.reader.settle(pools.map((p) => call(voter, poolsVoterAbi, "gauges", [p])));
+  const gauges = gaugeReads.map((r) => orNull(r) as Address | null);
+
+  const PER = 7;
+  const meta = await client.reader.settle(
+    pools.flatMap((p, i) => {
+      const g = gauges[i] ?? NO_ADDRESS;
+      return [
+        call(voter, poolsVoterAbi, "isAlive", [g]),
+        call(voter, poolsVoterAbi, "gaugeToFees", [g]),
+        call(voter, poolsVoterAbi, "gaugeToBribe", [g]),
+        call(p, poolMetaAbi, "symbol"),
+        call(p, poolMetaAbi, "token0"),
+        call(p, poolMetaAbi, "token1"),
+        call(p, poolMetaAbi, "tickSpacing"),
+      ];
+    }),
+  );
+  const rows = pools.map((pool, i) => {
+    const at = (k: number) => orNull(meta[i * PER + k]!);
+    return {
+      pool,
+      gauge: isSet(gauges[i]) ? gauges[i]! : null,
+      alive: (at(0) as boolean | null) ?? false,
+      fees: (at(1) as Address | null) ?? null,
+      bribe: (at(2) as Address | null) ?? null,
+      symbol: ((at(3) as string | null) ?? "").trim(),
+      token0: at(4) as Address | null,
+      token1: at(5) as Address | null,
+      cl: at(6) !== null,
+    };
+  });
+
+  // Pools without a symbol of their own: name them by their token pair, else by their name().
+  const paired = (r: (typeof rows)[number]) => isSet(r.token0) && isSet(r.token1);
+  const needTokens = rows.filter((r) => !r.symbol && paired(r));
+  const tokens = [...new Set(needTokens.flatMap((r) => [r.token0!, r.token1!].map((a) => a.toLowerCase())))] as Address[];
+  const symReads = await client.reader.settle(tokens.map((t) => call(t, erc20Abi, "symbol")));
+  const sym = new Map<string, string | null>(tokens.map((t, k) => [t, (orNull(symReads[k]!) as string | null) ?? null]));
+  const needName = rows.filter((r) => !r.symbol && !paired(r));
+  const nameReads = await client.reader.settle(needName.map((r) => call(r.pool, poolMetaAbi, "name")));
+  const names = new Map(needName.map((r, k) => [r.pool, (orNull(nameReads[k]!) as string | null) ?? null]));
+
+  return rows.map((r) => {
+    let label = r.symbol;
+    if (!label && isSet(r.token0) && isSet(r.token1)) {
+      const a = sym.get(r.token0.toLowerCase()) ?? `${r.token0.slice(0, 6)}…`;
+      const b = sym.get(r.token1.toLowerCase()) ?? `${r.token1.slice(0, 6)}…`;
+      label = `${a}/${b}${r.cl ? " · CL" : ""}`;
+    }
+    if (!label) label = names.get(r.pool) ?? `${r.pool.slice(0, 6)}…${r.pool.slice(-4)}`;
+    return {
+      pool: r.pool,
+      gauge: r.gauge,
+      alive: r.alive,
+      label,
+      fees: isSet(r.fees) ? r.fees : null,
+      bribe: isSet(r.bribe) ? r.bribe : null,
+    };
+  });
+}
+
+export interface EscrowReward {
+  pool: Address;
+  label: string;
+  kind: "fees" | "bribe";
+  /** The fee or bribe reward contract. */
+  reward: Address;
+  token: Address;
+  symbol: string;
+  decimals: number;
+  earned: bigint;
+}
+
+export interface EscrowVoting {
+  /** Pools the NFT's PoolsVoter vote points at now, with the power on each. */
+  votes: { pool: Address; votes: bigint }[];
+  /** Mezo allows one vote or reset per NFT per Mezo epoch. */
+  votedThisEpoch: boolean;
+  /** Mezo only takes votes inside its epoch's voting window (not in the first and last hour). */
+  inVoteWindow: boolean;
+  voteStart: bigint;
+  voteEnd: bigint;
+  maxVotingNum: number;
+  /** Fees and bribes the NFT can claim now, across every pool. */
+  rewards: EscrowReward[];
+}
+
+const MAX_REWARD_TOKENS = 16;
+
+/** The escrowed NFT's Mezo vote, the voting window, and every fee or bribe it has earned. */
+export async function readEscrowVoting(client: SuretyClient, pools: MezoPool[], tokenId: bigint): Promise<EscrowVoting> {
+  const voter = client.deployment.external.poolsVoter;
+  const block = await client.publicClient.getBlock();
+  const at = { blockNumber: block.number };
+  const now = block.timestamp;
+  const head = await client.reader.settle(
+    [
+      call(voter, poolsVoterAbi, "lastVoted", [tokenId]),
+      call(voter, poolsVoterAbi, "epochStart", [now]),
+      call(voter, poolsVoterAbi, "epochVoteStart", [now]),
+      call(voter, poolsVoterAbi, "epochVoteEnd", [now]),
+      call(voter, poolsVoterAbi, "maxVotingNum"),
+    ] as const,
+    at,
+  );
+  const voteReads = await client.reader.settle(
+    pools.map((p) => call(voter, poolsVoterAbi, "votes", [tokenId, p.pool])),
+    at,
+  );
+  const votes = pools
+    .map((p, i) => ({ pool: p.pool, votes: (orNull(voteReads[i]!) as bigint | null) ?? 0n }))
+    .filter((v) => v.votes > 0n);
+
+  // Every reward contract, its token list, and what the NFT has earned in each token.
+  const contracts = pools.flatMap((p) => [
+    ...(p.fees ? [{ pool: p.pool, label: p.label, kind: "fees" as const, reward: p.fees }] : []),
+    ...(p.bribe ? [{ pool: p.pool, label: p.label, kind: "bribe" as const, reward: p.bribe }] : []),
+  ]);
+  const lens = await client.reader.settle(
+    contracts.map((c) => call(c.reward, votingRewardAbi, "rewardsListLength")),
+    at,
+  );
+  const slots = contracts.flatMap((c, i) => {
+    const count = Number((orNull(lens[i]!) as bigint | null) ?? 0n);
+    return Array.from({ length: Math.min(count, MAX_REWARD_TOKENS) }, (_, k) => ({ ...c, k }));
+  });
+  const tokenReads = await client.reader.settle(
+    slots.map((sl) => call(sl.reward, votingRewardAbi, "rewards", [BigInt(sl.k)])),
+    at,
+  );
+  const withToken = slots
+    .map((sl, i) => ({ ...sl, token: orNull(tokenReads[i]!) as Address | null }))
+    .filter((sl): sl is typeof sl & { token: Address } => isSet(sl.token));
+  const earnedReads = await client.reader.settle(
+    withToken.map((sl) => call(sl.reward, votingRewardAbi, "earned", [sl.token, tokenId])),
+    at,
+  );
+  const earned = withToken
+    .map((sl, i) => ({ ...sl, earned: (orNull(earnedReads[i]!) as bigint | null) ?? 0n }))
+    .filter((sl) => sl.earned > 0n);
+
+  const tokens = [...new Set(earned.map((e) => e.token.toLowerCase()))] as Address[];
+  const metaReads = await client.reader.settle(
+    tokens.flatMap((t) => [call(t, erc20Abi, "symbol"), call(t, erc20Abi, "decimals")]),
+    at,
+  );
+  const meta = new Map<string, { symbol: string; decimals: number }>(
+    tokens.map((t, k) => [
+      t,
+      {
+        symbol: (orNull(metaReads[k * 2]!) as string | null) ?? `${t.slice(0, 6)}…`,
+        decimals: Number((orNull(metaReads[k * 2 + 1]!) as number | bigint | null) ?? 18),
+      },
+    ]),
+  );
+
+  const lastVoted = orNull(head[0]) ?? 0n;
+  const epochStart = orNull(head[1]);
+  const voteStart = orNull(head[2]) ?? 0n;
+  const voteEnd = orNull(head[3]) ?? 0n;
+  return {
+    votes,
+    votedThisEpoch: epochStart !== null && lastVoted >= epochStart,
+    inVoteWindow: voteEnd === 0n || (now > voteStart && now <= voteEnd),
+    voteStart,
+    voteEnd,
+    maxVotingNum: Number(orNull(head[4]) ?? 30n),
+    rewards: earned.map((e) => ({
+      pool: e.pool,
+      label: e.label,
+      kind: e.kind,
+      reward: e.reward,
+      token: e.token,
+      earned: e.earned,
+      ...(meta.get(e.token.toLowerCase()) ?? { symbol: "?", decimals: 18 }),
+    })),
+  };
 }

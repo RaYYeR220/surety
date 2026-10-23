@@ -2,7 +2,7 @@
 
 import type { Board, LoanView } from "@surety/sdk";
 import { useState } from "react";
-import { isAddress, type Address } from "viem";
+import type { Address } from "viem";
 
 import { Stack } from "@/components/layout/Layout";
 import { ReadError } from "@/components/shell/EnvGate";
@@ -10,10 +10,11 @@ import { useTx, type TxPlan, type TxStep } from "@/components/tx/TxProvider";
 import { Empty, Meter, Muted, Notice, Pill, SectionTitle, Skeleton, Stat } from "@/components/ui/Bits";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { AmountField, SelectField, TextField } from "@/components/ui/Controls";
-import { buildEscrowClaimRebase, buildEscrowReset, buildEscrowVote } from "@/lib/builders";
+import { AmountField, CheckList, SelectField } from "@/components/ui/Controls";
+import { buildEscrowClaim, buildEscrowClaimRebase, buildEscrowReset, buildEscrowVote } from "@/lib/builders";
 import type { ReadyEnv } from "@/lib/env";
 import {
+  formatAmount,
   formatBps,
   formatBtc,
   formatCountdown,
@@ -23,9 +24,10 @@ import {
   formatMusd,
   formatUsdWad,
   parseAmount,
+  shortAddress,
   toInput,
 } from "@/lib/format";
-import { useChainNow, useLoans, useWallet } from "@/lib/queries";
+import { useChainNow, useEscrowVoting, useLoans, useMezoPools, useWallet } from "@/lib/queries";
 import { readAllowance } from "@/lib/reads";
 
 import styles from "./Borrow.module.css";
@@ -407,25 +409,79 @@ function AddCollateralForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
 
 function EscrowForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
   const tx = useTx();
-  const [pool, setPool] = useState("");
-  const valid = isAddress(pool.trim(), { strict: false });
+  const pools = useMezoPools();
+  const voting = useEscrowVoting(loan.tokenId, pools.data);
+  const [picked, setPicked] = useState<Address[] | null>(null);
+
+  const all = pools.data ?? [];
+  const byPool = new Map(all.map((p) => [p.pool, p]));
+  const current = voting.data?.votes.map((v) => v.pool) ?? [];
+  // Start from the NFT's current Mezo vote until the borrower changes the selection.
+  const selected = picked ?? current;
+  const listed = all.filter((p) => p.alive || current.includes(p.pool));
+  const max = voting.data?.maxVotingNum ?? 30;
+  const rewards = voting.data?.rewards ?? [];
+  const blocked = !voting.data
+    ? undefined
+    : voting.data.votedThisEpoch
+      ? "Mezo takes one vote or reset per NFT per Mezo epoch, and this veBTC has used it. It can vote again after Mezo's weekly flip (Thursday 00:00 UTC)."
+      : !voting.data.inVoteWindow
+        ? `Mezo's voting window is closed right now (it opens ${formatDateTime(voting.data.voteStart)} and closes ${formatDateTime(voting.data.voteEnd)}).`
+        : undefined;
+
   const vote = (): TxPlan => ({
     title: `Vote veBTC #${loan.tokenId} on Mezo`,
-    summary: "Votes the escrowed NFT's full boosted power on Mezo's PoolsVoter for this pool. Only you, the borrower, can do this.",
-    rows: [{ label: "Pool", value: pool.trim() }],
+    summary: `Votes the escrowed NFT's full boosted power on Mezo's PoolsVoter, split evenly across ${selected.length === 1 ? "this pool" : `these ${selected.length} pools`}. It replaces the NFT's current Mezo vote. Only you, the borrower, can do this.`,
+    rows: selected.map((a) => ({ label: byPool.get(a)?.label ?? a, value: `${Math.round(100 / selected.length)}% of the power` })),
+    notes: ["Fees and bribes from this vote become claimable after the Mezo epoch ends, and are forwarded to your wallet when claimed."],
+    blocked,
     steps: [
       {
         label: "Vote through the escrow",
         detail: "VeBTCCreditLine.escrowVote(loanId, pools, weights)",
-        tx: buildEscrowVote(env.deployment, { loanId: loan.loanId, pools: [pool.trim() as Address], weights: [10_000n] }),
+        tx: buildEscrowVote(env.deployment, {
+          loanId: loan.loanId,
+          pools: selected,
+          weights: selected.map(() => 10_000n),
+        }),
       },
     ],
     confirmLabel: "Vote",
   });
+
+  const claim = (): TxPlan => {
+    const grouped = new Map<Address, Address[]>();
+    for (const r of rewards) grouped.set(r.reward, [...(grouped.get(r.reward) ?? []), r.token]);
+    return {
+      title: `Claim Mezo fees and bribes of veBTC #${loan.tokenId}`,
+      summary:
+        "Claims what the escrowed NFT earned from its Mezo votes. The escrow forwards exactly what the claim paid to your wallet.",
+      rows: rewards.map((r) => ({
+        label: `${r.label} · ${r.kind === "fees" ? "fees" : "bribe"}`,
+        value: `${formatAmount(r.earned, { decimals: r.decimals, max: 6 })} ${r.symbol}`,
+      })),
+      steps: [
+        {
+          label: `Claim from ${grouped.size} reward contract${grouped.size === 1 ? "" : "s"}`,
+          detail: "VeBTCCreditLine.escrowClaim(loanId, rewards, tokens)",
+          tx: buildEscrowClaim(env.deployment, {
+            loanId: loan.loanId,
+            rewards: [...grouped.keys()],
+            tokens: [...grouped.values()],
+          }),
+        },
+      ],
+      confirmLabel: "Claim",
+    };
+  };
+
   const reset = (): TxPlan => ({
     title: "Clear the escrow's Mezo votes",
-    summary: "Removes the NFT's current PoolsVoter votes.",
-    steps: [{ label: "Reset votes", detail: "VeBTCCreditLine.escrowReset(loanId)", tx: buildEscrowReset(env.deployment, { loanId: loan.loanId }) }],
+    summary: "Removes the NFT's current PoolsVoter votes. Mezo counts a reset as the NFT's one action this epoch.",
+    blocked,
+    steps: [
+      { label: "Reset votes", detail: "VeBTCCreditLine.escrowReset(loanId)", tx: buildEscrowReset(env.deployment, { loanId: loan.loanId }) },
+    ],
     confirmLabel: "Reset",
   });
   const rebase = (): TxPlan => ({
@@ -440,34 +496,109 @@ function EscrowForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
     ],
     confirmLabel: "Claim",
   });
+
+  const err = pools.error ?? voting.error;
   return (
-    <Stack gap={4}>
+    <Stack gap={5}>
       <Muted small>
         The escrow can only vote, reset, claim, extend and add BTC for this one NFT, and only on your instruction. Fees
         and bribes it claims are forwarded to you.
       </Muted>
-      <div className={styles.row2}>
-        <TextField
-          label="Mezo pool to vote for"
-          value={pool}
-          onChange={setPool}
-          placeholder="0x…"
-          mono
-          error={pool && !valid ? "Paste a pool address (0x followed by 40 hex characters)." : undefined}
-          help="The gauge pool address from Mezo's voting page."
+      {err ? (
+        <ReadError
+          what="Mezo's pools"
+          error={err}
+          onRetry={() => {
+            void pools.refetch();
+            void voting.refetch();
+          }}
         />
-        <Button disabled={!valid} onClick={() => tx.review(vote())}>
-          Review vote
-        </Button>
-      </div>
-      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-        <Button size="sm" variant="secondary" onClick={() => tx.review(rebase())}>
-          Claim rebase
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => tx.review(reset())}>
-          Reset Mezo votes
-        </Button>
-      </div>
+      ) : null}
+
+      <Stack gap={3}>
+        <div className={styles.escrowHead}>
+          <span className={styles.escrowTitle}>Vote on Mezo</span>
+          <Muted small>
+            {voting.data
+              ? current.length
+                ? `Votes now: ${current.map((a) => byPool.get(a)?.label ?? a).join(", ")}`
+                : "No Mezo vote right now"
+              : "Reading the NFT's vote…"}
+          </Muted>
+        </div>
+        {blocked ? <Notice tone="warning">{blocked}</Notice> : null}
+        {pools.isPending ? (
+          <Skeleton height={180} label="Loading Mezo's pools" />
+        ) : (
+          <div className={styles.poolList}>
+            <CheckList
+              label="Mezo pools to vote for"
+              values={selected}
+              onChange={(next) => setPicked(next as Address[])}
+              options={listed.map((p) => ({
+                value: p.pool,
+                content: (
+                  <span className={styles.poolRow}>
+                    <span className={styles.poolName}>{p.label}</span>
+                    <span className={`num ${styles.poolAddr}`}>{shortAddress(p.pool)}</span>
+                    {current.includes(p.pool) ? <Pill tone="accent">Voted</Pill> : null}
+                    {!p.alive ? <Pill tone="warning">Gauge killed</Pill> : null}
+                  </span>
+                ),
+              }))}
+            />
+          </div>
+        )}
+        <div className={styles.escrowActions}>
+          <Button
+            disabled={selected.length === 0 || selected.length > max || !!blocked || !voting.data}
+            onClick={() => tx.review(vote())}
+          >
+            Review Mezo vote
+          </Button>
+          <Muted small>
+            {selected.length > max
+              ? `Mezo allows at most ${max} pools per vote.`
+              : `${selected.length} picked · the power is split evenly across them.`}
+          </Muted>
+        </div>
+      </Stack>
+
+      <Stack gap={3}>
+        <div className={styles.escrowHead}>
+          <span className={styles.escrowTitle}>Fees and bribes</span>
+          <Muted small>Earned by this NFT&apos;s Mezo votes, claimable now</Muted>
+        </div>
+        {voting.isPending && !err ? (
+          <Skeleton height={64} label="Reading claimable rewards" />
+        ) : rewards.length === 0 ? (
+          <Muted small>Nothing to claim yet. A Mezo vote earns its pools&apos; fees and bribes once that Mezo epoch ends.</Muted>
+        ) : (
+          <ul className={styles.rewardList}>
+            {rewards.map((r) => (
+              <li key={`${r.reward}:${r.token}`}>
+                <span>
+                  {r.label} <Muted small>· {r.kind === "fees" ? "trading fees" : "bribe"}</Muted>
+                </span>
+                <span className="num">
+                  {formatAmount(r.earned, { decimals: r.decimals, max: 6 })} {r.symbol}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className={styles.escrowActions}>
+          <Button disabled={rewards.length === 0} onClick={() => tx.review(claim())}>
+            Claim to your wallet{rewards.length ? ` (${rewards.length})` : ""}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => tx.review(rebase())}>
+            Claim rebase
+          </Button>
+          <Button size="sm" variant="secondary" disabled={current.length === 0 || !!blocked} onClick={() => tx.review(reset())}>
+            Reset Mezo votes
+          </Button>
+        </div>
+      </Stack>
     </Stack>
   );
 }

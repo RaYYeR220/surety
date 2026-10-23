@@ -272,6 +272,32 @@
   min-width: 0;
 }
 
+/* Check list: a ledge-cornered box that fills with the accent when checked. */
+.checkBox {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px 2px 7px 2px;
+  border: var(--border-width-strong) solid var(--color-line-strong);
+  background: var(--color-surface);
+  display: grid;
+  place-items: center;
+}
+
+.choice:has(input:checked) .checkBox {
+  background: var(--color-accent);
+}
+
+.choice:has(input:checked) .checkBox::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  margin-top: -2px;
+  border-left: 2px solid var(--color-on-accent);
+  border-bottom: 2px solid var(--color-on-accent);
+  transform: rotate(-45deg);
+}
+
 /* ---------- Dialog ---------- */
 .dialog {
   width: min(560px, calc(100vw - 2 * var(--gutter)));

@@ -283,6 +283,41 @@ export function ChoiceList<T extends string>({
   );
 }
 
+/* ---------- Check list (multi-select cards) ---------- */
+
+export function CheckList<T extends string>({
+  values,
+  onChange,
+  options,
+  label,
+}: {
+  values: T[];
+  onChange: (next: T[]) => void;
+  options: { value: T; content: ReactNode; disabled?: boolean }[];
+  label: string;
+}) {
+  return (
+    <div className={styles.choices} role="group" aria-label={label}>
+      {options.map((o) => {
+        const checked = values.includes(o.value);
+        return (
+          <label key={o.value} className={styles.choice}>
+            <input
+              type="checkbox"
+              value={o.value}
+              checked={checked}
+              disabled={o.disabled}
+              onChange={() => onChange(checked ? values.filter((v) => v !== o.value) : [...values, o.value])}
+            />
+            <span className={styles.checkBox} aria-hidden="true" />
+            <div className={styles.choiceBody}>{o.content}</div>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ---------- Dialog ---------- */
 
 export function Dialog({

@@ -16,6 +16,7 @@ import {
   ALICE,
   createMockChain,
   createSuretyFixture,
+  fakeAddress,
   fixtureDeployment,
   mockLog,
   MockRevert,
@@ -23,6 +24,8 @@ import {
   type MockContract,
 } from "@surety/sdk/testing";
 import type { Address, Hex } from "viem";
+
+import { poolMetaAbi, poolsVoterAbi, votingRewardAbi } from "./mezoAbis";
 
 /** default: the fixture as shipped. stale: the BTC price feed is down, so lines fail closed. */
 export type DemoScenario = "default" | "stale";
@@ -182,6 +185,71 @@ export function createDemo(scenario: DemoScenario): Demo {
           return s.priceWad;
         },
       },
+    },
+  );
+
+  // Mezo's PoolsVoter with three pools. Alice's escrowed veBTC #11 (loan 1) votes for the first pool and has
+  // earned its fees and a sponsor bribe.
+  const WEEK = 604_800n;
+  const MEZO = fakeAddress(0x341);
+  const pools = [
+    { pool: fakeAddress(0x301), gauge: fakeAddress(0x311), fees: fakeAddress(0x321), bribe: fakeAddress(0x331), symbol: "vAMM-MUSD/BTC" },
+    { pool: fakeAddress(0x302), gauge: fakeAddress(0x312), fees: fakeAddress(0x322), bribe: fakeAddress(0x332), symbol: null },
+    { pool: fakeAddress(0x303), gauge: fakeAddress(0x313), fees: fakeAddress(0x323), bribe: fakeAddress(0x333), symbol: "sAMM-MUSD/mUSDC" },
+  ];
+  const poolBy = (a: Address) => pools.find((p) => same(p.pool, a));
+  const gaugeBy = (a: Address) => pools.find((p) => same(p.gauge, a));
+  const earned: Record<string, Record<string, bigint>> = {
+    [pools[0]!.fees.toLowerCase()]: { [d.external.musd.toLowerCase()]: e18(1.84), [d.external.btc.toLowerCase()]: e18(0.00002) },
+    [pools[0]!.bribe.toLowerCase()]: { [MEZO.toLowerCase()]: e18(42) },
+  };
+  const rewardTokens: Record<string, Address[]> = {
+    [pools[0]!.fees.toLowerCase()]: [d.external.musd, d.external.btc],
+    [pools[0]!.bribe.toLowerCase()]: [MEZO],
+    [pools[1]!.fees.toLowerCase()]: [d.external.musd, d.external.btc],
+    [pools[2]!.fees.toLowerCase()]: [d.external.musd],
+  };
+  contracts.push(
+    {
+      address: d.external.poolsVoter,
+      abi: poolsVoterAbi,
+      functions: {
+        length: BigInt(pools.length),
+        pools: (i: bigint) => pools[Number(i)]?.pool ?? ZERO,
+        gauges: (a: Address) => poolBy(a)?.gauge ?? ZERO,
+        isAlive: (g: Address) => !!gaugeBy(g),
+        gaugeToFees: (g: Address) => gaugeBy(g)?.fees ?? ZERO,
+        gaugeToBribe: (g: Address) => gaugeBy(g)?.bribe ?? ZERO,
+        votes: (tokenId: bigint, a: Address) => (tokenId === 11n && same(a, pools[0]!.pool) ? e18(0.05) : 0n),
+        lastVoted: () => 0n,
+        maxVotingNum: 30n,
+        epochStart: (t: bigint) => t - (t % WEEK),
+        epochVoteStart: (t: bigint) => t - (t % WEEK) + 3600n,
+        epochVoteEnd: (t: bigint) => t - (t % WEEK) + WEEK - 3600n,
+      },
+    },
+    ...pools.map((p) => ({
+      address: p.pool,
+      abi: poolMetaAbi,
+      functions: p.symbol
+        ? { symbol: p.symbol }
+        : { token0: d.external.musd, token1: d.external.btc, tickSpacing: 200 },
+    })),
+    ...pools.flatMap((p) =>
+      [p.fees, p.bribe].map((r) => ({
+        address: r,
+        abi: votingRewardAbi,
+        functions: {
+          rewardsListLength: BigInt(rewardTokens[r.toLowerCase()]?.length ?? 0),
+          rewards: (i: bigint) => rewardTokens[r.toLowerCase()]?.[Number(i)] ?? ZERO,
+          earned: (token: Address, tokenId: bigint) => (tokenId === 11n ? (earned[r.toLowerCase()]?.[token.toLowerCase()] ?? 0n) : 0n),
+        },
+      })),
+    ),
+    {
+      address: MEZO,
+      abi: erc20Abi,
+      functions: { symbol: "MEZO", decimals: 18 },
     },
   );
 
