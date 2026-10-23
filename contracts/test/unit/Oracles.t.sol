@@ -21,7 +21,7 @@ contract OraclesTest is Test {
     function setUp() public {
         vm.warp(1792771353);
         aggregator = new MockAggregator(BTC_USD);
-        skipSource = new SkipPriceSource(IAggregatorV3(address(aggregator)), 60);
+        skipSource = new SkipPriceSource(IAggregatorV3(address(aggregator)), 60, 18);
         stressed = new StressedPriceSource(skipSource);
     }
 
@@ -60,7 +60,28 @@ contract OraclesTest is Test {
 
     function test_skip_rejectsZeroMaxAge() public {
         vm.expectRevert(SkipPriceSource.ZeroMaxAge.selector);
-        new SkipPriceSource(IAggregatorV3(address(aggregator)), 0);
+        new SkipPriceSource(IAggregatorV3(address(aggregator)), 0, 18);
+    }
+
+    function test_skip_rejectsDecimalsAbove18() public {
+        vm.expectRevert(SkipPriceSource.UnsupportedDecimals.selector);
+        this.deploySkip(19);
+    }
+
+    function test_skip_revertsWhenFeedDecimalsDiffer() public {
+        SkipPriceSource wrong = new SkipPriceSource(IAggregatorV3(address(aggregator)), 60, 8);
+        vm.expectRevert(SkipPriceSource.UnsupportedDecimals.selector);
+        wrong.priceWad();
+    }
+
+    function test_skip_constructorMakesNoExternalCall() public {
+        // An address with no code would revert on any call; deployment must still succeed.
+        SkipPriceSource lazy = new SkipPriceSource(IAggregatorV3(address(0xdead)), 60, 18);
+        assertEq(lazy.decimals(), 18);
+    }
+
+    function deploySkip(uint8 decimals_) external returns (SkipPriceSource) {
+        return new SkipPriceSource(IAggregatorV3(address(aggregator)), 60, decimals_);
     }
 
     /* StressedPriceSource */

@@ -82,6 +82,8 @@ contract Deploy is MorphoStackDeployer {
     uint256 internal constant MEZO_TESTNET = 31611;
 
     uint256 internal constant ORACLE_MAX_AGE = 60;
+    /// @dev Skip BTC/USD on Mezo reports 18 decimals; SkipPriceSource re-checks this on every read.
+    uint8 internal constant SKIP_DECIMALS = 18;
     uint256 internal constant SEASON = 4;
     uint256 internal constant IDLE_BUFFER_BPS = 1000;
     uint256 internal constant VOTER_FEE = 0.1e18;
@@ -202,7 +204,7 @@ contract Deploy is MorphoStackDeployer {
     /* Deployment */
 
     function _deployOracles(Config memory c, Deployed memory d) internal {
-        d.skipSource = new SkipPriceSource(IAggregatorV3(c.skipAggregator), ORACLE_MAX_AGE);
+        d.skipSource = new SkipPriceSource(IAggregatorV3(c.skipAggregator), ORACLE_MAX_AGE, SKIP_DECIMALS);
         d.priceSource = c.stress ? IPriceSource(address(new StressedPriceSource(d.skipSource))) : d.skipSource;
         d.morphoOracle = new MorphoPriceOracle(d.priceSource);
         d.market = MarketParams({

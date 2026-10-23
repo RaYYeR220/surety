@@ -150,7 +150,7 @@ abstract contract SuretyFixture is Test {
 
     function _deployOracles() internal {
         aggregator = new MockAggregator(BTC_USD);
-        skipSource = new SkipPriceSource(IAggregatorV3(address(aggregator)), ORACLE_MAX_AGE);
+        skipSource = new SkipPriceSource(IAggregatorV3(address(aggregator)), ORACLE_MAX_AGE, 18);
         stressedSource = new StressedPriceSource(skipSource);
         morphoOracle = new MorphoPriceOracle(stressedSource);
         vm.label(address(aggregator), "SkipAggregator");
