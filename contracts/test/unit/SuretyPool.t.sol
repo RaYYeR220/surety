@@ -3,8 +3,11 @@ pragma solidity 0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Id, Market, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
+import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
+import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 
 import {CreditVoter} from "../../src/CreditVoter.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
@@ -533,8 +536,11 @@ contract SuretyPoolTest is PoolFixture {
         _liquidateMorpho(liquidator, morphoBorrower);
         uint256 loss = pool.checkpoint(MORPHO_LINE);
         assertGt(loss, 3_000e18);
-        assertLt(loss, vault.previewRedeem(sc.m6 + sc.m7), "unmatured cohorts of the line suffice");
-        uint256 burn = vault.previewWithdraw(loss);
+        vault.accrueInterest();
+        uint256 assets = _fullCoverAssets(loss);
+        assertGt(assets, loss, "grossed up for the fee VaultV2 takes on the returned MUSD");
+        assertLt(assets, vault.previewRedeem(sc.m6 + sc.m7), "unmatured cohorts of the line suffice");
+        uint256 burn = vault.previewWithdraw(assets);
         // The current epoch's cohort is cut first (rounded down); the last one takes the rest.
         uint256 cut7 = burn * sc.m7 / (sc.m6 + sc.m7);
         uint256 accounted = pool.accountedShares();
@@ -544,7 +550,7 @@ contract SuretyPoolTest is PoolFixture {
         vm.expectEmit(address(pool));
         emit SuretyPool.CohortSlashed(MORPHO_LINE, sc.e6, burn - cut7);
         vm.expectEmit(address(pool));
-        emit SuretyPool.Covered(MORPHO_LINE, loss, burn, 0);
+        emit SuretyPool.Covered(MORPHO_LINE, loss, assets, burn, 0);
         vm.prank(keeper);
         assertEq(pool.cover(MORPHO_LINE), loss);
 
@@ -611,14 +617,10 @@ contract SuretyPoolTest is PoolFixture {
         uint256 lenderPostLoss = vault.previewRedeem(vault.balanceOf(lender));
         assertLt(lenderPostLoss, lenderPreLoss);
 
-        uint256 burn = vault.previewWithdraw(capacity);
-        vm.expectEmit(address(pool));
-        emit SuretyPool.Covered(MORPHO_LINE, capacity, cohortShares, burn - cohortShares);
-        assertEq(pool.cover(MORPHO_LINE), capacity);
-
+        uint256 covered = _coverAllCapacity(loss, capacity, cohortShares);
         assertEq(_cohortShares(MORPHO_LINE, e1), 0, "first loss: cohort exhausted");
         assertLe(pool.reserveShares(), 1, "second loss: reserve exhausted");
-        assertEq(pool.uncoveredLoss(MORPHO_LINE), loss - capacity, "third loss: lenders");
+        assertEq(pool.uncoveredLoss(MORPHO_LINE), loss - covered, "third loss: lenders");
         assertGt(pool.uncoveredLoss(MORPHO_LINE), 0);
 
         // Nothing left to slash: further calls pay at most a share's dust and never revert.
@@ -631,6 +633,26 @@ contract SuretyPoolTest is PoolFixture {
         uint256 lenderAfter = vault.previewRedeem(vault.balanceOf(lender));
         assertGt(lenderAfter, lenderPostLoss);
         assertLt(lenderAfter, lenderPreLoss);
+    }
+
+    /// @dev Covers the Morpho line when the pool (`capacity` MUSD, `cohortShares` of it in cohorts) is smaller than
+    /// `loss`: all of it moves, and it covers W*(1-f)*(A+U)/(A-f*W) loss units.
+    function _coverAllCapacity(uint256 loss, uint256 capacity, uint256 cohortShares)
+        internal
+        returns (uint256 covered)
+    {
+        vault.accrueInterest();
+        uint256 burn = vault.previewWithdraw(capacity);
+        uint256 units = _partialCoverUnits(loss, capacity);
+        assertLt(units, capacity, "the fee VaultV2 takes on the returned MUSD is not cover");
+        vm.recordLogs();
+        covered = pool.cover(MORPHO_LINE);
+        (uint256 loggedUnits, uint256 moved, uint256 fromCohorts, uint256 fromReserve) = _coveredLog();
+        assertEq(loggedUnits, covered);
+        assertApproxEqAbs(covered, units, 2, "loss units: W*(1-f)*(A+U)/(A-f*W)");
+        assertEq(moved, capacity, "the whole capacity moved");
+        assertEq(fromCohorts, cohortShares);
+        assertEq(fromReserve, burn - cohortShares);
     }
 
     function test_cover_repeated_neverExceedsRecordedLoss() public {
@@ -650,7 +672,8 @@ contract SuretyPoolTest is PoolFixture {
         uint256 c1 = pool.cover(MORPHO_LINE);
         uint256 loss = pool.lossRecorded(MORPHO_LINE);
         assertGt(loss, 3_000e18);
-        assertApproxEqRel(c1, 1_000e18, 0.05e18, "the cohort, valued after the loss");
+        assertEq(pool.lossCovered(MORPHO_LINE), c1);
+        assertApproxEqRel(c1, 900e18, 0.05e18, "the cohort, valued after the loss, less the fee on what it returns");
         uint256 c2 = pool.cover(MORPHO_LINE);
         assertLe(c2, 2);
 
@@ -712,15 +735,15 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(morphoAdapter.supplyShares(id), positionShares, "no stranded Morpho shares");
         assertEq(mockAllocator.netAdjustment(MORPHO_LINE), -int256(covered), "the line itself did not grow back");
 
-        // VaultV2 re-recognises the restored assets at most at maxRate; once it has, lenders are whole up to the 10%
-        // performance fee taken on the re-recognised amount (which flows back to the pool).
+        // VaultV2 re-recognises the restored assets at most at maxRate; once it has, lenders are back at the pre-loss
+        // price: the cover was sized for the 10% performance fee taken on them (which flows back to the pool).
         _warp(1);
         vault.accrueInterest();
         assertLt(vault.previewRedeem(vault.balanceOf(lender)), lenderPreLoss - covered / 2, "not at once");
         _warp(30 days);
         vault.accrueInterest();
         uint256 lenderAfter = vault.previewRedeem(vault.balanceOf(lender));
-        assertApproxEqAbs(lenderAfter, lenderPreLoss, covered / 10);
+        assertApproxEqRel(lenderAfter, lenderPreLoss, EXACT);
         uint256 realAssets = musd.balanceOf(address(vault)) + morphoAdapter.realAssets() + line.realAssets();
         assertEq(vault.totalAssets(), realAssets);
     }
@@ -761,19 +784,25 @@ contract SuretyPoolTest is PoolFixture {
         uint256 cashBefore = line.cash();
 
         // Only the idle MUSD can be redeemed now: cover what it can, no revert.
-        assertEq(pool.cover(VE_LINE), 1_000e18);
-        assertEq(line.cash(), cashBefore + 1_000e18);
-        assertEq(pool.uncoveredLoss(VE_LINE), shortfall - 1_000e18);
-        assertEq(mockAllocator.netAdjustment(VE_LINE), -int256(shortfall) + 1_000e18);
+        vault.accrueInterest();
+        uint256 units = _partialCoverUnits(shortfall, 1_000e18);
+        uint256 first = pool.cover(VE_LINE);
+        assertApproxEqAbs(first, units, 2);
+        assertEq(line.cash(), cashBefore + 1_000e18, "all the idle MUSD paid in");
+        assertEq(pool.uncoveredLoss(VE_LINE), shortfall - first);
+        assertEq(mockAllocator.netAdjustment(VE_LINE), -int256(shortfall) + 1_000e18, "adjusted by the MUSD moved");
         assertEq(musd.allowance(address(pool), address(line)), 0);
         assertEq(pool.cover(VE_LINE), 0, "no idle MUSD left");
 
         // Once liquidity is back in the vault the rest is covered.
         _deallocateLine(20_000e18);
-        assertEq(pool.cover(VE_LINE), shortfall - 1_000e18);
+        cashBefore = line.cash();
+        assertEq(pool.cover(VE_LINE), shortfall - first);
+        uint256 paid = 1_000e18 + line.cash() - cashBefore;
+        assertGt(paid, shortfall, "grossed up for the fee VaultV2 takes on it");
         assertEq(pool.uncoveredLoss(VE_LINE), 0);
-        assertEq(mockAllocator.netAdjustment(VE_LINE), 0);
-        assertEq(line.realAssets(), preBid - 20_000e18, "line restored to its pre-auction assets");
+        assertEq(mockAllocator.netAdjustment(VE_LINE), int256(paid) - int256(shortfall));
+        assertEq(line.realAssets(), preBid - 20_000e18 - shortfall + paid, "line paid its shortfall and the gross-up");
         assertEq(line.badDebtTotal(), shortfall, "ledger stays cumulative");
         assertEq(pool.checkpoint(VE_LINE), 0);
     }
@@ -791,13 +820,187 @@ contract SuretyPoolTest is PoolFixture {
 
         _shock(6000);
         _liquidateMorpho(liquidator, morphoBorrower);
-        assertEq(pool.cover(MORPHO_LINE), 2_000e18);
+        vm.recordLogs();
+        uint256 first = pool.cover(MORPHO_LINE);
+        (, uint256 moved,,) = _coveredLog();
+        assertEq(moved, 2_000e18, "all the idle MUSD");
         uint256 loss = pool.lossRecorded(MORPHO_LINE);
-        assertGt(loss, 2_000e18);
+        assertGt(first, 0);
+        assertLt(first, loss);
         // The MUSD went straight back to the vault, so the next call can continue.
         assertEq(musd.balanceOf(address(vault)), 2_000e18);
-        assertEq(pool.cover(MORPHO_LINE), loss - 2_000e18);
+        assertEq(pool.cover(MORPHO_LINE), loss - first);
         assertEq(pool.uncoveredLoss(MORPHO_LINE), 0);
+    }
+
+    /* Cover sizing */
+
+    /// @dev 0.01%, the tolerance of the exact-restoration checks.
+    uint256 internal constant EXACT = 1e14;
+
+    /// @dev A lender holding most of the vault (100k MUSD), alice voting both lines and 10k MUSD of incentives on
+    /// each, plus one borrower on `lineId` only: a veBTC loan of 40k against 1 BTC (50k allocated to the line) or a
+    /// Morpho borrow of 10k against 0.2 BTC (20k allocated). Once that borrower is closed out nothing earns interest,
+    /// so lender value moves only through the loss, the cover and VaultV2's recognition of the returned MUSD.
+    function _sizingScene(uint256 lineId) internal returns (uint256 loanId) {
+        uint256 a = _lockPermanent(alice, 1e18);
+        _deposit(lender, 100_000e18);
+        _warpEpochs(1);
+        _vote(alice, a, _arr(MORPHO_LINE, VE_LINE), _arr(5000, 5000));
+        _post(sponsor, MORPHO_LINE, 10_000e18);
+        _post(sponsor, VE_LINE, 10_000e18);
+        if (lineId == VE_LINE) {
+            _allocateLine(50_000e18);
+            (loanId,) = _openTimed(borrower, 1e18, 40_000e18);
+        } else {
+            _allocateMorpho(20_000e18);
+            _borrowMorpho(morphoBorrower, 0.2e18, 10_000e18);
+            assertEq(pool.checkpoint(MORPHO_LINE), 0);
+        }
+    }
+
+    /// @dev BTC drops 60% and the scene's borrower is closed out below its debt; returns the loss recorded.
+    function _takeLoss(uint256 lineId, uint256 loanId) internal returns (uint256 loss) {
+        _shock(6000);
+        if (lineId == VE_LINE) {
+            line.startAuction(loanId);
+            _bid(bidder, loanId);
+        } else {
+            _liquidateMorpho(liquidator, morphoBorrower);
+        }
+        loss = pool.checkpoint(lineId);
+        assertGt(loss, 1_000e18);
+    }
+
+    /// @dev Long enough for VaultV2 to recognise every returned MUSD under MAX_MAX_RATE, in one accrual.
+    function _recognise() internal {
+        _warp(30 days);
+        vault.accrueInterest();
+        uint256 real = musd.balanceOf(address(vault)) + morphoAdapter.realAssets() + line.realAssets();
+        assertEq(vault.totalAssets(), real, "everything recognised");
+    }
+
+    function _valueOf(address who) internal view returns (uint256) {
+        return vault.previewRedeem(vault.balanceOf(who));
+    }
+
+    /// @dev Cover inputs after `vault.accrueInterest()`, checking nothing awaits recognition (realAssets == A).
+    function _sizingInputs() internal view returns (uint256 a, uint256 fee) {
+        a = vault.totalAssets();
+        fee = vault.performanceFee();
+        uint256 real = musd.balanceOf(address(vault)) + morphoAdapter.realAssets() + line.realAssets();
+        assertEq(real, a, "nothing pending recognition");
+    }
+
+    /// @dev MUSD a full cover of `loss` moves: A*U/(A+U-f*A), rounded up as the pool does.
+    function _fullCoverAssets(uint256 loss) internal view returns (uint256) {
+        (uint256 a, uint256 fee) = _sizingInputs();
+        return Math.mulDiv(a, loss, a + loss - Math.mulDiv(a, fee, 1e18, Math.Rounding.Ceil), Math.Rounding.Ceil);
+    }
+
+    /// @dev Loss units a cover of `loss` cut short at `assets` MUSD covers: W*(1-f)*(A+U)/(A-f*W).
+    function _partialCoverUnits(uint256 loss, uint256 assets) internal view returns (uint256) {
+        (uint256 a, uint256 fee) = _sizingInputs();
+        return Math.mulDiv(assets, (1e18 - fee) * (a + loss), a * 1e18 - assets * fee);
+    }
+
+    /// @dev The single Covered event in the recorded logs: (lossUnitsCovered, assetsMoved, fromCohorts, fromReserve).
+    function _coveredLog()
+        internal
+        view
+        returns (uint256 units, uint256 assets, uint256 fromCohorts, uint256 fromReserve)
+    {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 found = 0;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(pool) || logs[i].topics[0] != SuretyPool.Covered.selector) continue;
+            (units, assets, fromCohorts, fromReserve) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+            ++found;
+        }
+        assertEq(found, 1, "one Covered event");
+    }
+
+    /// @dev After a full cover and full recognition, non-pool shares are back at the pre-loss price, and the pool's
+    /// value (net of the fee shares VaultV2 mints it on the returned MUSD) is down by exactly the loss. Checked on a
+    /// veBTC-line shortfall and, separately, on Morpho bad debt.
+    function test_cover_restoresLenderPriceExactly_afterRecognition() public {
+        assertEq(vault.performanceFee(), 0.1e18);
+        assertEq(vault.maxRate(), MAX_MAX_RATE);
+        uint256 snap = vm.snapshotState();
+        for (uint256 lineId; lineId < 2; ++lineId) {
+            vm.revertToState(snap);
+            uint256 loanId = _sizingScene(lineId);
+            uint256 lenderPre = _valueOf(lender);
+            uint256 poolPre = _valueOf(address(pool));
+            assertGt(vault.balanceOf(lender) * 2, vault.totalSupply(), "the lender holds most shares");
+
+            uint256 loss = _takeLoss(lineId, loanId);
+            vault.accrueInterest();
+            assertLt(_valueOf(lender), lenderPre - loss / 2, "the vault realised the loss");
+
+            assertEq(pool.cover(lineId), loss);
+            assertEq(pool.uncoveredLoss(lineId), 0);
+            _recognise();
+
+            assertApproxEqRel(_valueOf(lender), lenderPre, EXACT, "lender back at the pre-loss price");
+            assertApproxEqRel(poolPre - _valueOf(address(pool)), loss, EXACT, "the pool bore exactly the loss");
+            assertGt(_pendingFeeShares(), 0, "fee shares on the returned MUSD came back to the pool");
+        }
+    }
+
+    /// @dev A cover cut short by idle MUSD, then finished once the allocator frees liquidity, ends at the same
+    /// lender price as one cover of the whole loss: right away, or after VaultV2 recognised the first part.
+    function test_cover_partialThenFull_equalsOneShot() public {
+        uint256 loanId = _sizingScene(VE_LINE);
+        // Leave 4,000 MUSD idle: less than a full cover needs.
+        _allocateLine(66_000e18);
+        assertEq(musd.balanceOf(address(vault)), 4_000e18);
+        uint256 lenderPre = _valueOf(lender);
+        uint256 loss = _takeLoss(VE_LINE, loanId);
+        uint256 snap = vm.snapshotState();
+
+        _deallocateLine(20_000e18);
+        assertEq(pool.cover(VE_LINE), loss);
+        _recognise();
+        uint256 oneShot = _valueOf(lender);
+        assertApproxEqRel(oneShot, lenderPre, EXACT, "one shot restores the pre-loss price");
+
+        for (uint256 recogniseBetween; recogniseBetween < 2; ++recogniseBetween) {
+            vm.revertToState(snap);
+            uint256 first = pool.cover(VE_LINE);
+            assertGt(first, 0);
+            assertLt(first, loss, "cut short by idle MUSD");
+            assertEq(musd.balanceOf(address(vault)), 0, "all idle MUSD moved");
+            if (recogniseBetween == 1) _recognise();
+            _deallocateLine(20_000e18);
+            assertEq(pool.cover(VE_LINE), loss - first, "the rest");
+            assertEq(pool.lossCovered(VE_LINE), loss);
+            _recognise();
+            assertApproxEqRel(_valueOf(lender), oneShot, EXACT, "same lender price as one shot");
+        }
+    }
+
+    /// @dev Without a performance fee the cover moves A*U/(A+U) MUSD, which burns U/(A+U) of the supply: exactly the
+    /// shares the loss is worth at the pre-loss price (A+U)/T.
+    function test_cover_feeZero_burnsExactlyAUoverAplusU() public {
+        _curate(abi.encodeCall(IVaultV2.setPerformanceFee, (0)));
+        uint256 loanId = _sizingScene(VE_LINE);
+        uint256 lenderPre = _valueOf(lender);
+        uint256 loss = _takeLoss(VE_LINE, loanId);
+        vault.accrueInterest();
+        uint256 a = vault.totalAssets();
+        uint256 t = vault.totalSupply();
+        uint256 poolShares = vault.balanceOf(address(pool));
+        uint256 cash = line.cash();
+
+        assertEq(pool.cover(VE_LINE), loss);
+        assertApproxEqAbs(line.cash() - cash, a * loss / (a + loss), 1, "moves A*U/(A+U)");
+        uint256 burned = poolShares - vault.balanceOf(address(pool));
+        assertApproxEqAbs(burned, loss * t / (a + loss), 2, "burns U*T/(A+U) shares");
+
+        _recognise();
+        assertEq(vault.balanceOf(address(pool)), poolShares - burned, "no fee shares");
+        assertApproxEqRel(_valueOf(lender), lenderPre, EXACT, "lender back at the pre-loss price");
     }
 
     /* Fuzz: cohort conservation */
@@ -904,7 +1107,8 @@ contract SuretyPoolTest is PoolFixture {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(pool) || logs[i].topics[0] != SuretyPool.Covered.selector) continue;
-            (, uint256 fromCohorts, uint256 fromReserve) = abi.decode(logs[i].data, (uint256, uint256, uint256));
+            (,, uint256 fromCohorts, uint256 fromReserve) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
             led.slashed += fromCohorts;
             led.fromReserve += fromReserve;
         }

@@ -175,7 +175,8 @@ contract LifecycleTest is SuretyFixture {
         assertEq(_unmatured(MORPHO_LINE), morphoCohorts, "the other line's cohorts are untouched");
         assertEq(pool.reserveShares(), 0);
         assertLt(ve_.covered, lossVe, "the pool is smaller than the loss");
-        assertEq(line.cash(), ve_.lineCashBefore + ve_.covered, "cover paid into the line");
+        assertEq(line.cash(), ve_.lineCashBefore + ve_.assets, "cover paid into the line");
+        assertLt(ve_.covered, ve_.assets, "the fee VaultV2 takes on the returned MUSD is not cover");
 
         CoverResult memory mo = _cover(MORPHO_LINE);
         assertEq(mo.fromCohorts, morphoCohorts, "Morpho cohorts slashed");
@@ -253,13 +254,14 @@ contract LifecycleTest is SuretyFixture {
 
     struct CoverResult {
         uint256 covered;
+        uint256 assets;
         uint256 fromCohorts;
         uint256 fromReserve;
         uint256 burned;
         uint256 lineCashBefore;
     }
 
-    /// @dev Covers `lineId` as the keeper and checks the shares burned equal what the covered MUSD withdraws.
+    /// @dev Covers `lineId` as the keeper and checks the shares burned equal what the moved MUSD withdraws.
     function _cover(uint256 lineId) internal returns (CoverResult memory r) {
         r.lineCashBefore = line.cash();
         uint256 poolShares = vault.balanceOf(address(pool));
@@ -269,9 +271,10 @@ contract LifecycleTest is SuretyFixture {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(pool) || logs[i].topics[0] != SuretyPool.Covered.selector) continue;
-            uint256 assets;
-            (assets, r.fromCohorts, r.fromReserve) = abi.decode(logs[i].data, (uint256, uint256, uint256));
-            assertEq(assets, r.covered);
+            uint256 units;
+            (units, r.assets, r.fromCohorts, r.fromReserve) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+            assertEq(units, r.covered);
         }
         r.burned = poolShares - vault.balanceOf(address(pool));
         assertEq(r.burned, r.fromCohorts + r.fromReserve, "cohorts and reserve slashed by exactly the burn");

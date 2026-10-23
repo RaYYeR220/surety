@@ -788,7 +788,13 @@ export const suretyPoolAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "assets",
+        "name": "lossUnitsCovered",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "assetsMoved",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
