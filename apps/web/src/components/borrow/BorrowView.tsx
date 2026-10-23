@@ -142,7 +142,7 @@ function OpenLoan({ env }: { env: ReadyEnv }) {
       ],
       notes: [
         "Repay any time, in part or in full. Full repayment returns the NFT to you.",
-        "Repay or extend the lock before it ends; after the lock end, or at 70% LTV, anyone can start a Dutch auction of the NFT.",
+        `Repay or extend the lock before it ends; after the lock end, or at ${formatBps(q!.liqLtvBps, 0)} LTV, anyone can start a Dutch auction of the NFT.`,
         "The price feed must be fresh to open a loan; repaying never needs it.",
       ],
       steps: [

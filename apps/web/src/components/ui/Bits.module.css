@@ -376,7 +376,7 @@
 /* ---------- Key / value rows ---------- */
 .kv {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(8.5em, 1fr) minmax(0, auto);
   gap: var(--space-2) var(--space-4);
   font-size: var(--text-sm);
 }

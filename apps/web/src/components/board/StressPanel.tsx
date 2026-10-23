@@ -48,8 +48,8 @@ export function StressPanel({ env }: { env: ReadyEnv }) {
         { label: "Lasts", value: formatDuration(Number(duration)) },
       ],
       notes: [
-        "veBTC loans at or above 70% LTV become auctionable; anyone can start the Dutch auction.",
-        "Morpho positions above the 86% liquidation LTV can be liquidated by Morpho's own rules.",
+        "veBTC loans that reach the line's liquidation LTV become auctionable; anyone can start the Dutch auction.",
+        "Morpho positions past their market's liquidation LTV can be liquidated by Morpho's own rules.",
         "If an auction or liquidation closes below the debt, the shortfall is recorded and cover takes it from the voters' seasoning rewards first.",
         "A new shock replaces the current one. Mainnet has no stress source: it reads the Skip price directly.",
       ],

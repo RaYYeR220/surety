@@ -104,7 +104,7 @@ function LoanCard({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: 
           <Notice tone="danger" title="Past the liquidation line" role="alert">
             {loan.liquidationReason === "expiry"
               ? "The lock has ended. Anyone can start the auction now: repay to keep the NFT."
-              : "Loan-to-value reached 70%. Anyone can start the auction now: repay or add collateral to keep the NFT."}
+              : `Loan-to-value reached ${formatBps(loan.liqLtvBps, 0)}. Anyone can start the auction now: repay or add collateral to keep the NFT.`}
           </Notice>
         ) : null}
 

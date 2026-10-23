@@ -480,3 +480,17 @@
 .extLink:hover {
   color: var(--color-accent-text);
 }
+
+.addrShort {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .addrFull {
+    display: none;
+  }
+
+  .addrShort {
+    display: inline;
+  }
+}

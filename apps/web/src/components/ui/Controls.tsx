@@ -402,7 +402,18 @@ export function ExplorerLink({
 }) {
   const env = useSurety();
   const href = env.status === "ready" ? env.explorer(kind, value) : null;
-  const text = label ?? (full ? value : kind === "tx" ? shortHash(value) : shortAddress(value));
+  const short = kind === "tx" ? shortHash(value) : shortAddress(value);
+  // Full values shorten on phones so long addresses never wrap into a block of hex.
+  const text =
+    label ??
+    (full ? (
+      <>
+        <span className={styles.addrFull}>{value}</span>
+        <span className={styles.addrShort}>{short}</span>
+      </>
+    ) : (
+      short
+    ));
   if (!href) {
     return (
       <span className={styles.mono} title={value}>

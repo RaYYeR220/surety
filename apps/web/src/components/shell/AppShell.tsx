@@ -107,7 +107,9 @@ function WalletButton() {
   }
   return (
     <button type="button" className={`${styles.walletButton} ${styles.walletButtonPrimary}`} onClick={wallet.open}>
-      Connect<span className={styles.walletLabelLong}> wallet</span>
+      <span>
+        Connect<span className={styles.walletLabelLong}> wallet</span>
+      </span>
     </button>
   );
 }

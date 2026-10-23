@@ -179,6 +179,7 @@
 }
 
 .networkSelect:disabled {
+  max-width: none;
   opacity: 1;
   cursor: default;
   background: var(--color-canvas);

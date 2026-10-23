@@ -51,6 +51,11 @@
   margin-top: var(--space-2);
 }
 
+.ctas > * {
+  white-space: normal;
+  text-align: center;
+}
+
 .note {
   font-size: var(--text-sm);
   color: var(--color-ink-3);
