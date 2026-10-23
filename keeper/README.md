@@ -12,7 +12,7 @@ Each pass reads a snapshot of the chain and decides, in this order:
 4. **Rebalance**: `rebalance()` once per epoch, at least 5 seconds after the flip.
 5. **Morpho backstop** (off by default): liquidates unhealthy positions in the Morpho lines' markets, found from `Borrow` logs. The keeper account needs MUSD and a MUSD approval to Morpho for this.
 
-Every action is simulated first; a simulated revert is logged and not sent. Gas limit is the estimate plus 15% (Mezo charges at least half of the gas limit, so limits are kept tight). RPC reads retry with exponential backoff; a failed pass backs off before the next one. Between passes the keeper sleeps for the interval, waking early to land just after the next epoch flip.
+Every action is simulated first; a simulated revert is logged and not sent. Gas limit is the estimate plus 30%: Mezo's gas estimates can come in low (a veBTC lock estimated at ~424k used 551k), and Mezo charges at least half of the gas limit, so the buffer stays modest. RPC reads retry with exponential backoff; a failed pass backs off before the next one. Between passes the keeper sleeps for the interval, waking early to land just after the next epoch flip.
 
 ## Run
 

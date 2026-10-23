@@ -348,6 +348,25 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "event",
+    "name": "CheckpointFailed",
+    "inputs": [
+      {
+        "name": "lineId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reason",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "InterestAttributed",
     "inputs": [
       {

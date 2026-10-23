@@ -13,6 +13,11 @@ export const skipPriceSourceAbi = [
         "name": "maxAge_",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "decimals_",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "nonpayable"
@@ -26,6 +31,19 @@ export const skipPriceSourceAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract IAggregatorV3"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "decimals",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "view"
