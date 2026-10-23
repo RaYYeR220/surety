@@ -28,3 +28,6 @@ design-ref/
 BRIEF.md
 *.bundle
 *-backup*
+
+# per-run broadcast copies (run-latest.json is kept)
+contracts/broadcast/**/run-[0-9]*.json
