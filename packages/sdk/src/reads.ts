@@ -190,6 +190,7 @@ export async function getBoard(ctx: SuretyContext): Promise<Board> {
         call(c.irmLine, linearKinkIrmAbi, "kinkApr"),
         call(c.irmLine, linearKinkIrmAbi, "maxApr"),
         call(c.irmLine, linearKinkIrmAbi, "kinkUtilWad"),
+        call(c.suretyPool, suretyPoolAbi, "depositsPaused"),
       ],
       { blockNumber },
     ),
@@ -217,6 +218,7 @@ export async function getBoard(ctx: SuretyContext): Promise<Board> {
     kinkAprS,
     maxAprS,
     kinkUtilS,
+    depositsPausedS,
   ] = base;
 
   const lineCount = Number(must(lineCountS, "CreditVoter.lineCount"));
@@ -397,6 +399,7 @@ export async function getBoard(ctx: SuretyContext): Promise<Board> {
     performanceFeeRecipient: orNull(perfRecipientS) ?? ZERO_ADDRESS,
     managementFee,
     maxRate: orNull(maxRateS) ?? 0n,
+    depositsPaused: orNull(depositsPausedS as Settled<boolean>),
     supplyApy: Math.max(
       0,
       gross * (1 - wadToNumber(performanceFee)) - wadToNumber(managementFee * SECONDS_PER_YEAR),

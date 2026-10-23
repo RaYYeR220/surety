@@ -69,6 +69,7 @@ describe("getBoard", () => {
     expect(board.vault.idle).toBe(e18(1_000));
     expect(board.vault.symbol).toBe("srMUSD");
     expect(board.vault.sharePrice).toBe((WAD * 10_000n) / 9_900n);
+    expect(board.vault.depositsPaused).toBe(false);
     const gross = 0.54 * morpho!.supplyApy! + 0.36 * ve!.supplyApy!;
     expect(board.vault.supplyApy).toBeCloseTo(gross * 0.9, 9);
   });

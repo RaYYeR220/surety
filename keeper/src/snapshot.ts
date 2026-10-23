@@ -62,7 +62,7 @@ export class SnapshotSource {
       ),
     ]);
     const lines: LineState[] = board.lines.map((l, i) => {
-      const mark = orNull(marks[i] as Settled<readonly [bigint, bigint, boolean]>);
+      const mark = orNull(marks[i] as Settled<readonly [bigint, bigint, boolean, bigint]>);
       return {
         id: l.id,
         kind: l.kind,
