@@ -127,11 +127,14 @@ export function parseDeployment(raw: unknown): SuretyDeployment {
 
   const epochLength = smallInt(v.epochLength, "epochLength");
   if (epochLength === 0) fail("epochLength", "must be positive");
+  const deployedAt = integer(v.deployedAt ?? 0, "deployedAt");
+  // Mezo block numbers stay far below 1e9 for decades; anything above is a unix timestamp by mistake.
+  if (deployedAt >= 1_000_000_000n) fail("deployedAt", "expected the deployment block number, got a timestamp?");
 
   return {
     chainId: smallInt(v.chainId, "chainId"),
     epochLength,
-    deployedAt: integer(v.deployedAt ?? 0, "deployedAt"),
+    deployedAt,
     contracts,
     external,
     lines: v.lines.map((l: unknown, i: number) => line(l, `lines[${i}]`)),

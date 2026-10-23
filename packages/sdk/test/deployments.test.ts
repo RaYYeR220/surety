@@ -35,6 +35,12 @@ describe("deployments", () => {
     expect(() => parseDeployment(badKind)).toThrow(/lines\[0\]\.kind/);
   });
 
+  it("rejects a timestamp where the deployment block belongs", () => {
+    const stamped = structuredClone(example) as Record<string, unknown>;
+    stamped.deployedAt = 1_792_771_200;
+    expect(() => parseDeployment(stamped)).toThrow(/deployedAt/);
+  });
+
   it("accepts lltv as a number or a string", () => {
     const asNumber = structuredClone(example) as { lines: { marketParams?: { lltv: unknown } }[] };
     asNumber.lines[0]!.marketParams!.lltv = 860000000000000000;
