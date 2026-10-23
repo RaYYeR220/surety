@@ -8,6 +8,9 @@ import {IPriceSource} from "./IPriceSource.sol";
 /// @notice A Surety-native credit line: a VaultV2 adapter that tracks its own bad debt and can be made whole.
 /// @dev `realAssets()` is inherited from IAdapter.
 interface ISuretyLine is IAdapter {
+    /// @notice The VaultV2 the line is an adapter of.
+    function vault() external view returns (address);
+
     /// @notice Cumulative shortfall recorded on positions closed below their debt.
     function badDebtTotal() external view returns (uint256);
 

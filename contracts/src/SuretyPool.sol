@@ -20,6 +20,7 @@ import {ISuretyLine} from "./interfaces/ISuretyLine.sol";
 import {ISuretyPool} from "./interfaces/ISuretyPool.sol";
 import {IVeBTC} from "./interfaces/IVeBTC.sol";
 import {EpochLib} from "./libraries/EpochLib.sol";
+import {LineIds} from "./libraries/LineIds.sol";
 
 /// @title SuretyPool
 /// @notice Voter rewards as first loss. Rewards for backing a credit line (sponsor incentives and the vault's
@@ -110,6 +111,8 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// a unit moves). Never exceeds `lossRecorded`.
     mapping(uint256 lineId => uint256) public lossCovered;
     mapping(uint256 lineId => HighWaterMark) public highWaterMark;
+    /// @notice The vault's allocation through the line's adapter at the line's last checkpoint (see `checkpoint`).
+    mapping(uint256 lineId => uint256) public allocationAtCheckpoint;
 
     event AllocatorSet(address indexed allocator);
     event IncentivePosted(
@@ -321,6 +324,12 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// direction. Drops worth at most LOSS_DUST are not recorded. The mark then moves to the current price and
     /// shares, so a line whose adapter holds no shares never carries a stale price into its next position.
     /// veBTC line: the increase in the line's cumulative `badDebtTotal` since the last checkpoint.
+    /// Either way a checkpoint never records more than the vault's allocation through the line's adapter (VaultV2
+    /// `allocation` of its adapter id), which bounds what a misbehaving line could make the pool cover. The bound is
+    /// the larger of that allocation now and at the line's previous checkpoint, so a forced exit between a loss and
+    /// its checkpoint (which lowers the allocation) cannot shrink it either. A veBTC shortfall cut by the bound is
+    /// recorded by a later checkpoint; for a Morpho line, whose loss is measured from Morpho itself, the bound only
+    /// binds if interest has grown the position past its last allocation.
     function checkpoint(uint256 lineId) external nonReentrant returns (uint256 newLoss) {
         return _checkpoint(lineId, voter.line(lineId));
     }
@@ -545,6 +554,9 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
             uint256 seen = lossRecorded[lineId];
             newLoss = badDebt > seen ? badDebt - seen : 0;
         }
+        uint256 allocated = vault.allocation(LineIds.adapterId(l.adapter));
+        newLoss = Math.min(newLoss, Math.max(allocated, allocationAtCheckpoint[lineId]));
+        allocationAtCheckpoint[lineId] = allocated;
         if (newLoss == 0) return 0;
 
         lossRecorded[lineId] += newLoss;

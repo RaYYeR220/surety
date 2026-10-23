@@ -1,7 +1,64 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
+
+import {CreditVoter} from "../../src/CreditVoter.sol";
+import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {SuretyFixture} from "../utils/SuretyFixture.sol";
+
+/// @notice What the CreditVoter owner used to be able to list as a "veBTC line" without any timelock: it reports
+/// whatever bad debt it likes and keeps whatever cover MUSD the pool approves to it. It claims to belong to the vault
+/// (the CreditVoter checks `vault()`), and its `ids()` can be made to revert to try to block `rebalance`.
+contract FakeLine {
+    IERC20 internal immutable musd;
+    address public immutable vault;
+    bool public broken;
+
+    constructor(IERC20 musd_, address vault_) {
+        musd = musd_;
+        vault = vault_;
+    }
+
+    function breakIds() external {
+        broken = true;
+    }
+
+    function badDebtTotal() external pure returns (uint256) {
+        return 1e30;
+    }
+
+    function interestEarnedTotal() external pure returns (uint256) {
+        return 0;
+    }
+
+    function receiveCover(uint256 assets) external {
+        musd.transferFrom(msg.sender, address(this), assets);
+    }
+
+    function ids() external view returns (bytes32[] memory r) {
+        require(!broken, "broken");
+        r = new bytes32[](1);
+        r[0] = keccak256("fake");
+    }
+
+    function paused() external pure returns (bool) {
+        return false;
+    }
+
+    function oracle() external pure returns (address) {
+        return address(0);
+    }
+
+    function realAssets() external pure returns (uint256) {
+        return 0;
+    }
+
+    function cash() external pure returns (uint256) {
+        return 0;
+    }
+}
 
 /// @notice Regression tests for the security review of 2026-10-23 (SECURITY-REVIEW.md). Each test replays the
 /// reviewer's proof of concept on the integrated fixture (real Morpho Blue + AdaptiveCurveIrm + VaultV2 +
@@ -160,6 +217,69 @@ contract AuditPoCTest is SuretyFixture {
         assertEq(pool.cover(MORPHO_LINE), 0);
         assertEq(pool.lossRecorded(MORPHO_LINE), 0);
         assertEq(_shares(MORPHO_LINE, e1), cohortBefore, "voters not slashed");
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* M-04  Lines are validated and timelocked; a bad line cannot drain    */
+    /* ------------------------------------------------------------------ */
+
+    /// @dev The review's attack: the CreditVoter owner lists a fake veBTC-kind line reporting huge bad debt and
+    /// covers it from the reserve. Now: no instant listing after the bootstrap, only vault adapters can be proposed,
+    /// a proposal waits LINE_TIMELOCK, a listed line's recorded loss is bounded by what the vault allocated to it, and
+    /// a line whose calls revert only makes itself ineligible.
+    function test_M04_fakeLineCannotDrainReserveOrBlockRebalance() public {
+        _deposit(lender, 10_000e18);
+        uint256 donated = _deposit(sponsor, 1_000e18);
+        vm.prank(sponsor);
+        vault.transfer(address(pool), donated);
+        _rebalance();
+        _warpEpochs(1);
+        _rebalance(); // distributeFees: no interest anywhere -> all to the reserve
+        uint256 reserve = pool.reserveShares();
+        assertEq(reserve, donated);
+
+        FakeLine fake = new FakeLine(IERC20(address(musd)), address(vault));
+        vm.startPrank(admin);
+        vm.expectRevert(CreditVoter.BootstrapOver.selector);
+        voter.addLine(address(fake), "", ICreditVoter.LineKind.VeBTC, "fake");
+        vm.expectRevert(CreditVoter.NotVaultAdapter.selector);
+        voter.proposeLine(address(fake), "", ICreditVoter.LineKind.VeBTC, "fake");
+        vm.stopPrank();
+
+        // Even with the curator making it a vault adapter (itself behind VaultV2's timelock on mainnet), listing it
+        // takes LINE_TIMELOCK, in public.
+        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(fake))));
+        vm.startPrank(admin);
+        uint256 proposalId = voter.proposeLine(address(fake), "", ICreditVoter.LineKind.VeBTC, "fake");
+        vm.expectRevert(CreditVoter.TimelockPending.selector);
+        voter.executeLine(proposalId);
+        vm.stopPrank();
+        _warp(LINE_TIMELOCK);
+        vm.prank(admin);
+        uint256 fakeId = voter.executeLine(proposalId);
+
+        // Listed, it still cannot be paid more loss than the vault ever allocated to it (nothing).
+        assertEq(pool.checkpoint(fakeId), 0, "loss bounded by the vault's allocation to the line");
+        assertEq(pool.cover(fakeId), 0);
+        assertEq(pool.reserveShares(), reserve, "reserve intact");
+        assertEq(musd.balanceOf(address(fake)), 0);
+
+        // A line whose calls revert does not block the others' rebalance.
+        uint256 aliceId = _lockPermanent(alice, 6e18);
+        _warpEpochs(1);
+        _voteAll(alice, aliceId, MORPHO_LINE);
+        fake.breakIds();
+        _rebalance();
+        assertGt(allocator.lineAssets(MORPHO_LINE), 8_000e18, "the Morpho line was funded");
+    }
+
+    /// @dev One veBTC adapter can no longer be listed twice under different data (its loss would be recorded and its
+    /// interest measured twice).
+    function test_M04_veBTCLineListedOncePerAdapter() public {
+        vm.startPrank(admin);
+        vm.expectRevert(CreditVoter.LineExists.selector);
+        voter.proposeLine(address(line), hex"01", ICreditVoter.LineKind.VeBTC, "twice");
+        vm.stopPrank();
     }
 
     /* ------------------------------------------------------------------ */

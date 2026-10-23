@@ -43,7 +43,9 @@ abstract contract PoolFixture is LineFixture {
     }
 
     function _deployPool() internal {
-        voter = new CreditVoter(IVeBTC(address(ve)), EPOCH_LENGTH, admin);
+        voter = new CreditVoter(
+            IVeBTC(address(ve)), EPOCH_LENGTH, admin, IVaultV2(address(vault)), address(morphoAdapter), LINE_TIMELOCK
+        );
         mockAllocator = new MockAllocator();
         pool = new SuretyPool(
             address(vault),

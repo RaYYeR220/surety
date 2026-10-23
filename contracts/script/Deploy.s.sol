@@ -236,7 +236,9 @@ contract Deploy is MorphoStackDeployer {
             }),
             d.deployer
         );
-        d.voter = new CreditVoter(IVeBTC(c.veBTC), c.epochLength, d.deployer);
+        d.voter = new CreditVoter(
+            IVeBTC(c.veBTC), c.epochLength, d.deployer, IVaultV2(address(d.vault)), address(d.morphoAdapter), c.timelock
+        );
         d.allocator = new VoteAllocator(address(d.vault), d.voter, d.deployer, IDLE_BUFFER_BPS);
         d.pool = new SuretyPool(
             address(d.vault),
@@ -286,6 +288,8 @@ contract Deploy is MorphoStackDeployer {
                 address(d.morphoAdapter), abi.encode(d.market), ICreditVoter.LineKind.Morpho, "BTC / MUSD (Morpho)"
             );
         d.voter.addLine(address(d.line), "", ICreditVoter.LineKind.VeBTC, "veBTC credit line");
+        // Lines listed from now on wait the CreditVoter's line timelock (the vault timelock, 1 day on mainnet).
+        d.voter.endBootstrap();
         d.voter.setEscrowRegistry(IEscrowRegistry(address(d.line)));
         d.line.setSuretyPool(address(d.pool));
         d.pool.setAllocator(address(d.allocator));

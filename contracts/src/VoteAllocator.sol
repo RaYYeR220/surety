@@ -51,8 +51,10 @@ import {LineIds} from "./libraries/LineIds.sol";
 ///   - veBTC lines: the line's cumulative `interestEarnedTotal()`, and measures its increase.
 ///   Interest accumulates until the first rebalance of the next epoch hands it to `SuretyPool.distributeFees`.
 /// Trust: the only capital moves are VaultV2 `allocate` / `deallocate` with the adapter and data the CreditVoter lists
-/// for a line. VaultV2 rejects addresses that are not its adapters and enforces the caps; tokens never pass through
-/// this contract. The owner can only set the pool once and set the vault's max rate within VaultV2's bound.
+/// for a line (validated and, after its bootstrap, timelocked there). VaultV2 rejects addresses that are not its
+/// adapters and enforces the caps; tokens never pass through this contract. A veBTC line's own calls (ids, paused,
+/// oracle, cash, interest counter) are guarded, so a line whose calls revert only makes itself ineligible. The owner
+/// can only set the pool once and set the vault's max rate within VaultV2's bound.
 contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient {
     using MarketParamsLib for MarketParams;
     using MorphoBalancesLib for IMorpho;
@@ -247,13 +249,30 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
                 l.ids[2] = l.ownId;
                 l.eligible = info.active && _quotes(l.params.oracle, IOracle.price.selector);
             } else {
-                ISuretyLine suretyLine = ISuretyLine(info.adapter);
-                l.ids = suretyLine.ids();
-                l.eligible = info.active && !suretyLine.paused()
-                    && _quotes(address(suretyLine.oracle()), IPriceSource.priceWad.selector);
+                bool live;
+                (l.ids, live) = _suretyLineState(ISuretyLine(info.adapter));
+                l.eligible = info.active && live;
             }
             lines[i] = l;
         }
+    }
+
+    /// @dev A veBTC line's cap ids and whether it can take new money (not paused, live oracle). Each call is guarded,
+    /// so a line whose calls revert reports no ids and is not live: it only makes itself ineligible.
+    function _suretyLineState(ISuretyLine suretyLine) internal view returns (bytes32[] memory ids, bool live) {
+        try suretyLine.ids() returns (bytes32[] memory lineIds) {
+            ids = lineIds;
+        } catch {
+            return (ids, live);
+        }
+        try suretyLine.paused() returns (bool paused) {
+            if (paused) return (ids, live);
+        } catch {
+            return (ids, live);
+        }
+        try suretyLine.oracle() returns (IPriceSource source) {
+            live = _quotes(address(source), IPriceSource.priceWad.selector);
+        } catch {}
     }
 
     /// @dev Adapter, data, kind and the ids that identify the line's position.
@@ -284,7 +303,13 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
 
     /// @dev What the line can pay back to the vault right now, out of `assets`.
     function _withdrawable(LineState memory l, uint256 assets) internal view returns (uint256) {
-        if (l.kind == ICreditVoter.LineKind.VeBTC) return Math.min(assets, ISuretyLine(l.adapter).cash());
+        if (l.kind == ICreditVoter.LineKind.VeBTC) {
+            try ISuretyLine(l.adapter).cash() returns (uint256 cash) {
+                return Math.min(assets, cash);
+            } catch {
+                return 0;
+            }
+        }
         // Accruing raises supply and borrow by the same interest, so the stored difference is the live liquidity.
         Market memory m = IMorpho(IMorphoMarketV1AdapterV2(l.adapter).morpho()).market(Id.wrap(l.marketId));
         uint256 free = m.totalSupplyAssets > m.totalBorrowAssets ? m.totalSupplyAssets - m.totalBorrowAssets : 0;

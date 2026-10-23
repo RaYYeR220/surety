@@ -269,25 +269,28 @@ contract LiveMezoTest is Test {
             }),
             admin
         );
-        voter = new CreditVoter(ve, EPOCH_LENGTH, admin);
+        voter = new CreditVoter(ve, EPOCH_LENGTH, admin, vault, address(morphoAdapter), 1 days);
         allocator = new VoteAllocator(address(vault), voter, admin, IDLE_BUFFER_BPS);
         pool = new SuretyPool(
             address(vault), voter, musd, morpho, address(morphoAdapter), IEscrowRegistry(address(line)), admin, SEASON
         );
 
-        vm.startPrank(admin);
+        vm.prank(admin);
         vault.setCurator(admin);
+        _curate(abi.encodeCall(IVaultV2.setIsAllocator, (address(allocator), true)));
+        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(morphoAdapter))));
+        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(line))));
+
+        vm.startPrank(admin);
         voter.addLine(address(morphoAdapter), abi.encode(market), ICreditVoter.LineKind.Morpho, "BTC / Morpho");
         voter.addLine(address(line), "", ICreditVoter.LineKind.VeBTC, "veBTC credit");
+        voter.endBootstrap();
         voter.setEscrowRegistry(IEscrowRegistry(address(line)));
         line.setSuretyPool(address(pool));
         pool.setAllocator(address(allocator));
         allocator.setSuretyPool(address(pool));
         vm.stopPrank();
 
-        _curate(abi.encodeCall(IVaultV2.setIsAllocator, (address(allocator), true)));
-        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(morphoAdapter))));
-        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(line))));
         _caps(LineIds.adapterIdData(address(morphoAdapter)));
         _caps(LineIds.collateralIdData(BTC));
         _caps(LineIds.marketParamsIdData(address(morphoAdapter), market));

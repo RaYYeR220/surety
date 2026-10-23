@@ -5,7 +5,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {Id, Market, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
+import {Id, Market} from "morpho-blue/interfaces/IMorpho.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 
@@ -172,8 +172,8 @@ contract SuretyPoolTest is PoolFixture {
     function test_distributeFees_splitsByInterest_restToReserve() public {
         uint256 a = _lockPermanent(alice, 3e18);
         uint256 b = _lockPermanent(bob, 1e18);
-        vm.prank(admin);
-        uint256 thirdLine = voter.addLine(makeAddr("thirdAdapter"), "", ICreditVoter.LineKind.Morpho, "unvoted");
+        // A line id nobody voted for (attributions name line ids; the voter's tallies decide who gets them).
+        uint256 thirdLine = 2;
         _warpEpochs(1);
         uint256 e1 = _currentEpoch();
         _voteAll(alice, a, MORPHO_LINE);
@@ -499,12 +499,22 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(pool.lossRecorded(VE_LINE), line.badDebtTotal());
     }
 
+    /// @dev The CreditVoter only lists Morpho lines on the vault's Morpho adapter; the pool checks again.
     function test_checkpoint_rejectsForeignMorphoAdapter() public {
-        MarketParams memory params = btcMarket;
+        vm.expectRevert(CreditVoter.UnsupportedAdapter.selector);
         vm.prank(admin);
-        uint256 foreign = voter.addLine(makeAddr("otherAdapter"), abi.encode(params), ICreditVoter.LineKind.Morpho, "x");
+        voter.addLine(address(line), abi.encode(btcMarket), ICreditVoter.LineKind.Morpho, "x");
+
+        ICreditVoter.Line memory foreign = ICreditVoter.Line({
+            adapter: makeAddr("otherAdapter"),
+            data: abi.encode(btcMarket),
+            kind: ICreditVoter.LineKind.Morpho,
+            active: true,
+            name: "x"
+        });
+        vm.mockCall(address(voter), abi.encodeCall(ICreditVoter.line, (5)), abi.encode(foreign));
         vm.expectRevert(SuretyPool.UnsupportedAdapter.selector);
-        pool.checkpoint(foreign);
+        pool.checkpoint(5);
     }
 
     /* Cover */

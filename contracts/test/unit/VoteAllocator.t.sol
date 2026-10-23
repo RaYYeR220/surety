@@ -9,6 +9,7 @@ import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 import {EventsLib} from "vault-v2/libraries/EventsLib.sol";
 import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 
+import {CreditVoter} from "../../src/CreditVoter.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
@@ -743,14 +744,20 @@ contract VoteAllocatorTest is AllocatorFixture {
         allocator.acceptOwnership();
         vm.stopPrank();
 
-        // A line whose adapter the vault never added: a working VeBTCCreditLine on the same vault, listed in the
-        // voter and even given caps, so the allocator does try to fund it.
+        // A line whose adapter is no longer one of the vault's: a working VeBTCCreditLine on the same vault, listed
+        // in the voter while it was an adapter (the CreditVoter refuses anything else) and even given caps, then
+        // removed by the curator, so the allocator does try to fund it.
         VeBTCCreditLine rogue = new VeBTCCreditLine(
             address(vault), musd, ve, poolsVoter, distributor, stressedSource, lineIrm, _lineParams(), stranger
         );
+        vm.expectRevert(CreditVoter.NotVaultAdapter.selector);
+        vm.prank(admin);
+        voter.addLine(address(rogue), "", ICreditVoter.LineKind.VeBTC, "rogue");
+        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(rogue))));
         vm.prank(admin);
         uint256 rogueLine = voter.addLine(address(rogue), "", ICreditVoter.LineKind.VeBTC, "rogue");
         _setCaps(LineIds.adapterIdData(address(rogue)), LINE_CAP);
+        _curate(abi.encodeCall(IVaultV2.removeAdapter, (address(rogue))));
 
         (uint256 aliceId,) = _seed60_40();
         _vote(alice, aliceId, rogueLine);
