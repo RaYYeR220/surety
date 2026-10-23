@@ -31,10 +31,14 @@ pnpm mcp                          # stdio, testnet
 pnpm mcp --http --port 3333       # streamable HTTP at http://127.0.0.1:3333/mcp
 ```
 
-Claude Code (stdio):
+Any MCP client that launches stdio servers takes the same command, for example in a JSON client config:
 
-```sh
-claude mcp add surety -- node /path/to/surety/packages/mcp/dist/cli.js --chain 31611
+```json
+{
+  "mcpServers": {
+    "surety": { "command": "node", "args": ["/path/to/surety/packages/mcp/dist/cli.js", "--chain", "31611"] }
+  }
+}
 ```
 
 The HTTP server is stateless: each POST to `/mcp` gets its own server instance, so it scales horizontally and needs no sessions. `GET /healthz` returns 200.

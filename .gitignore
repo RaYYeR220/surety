@@ -18,9 +18,6 @@ dist/
 
 # working material that never ships
 *-internal/
-.claude/
-.remember/
-docs/superpowers/
 ui-prototypes/
 mockups/
 variants/
