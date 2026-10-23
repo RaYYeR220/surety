@@ -287,7 +287,7 @@ contract LifecycleTest is SuretyFixture {
     /// @dev Shares held by the line's backed, unmatured cohorts (the ones a cover can slash).
     function _unmatured(uint256 lineId) internal view returns (uint256 total) {
         for (uint256 epoch = e1; epoch <= _currentEpoch(); epoch += EPOCH_LENGTH) {
-            if (block.timestamp >= pool.maturityOf(epoch) || voter.lineVotes(epoch, lineId) == 0) continue;
+            if (vm.getBlockTimestamp() >= pool.maturityOf(epoch) || voter.lineVotes(epoch, lineId) == 0) continue;
             total += _cohort(lineId, epoch);
         }
     }
