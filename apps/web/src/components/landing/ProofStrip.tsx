@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 
 import { CHAIN_NAMES } from "@/lib/networks";
-import { CONTRACT_NAMES, sourcifyUrl, TEST_COUNTS } from "@/lib/proof";
+import { deployedContracts, SECURITY_REVIEW, sourcifyUrl, TEST_COUNTS } from "@/lib/proof";
 
 import s from "./Landing.module.css";
 import styles from "./ProofStrip.module.css";
@@ -33,8 +33,9 @@ export function ProofStrip() {
   const mainnet = deploymentOf(MEZO_MAINNET_ID);
   const shown = mainnet ?? testnet;
   const shownChain = mainnet ? MEZO_MAINNET_ID : MEZO_TESTNET_ID;
-  const contracts = shown ? CONTRACT_NAMES.map(([key, name]) => ({ key, name, address: shown.contracts[key] })) : [];
+  const contracts = shown ? deployedContracts(shown) : [];
   const txs = testnet?.proof.txs ?? [];
+  const review = SECURITY_REVIEW.counts;
 
   return (
     <section className={`${s.sec} ${styles.proof}`} id="proof" aria-labelledby="pf-h">
@@ -61,7 +62,8 @@ export function ProofStrip() {
               {TEST_COUNTS.foundry} Foundry · {TEST_COUNTS.typescript} TypeScript
             </span>
             <span className={styles.sub}>
-              Incl. {TEST_COUNTS.invariants} invariants over {fmt(TEST_COUNTS.invariantCalls)} calls each
+              Incl. {TEST_COUNTS.invariants} invariants ({TEST_COUNTS.invariantRuns} runs × {TEST_COUNTS.invariantDepth}{" "}
+              deep) and {TEST_COUNTS.regression} security-review regressions
             </span>
             <span className={`${s.tag} ${styles.tag}`}>forge · vitest</span>
           </div>
@@ -81,9 +83,15 @@ export function ProofStrip() {
             <span className={`${s.tag} ${mainnet ? s.tagLive : ""} ${styles.tag}`}>{mainnet ? "Deployed" : "Pending"}</span>
           </div>
           <div>
-            <span className={styles.k}>Audit</span>
-            <span className={styles.v}>Not audited yet</span>
-            <span className={`${s.tag} ${styles.tag}`}>Said plainly</span>
+            <span className={styles.k}>Security review</span>
+            <span className={styles.v}>
+              {review.critical} critical · {review.high} high
+            </span>
+            <span className={styles.sub}>
+              An independent review found {review.medium} medium and {review.low} low issues, all addressed before
+              mainnet. Full report in the repository.
+            </span>
+            <span className={`${s.tag} ${styles.tag}`}>Not a formal audit</span>
           </div>
         </div>
 
@@ -118,12 +126,17 @@ export function ProofStrip() {
             )}
           </div>
           <div className={styles.block}>
-            <h3>Testnet proof transactions</h3>
+            <h3>
+              Testnet proof transactions{txs.length ? ` · ${txs.length} so far, in the order they ran` : ""}
+            </h3>
             {txs.length ? (
               <ol className={styles.txs}>
-                {txs.map((t) => (
+                {txs.map((t, i) => (
                   <li key={t.hash}>
-                    <span className={styles.cn}>{t.label}</span>
+                    <span className={styles.cn}>
+                      <span className={styles.tn}>{i + 1}</span>
+                      {t.label}
+                    </span>
                     <span className={styles.links}>
                       <Ext href={explorerUrl(MEZO_TESTNET_ID, "tx", t.hash)} label={`${t.label}: transaction ${t.hash}`}>
                         {short(t.hash)}

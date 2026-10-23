@@ -101,12 +101,12 @@
   align-self: flex-start;
 }
 
-/* Below the receipt: the addresses and the proof transactions. */
+/* Below the receipt: the addresses, then the proof transactions (a list that grows as the lifecycle is recorded). */
 .ledger {
   margin-top: 56px;
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 48px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 56px;
 }
 
 .block h3 {
@@ -120,16 +120,37 @@
   border-bottom: 2px solid var(--color-ink);
 }
 
-.contracts,
-.txs {
+.contracts {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   column-gap: 28px;
 }
 
+/* The lifecycle reads top to bottom, then on into the second column. */
 .txs {
-  grid-template-columns: minmax(0, 1fr);
+  list-style: none;
+  columns: 2;
+  column-gap: 28px;
+}
+
+.txs li {
+  break-inside: avoid;
+}
+
+/* Number in a hanging column, so a wrapped label lines up under its first line. */
+.txs .cn {
+  display: flex;
+  align-items: baseline;
+}
+
+.tn {
+  flex: none;
+  min-width: 2.2em;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-ink-2);
 }
 
 .contracts li,
@@ -218,8 +239,8 @@
     display: none;
   }
 
-  .ledger {
-    grid-template-columns: minmax(0, 1fr);
+  .contracts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -245,5 +266,9 @@
 
   .contracts {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .txs {
+    columns: 1;
   }
 }
