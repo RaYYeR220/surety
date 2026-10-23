@@ -183,6 +183,21 @@
         "label": "rebalance (epoch 21:00 UTC)",
         "hash": "0xf04349cf679da82cf51336f83cc6f04febe3d1c0cb05864c03423d7409e9140c",
         "block": 16326043
+      },
+      {
+        "label": "poke #1711 (epoch 22:00 UTC)",
+        "hash": "0x82aa65d6b56fdf71b00e1bc25fc81684c795a214894cf932594aee97591cc8b8",
+        "block": 16326900
+      },
+      {
+        "label": "poke #1712 (epoch 22:00 UTC)",
+        "hash": "0x915bc1cdbcf8f7f324c7e66437704f421a010b8eaeff4dc29a7ed323aa0ab89b",
+        "block": 16326903
+      },
+      {
+        "label": "rebalance (epoch 22:00 UTC)",
+        "hash": "0xb77bab6e5602aa0b082dfc773862e9a89cb13b5284849342d4605dc19c6ee382",
+        "block": 16326904
       }
     ]
   }
