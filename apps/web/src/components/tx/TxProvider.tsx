@@ -58,6 +58,17 @@ type Phase =
   | { p: "done"; plan: TxPlan }
   | { p: "failed"; plan: TxPlan; at: number };
 
+/** viem wraps estimate reverts as EstimateGasExecutionError around the node's "execution reverted". */
+function isEstimateRevert(e: unknown): boolean {
+  let cur: unknown = e;
+  for (let i = 0; cur && typeof cur === "object" && i < 10; i++) {
+    const msg = String((cur as { details?: unknown }).details ?? (cur as { message?: unknown }).message ?? "");
+    if (/execution reverted|revert/i.test(msg)) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 const TxContext = createContext<{ review: (source: PlanSource) => void } | null>(null);
 
 export function useTx() {
@@ -122,10 +133,19 @@ export function TxProvider({ children }: { children: ReactNode }) {
             onChain = ready.chainId;
           }
           // Dry run first: a refusal (stale price, cap reached, ...) is shown before the wallet opens.
+          // The estimate doubles as the dry run. Mezo's eth_estimateGas can come in low, so the gas limit is
+          // set explicitly with 30% headroom instead of leaving it to the wallet.
+          let gas: bigint | undefined;
           try {
-            await ready.client.publicClient.call({ account: address, to: step.tx.to, data: step.tx.data, value: step.tx.value });
+            const estimate = await ready.client.publicClient.estimateGas({
+              account: address,
+              to: step.tx.to,
+              data: step.tx.data,
+              value: step.tx.value,
+            });
+            gas = (estimate * 13n) / 10n;
           } catch (e) {
-            if (isRevert(e)) throw e;
+            if (isRevert(e) || isEstimateRevert(e)) throw e;
           }
           setStep(i, { s: "wallet" });
           hash = await sendTransactionAsync({
@@ -133,6 +153,7 @@ export function TxProvider({ children }: { children: ReactNode }) {
             data: step.tx.data,
             value: step.tx.value,
             chainId: ready.chainId as 31611 | 31612,
+            ...(gas !== undefined ? { gas } : {}),
           });
           setStep(i, { s: "pending", hash });
           const receipt = await ready.client.publicClient.waitForTransactionReceipt({ hash });
@@ -159,7 +180,6 @@ export function TxProvider({ children }: { children: ReactNode }) {
   const open = phase.p !== "closed";
   const plan = "plan" in phase ? phase.plan : null;
   const ready = env.status === "ready" ? env : null;
-  const busy = phase.p === "running";
 
   let footer: ReactNode = null;
   if (phase.p === "review" && plan) {
@@ -218,7 +238,7 @@ export function TxProvider({ children }: { children: ReactNode }) {
   return (
     <TxContext.Provider value={value}>
       {children}
-      <Dialog open={open} onClose={busy ? close : close} title={plan?.title ?? "Review"} footer={footer}>
+      <Dialog open={open} onClose={close} title={plan?.title ?? "Review"} footer={footer}>
         {phase.p === "preparing" ? (
           <div className={styles.preparing} role="status">
             <span className={styles.spinner} aria-hidden="true" />
