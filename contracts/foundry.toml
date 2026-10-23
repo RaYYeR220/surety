@@ -7,7 +7,13 @@ script = "script"
 evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
-fs_permissions = [{ access = "read-write", path = "./deployments" }]
+fs_permissions = [{ access = "read-write", path = "./deployments" }, { access = "read", path = "./out" }]
+
+[lint]
+# Epochs, lock ends, auctions and oracle freshness are timestamp-based by design.
+exclude_lints = ["block-timestamp"]
+# Compiled with solc 0.8.19 only to produce Morpho artifacts for vm.deployCode.
+ignore = ["test/utils/MorphoImports.sol"]
 
 [fuzz]
 runs = 512
