@@ -168,6 +168,21 @@
         "label": "cover veBTC line",
         "hash": "0x1fa437e54c6f437b90dbb9c4fab80b8a10a9443371170b8ef923fedb5f81c235",
         "block": 16325621
+      },
+      {
+        "label": "poke #1711 (epoch 21:00 UTC)",
+        "hash": "0x99bf96c9ca7d48ef202df8ada08cab111e4723a48e61ffd9226fe7b316ad16cf",
+        "block": 16326035
+      },
+      {
+        "label": "poke #1712 (epoch 21:00 UTC)",
+        "hash": "0x789b1a061c91613dee08f4db031ad8148a7a3c05fc8a8fe72481cf34a1f72fea",
+        "block": 16326042
+      },
+      {
+        "label": "rebalance (epoch 21:00 UTC)",
+        "hash": "0xf04349cf679da82cf51336f83cc6f04febe3d1c0cb05864c03423d7409e9140c",
+        "block": 16326043
       }
     ]
   }
