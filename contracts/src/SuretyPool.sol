@@ -10,6 +10,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {Id, IMorpho, Market, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
 import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
 import {SharesMathLib} from "morpho-blue/libraries/SharesMathLib.sol";
+import {MorphoBalancesLib} from "morpho-blue/libraries/periphery/MorphoBalancesLib.sol";
 import {IMorphoMarketV1AdapterV2} from "vault-v2/adapters/interfaces/IMorphoMarketV1AdapterV2.sol";
 import {IAdapter} from "vault-v2/interfaces/IAdapter.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
@@ -49,6 +50,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
     using MarketParamsLib for MarketParams;
     using SharesMathLib for uint256;
+    using MorphoBalancesLib for IMorpho;
 
     // Every state-changing entry point is nonReentrant, and state is final before shares or MUSD leave the pool.
     // Events that follow an external call follow reads of fixed contracts (vault, voter, Morpho, a line).
@@ -96,6 +98,9 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     uint256 public constant LOSS_DUST = 1e12;
     uint256 public constant MAX_SEASON = 52;
     uint256 internal constant WAD = 1e18;
+    uint256 internal constant BPS = 10_000;
+    /// @notice Cover MUSD still awaiting re-recognition, as a share of total assets, below which deposits reopen.
+    uint256 public constant RECOGNITION_TOLERANCE_BPS = 5;
 
     IVaultV2 public immutable vault;
     ICreditVoter public immutable voter;
@@ -451,6 +456,32 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         return lossRecorded[lineId] - lossCovered[lineId];
     }
 
+    /// @notice Whether new vault shares should wait (read by the vault's DepositGate). While a loss is unrecorded or
+    /// uncovered, or the vault is still re-recognising MUSD a cover returned, a new depositor would buy in at the
+    /// depressed price and capture part of the voter-funded cover meant for the lenders who took the loss.
+    /// @dev True if, for any line, a checkpoint now would record a loss above LOSS_DUST (Morpho: `max(sharesAtMark,
+    /// sharesNow) * drop` on Morpho's expected balances; veBTC: bad debt above what is recorded; both within the
+    /// allocation bound of `checkpoint`), or a recorded loss above LOSS_DUST is uncovered while the pool still holds
+    /// shares that can cover it (the line's backed, unmatured cohorts or the reserve). Also true while cover MUSD that
+    /// VaultV2 has not re-recognised yet (the smaller of `coverUnrecognised` and what the vault's real assets exceed
+    /// its total assets by) is above RECOGNITION_TOLERANCE_BPS of total assets.
+    /// Two judgement calls keep this from pausing deposits indefinitely: an uncovered loss nothing can cover pauses
+    /// nothing (lenders bear it either way), and only MUSD returned by covers counts as awaiting recognition, so a
+    /// donation or a forced-exit penalty, which VaultV2 also recognises at no more than its max rate, cannot pause
+    /// deposits on its own. Withdrawals are never paused. Never reverts on a line whose calls revert.
+    function depositsPaused() external view returns (bool) {
+        uint256 n = voter.lineCount();
+        for (uint256 i; i < n; ++i) {
+            // Bounded by the voter's line list.
+            // forge-lint: disable-next-line(calls-loop)
+            if (_lossPending(i, voter.line(i))) return true;
+        }
+        uint256 unrecognised = coverUnrecognised;
+        if (unrecognised == 0) return false;
+        uint256 total = vault.totalAssets();
+        return Math.min(unrecognised, _pendingRecognition()) > Math.mulDiv(total, RECOGNITION_TOLERANCE_BPS, BPS);
+    }
+
     /// @notice MUSD value of the shares that can cover `lineId` now: its backed unmatured cohorts plus the reserve.
     /// @dev Not limited by the vault's idle MUSD, which also bounds a single `cover`. This is MUSD that can move, not
     /// loss units: `cover` grosses the MUSD up for the performance fee, so it covers about (1 - f) of it in loss
@@ -678,6 +709,37 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
             // forge-lint: disable-next-line(calls-loop)
             real += IAdapter(vault.adapters(i)).realAssets();
         }
+    }
+
+    /// @dev Whether `lineId` has a loss a checkpoint would record now, or a recorded one the pool can still cover.
+    function _lossPending(uint256 lineId, ICreditVoter.Line memory l) internal view returns (bool) {
+        if (lossRecorded[lineId] - lossCovered[lineId] > LOSS_DUST) {
+            (,, uint256 cohortShares) = _slashable(lineId);
+            if (cohortShares + reserveShares != 0) return true;
+        }
+        return _unrecordedLoss(lineId, l) > LOSS_DUST;
+    }
+
+    /// @dev What `_checkpoint` would record for the line now, as a view: Morpho lines on Morpho's expected balances
+    /// (accrued as `accrueInterest` would), veBTC lines from their bad debt; zero if the line's calls revert.
+    /// Called once per line from `depositsPaused`.
+    // forge-lint: disable-next-item(calls-loop)
+    function _unrecordedLoss(uint256 lineId, ICreditVoter.Line memory l) internal view returns (uint256 loss) {
+        if (l.kind == ICreditVoter.LineKind.Morpho) {
+            if (l.adapter != morphoAdapter) return 0;
+            MarketParams memory params = abi.decode(l.data, (MarketParams));
+            (uint256 supplyAssets, uint256 supplyShares,,) = morpho.expectedMarketBalances(params);
+            uint256 sharesNow = IMorphoMarketV1AdapterV2(morphoAdapter).supplyShares(Id.unwrap(params.id()));
+            loss = _lossBelowMark(highWaterMark[lineId], supplyAssets, supplyShares, sharesNow);
+        } else {
+            try ISuretyLine(l.adapter).badDebtTotal() returns (uint256 badDebt) {
+                loss = _floorSub(badDebt, lossRecorded[lineId]);
+            } catch {
+                return 0;
+            }
+        }
+        uint256 allocated = vault.allocation(LineIds.adapterId(l.adapter));
+        loss = Math.min(loss, Math.max(allocated, allocationAtCheckpoint[lineId]));
     }
 
     function _checkpoint(uint256 lineId, ICreditVoter.Line memory l) internal returns (uint256 newLoss) {

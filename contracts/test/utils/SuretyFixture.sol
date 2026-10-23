@@ -12,6 +12,7 @@ import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 import {MorphoMarketV1AdapterV2} from "vault-v2/adapters/MorphoMarketV1AdapterV2.sol";
 
 import {CreditVoter} from "../../src/CreditVoter.sol";
+import {DepositGate} from "../../src/DepositGate.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
@@ -47,7 +48,8 @@ import {MockVeBTC} from "../mocks/MockVeBTC.sol";
 ///   VeBTCCreditLine (adapter + caps), CreditVoter with lines MORPHO_LINE (BTC Morpho market) and VE_LINE (veBTC
 ///   line) and its bootstrap ended, the line as the voter's escrow registry, VoteAllocator as the vault's only
 ///   allocator (no liquidity adapter), SuretyPool as the performance-fee recipient with a 10% fee, force-deallocate
-///   penalties on both adapters, and the Morpho line's loss mark set. Unit fixtures that assemble their own pieces override it; until
+///   penalties on both adapters, the DepositGate as the vault's receive-shares gate, and the Morpho line's loss mark
+///   set. Unit fixtures that assemble their own pieces override it; until
 ///   then `admin` is a vault allocator.
 /// - VaultV2 accrues interest once per transaction (transient `firstTotalAssets`). Forge resets transient storage
 ///   between top-level calls of a test, so each call from a test behaves like its own transaction.
@@ -127,6 +129,7 @@ abstract contract SuretyFixture is Test {
     CreditVoter internal voter;
     VoteAllocator internal allocator;
     SuretyPool internal pool;
+    DepositGate internal gate;
 
     function setUp() public virtual {
         vm.warp(START_TIME);
@@ -251,6 +254,11 @@ abstract contract SuretyFixture is Test {
         _curate(abi.encodeCall(IVaultV2.setForceDeallocatePenalty, (address(line), FORCE_DEALLOCATE_PENALTY)));
         vm.prank(admin);
         allocator.setMaxRate(MAX_MAX_RATE);
+
+        // New shares wait while a loss is pending, uncovered or being re-recognised (the pool always receives).
+        gate = new DepositGate(pool);
+        vm.label(address(gate), "DepositGate");
+        _curate(abi.encodeCall(IVaultV2.setReceiveSharesGate, (address(gate))));
 
         // Losses before a Morpho line's first checkpoint are not recorded, so it is checkpointed when listed.
         pool.checkpoint(MORPHO_LINE);

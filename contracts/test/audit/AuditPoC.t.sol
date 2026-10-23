@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
+import {ErrorsLib} from "vault-v2/libraries/ErrorsLib.sol";
 
 import {CreditVoter} from "../../src/CreditVoter.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
@@ -299,6 +300,82 @@ contract AuditPoCTest is SuretyFixture {
     }
 
     /* ------------------------------------------------------------------ */
+    /* M-03  No just-in-time deposit into a cover                           */
+    /* ------------------------------------------------------------------ */
+
+    /// @dev The review's book: alice votes only the veBTC line; a sponsor's 1,000 MUSD backs it. E2: ~9,900 MUSD goes
+    /// to the line, a borrower takes 2,000 MUSD against 0.05 BTC; BTC drops 60%, the NFT is sold at the floor for
+    /// ~860 MUSD less than the debt. Not checkpointed yet.
+    function _lossSetup() internal returns (uint256 lenderPre) {
+        _deposit(lender, 10_000e18);
+        uint256 aliceId = _lockPermanent(alice, 6e18);
+        _warpEpochs(1);
+        _voteAll(alice, aliceId, VE_LINE);
+        _post(sponsor, VE_LINE, 1_000e18);
+        _warpEpochs(1);
+        _rebalance();
+        (uint256 loanId,) = _openTimed(borrower, 0.05e18, 2_000e18);
+        lenderPre = vault.previewRedeem(vault.balanceOf(lender));
+        _shock(6000);
+        line.startAuction(loanId);
+        _warp(AUCTION_DURATION);
+        _shock(6000);
+        _bid(bidder, loanId);
+    }
+
+    /// @dev The review's attack: mallory deposits 100,000 MUSD after the loss is realised, lets the cover land and
+    /// holds through the re-recognition. The vault's receive-shares gate now refuses her shares from the moment the
+    /// loss exists (before anyone checkpoints it), while it is recorded and uncovered, and while VaultV2 re-recognises
+    /// the cover; it reopens once the cover is recognised, when there is nothing left to capture. Pre-loss lenders
+    /// end up whole, and withdrawals stayed open throughout.
+    function test_M03_jitDepositIsRefusedUntilTheCoverIsRecognised() public {
+        uint256 lenderPre = _lossSetup();
+        musd.mint(mallory, 100_000e18);
+        vm.prank(mallory);
+        musd.approve(address(vault), 100_000e18);
+
+        assertTrue(pool.depositsPaused(), "unrecorded loss");
+        _expectDepositRefused();
+        vm.prank(keeper);
+        uint256 loss = pool.checkpoint(VE_LINE);
+        assertGt(loss, 800e18);
+        assertTrue(pool.depositsPaused(), "recorded, uncovered");
+        _expectDepositRefused();
+
+        vm.prank(keeper);
+        pool.cover(VE_LINE);
+        assertEq(pool.uncoveredLoss(VE_LINE), 0);
+        assertTrue(pool.depositsPaused(), "cover being re-recognised");
+        _warp(3 days);
+        vault.accrueInterest();
+        _expectDepositRefused();
+        // Lenders can always leave.
+        vm.prank(carol);
+        assertEq(vault.redeem(0, carol, carol), 0);
+
+        // Re-recognised: deposits reopen and the lender is whole.
+        _warp(27 days);
+        vault.accrueInterest();
+        assertFalse(pool.depositsPaused(), "cover recognised");
+        uint256 lenderAfter = vault.previewRedeem(vault.balanceOf(lender));
+        assertGe(lenderAfter + 1e18, lenderPre, "pre-loss lender whole");
+
+        // A deposit now buys in at the restored price: nothing left to capture.
+        vm.prank(mallory);
+        uint256 shares = vault.deposit(100_000e18, mallory);
+        _warp(3 days);
+        vm.prank(mallory);
+        uint256 out = vault.redeem(shares, mallory, mallory);
+        assertLt(out, 100_000e18 + loss / 100, "at most dust of the cover");
+    }
+
+    function _expectDepositRefused() internal {
+        vm.expectRevert(ErrorsLib.CannotReceiveShares.selector);
+        vm.prank(mallory);
+        vault.deposit(100_000e18, mallory);
+    }
+
+    /* ------------------------------------------------------------------ */
     /* M-04  Lines are validated and timelocked; a bad line cannot drain    */
     /* ------------------------------------------------------------------ */
 
@@ -386,7 +463,7 @@ contract AuditPoCTest is SuretyFixture {
     }
 
     /// @dev Shares the recorded CoverFeeCredited events of `lineId` credited to cohorts.
-    function _coverFeeCreditedToCohorts(uint256 lineId) internal returns (uint256 total) {
+    function _coverFeeCreditedToCohorts(uint256 lineId) internal view returns (uint256 total) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(pool) || logs[i].topics[0] != SuretyPool.CoverFeeCredited.selector) {

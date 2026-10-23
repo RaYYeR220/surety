@@ -45,6 +45,10 @@ contract RecordingPool is ISuretyPool {
         return 0;
     }
 
+    function depositsPaused() external pure returns (bool) {
+        return false;
+    }
+
     function failCheckpoint(uint256 lineId) external {
         failingLine = lineId;
     }

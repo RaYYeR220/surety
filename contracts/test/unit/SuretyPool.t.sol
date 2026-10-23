@@ -1061,6 +1061,45 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(pool.coverUnrecognised(), 0);
     }
 
+    /// @dev Review finding M-03: deposits wait from the moment Morpho bad debt exists (before any checkpoint), while
+    /// it is recorded and uncovered, and while VaultV2 re-recognises the cover; they reopen once it has.
+    function test_depositsPaused_followsALossThroughItsCover() public {
+        _sizingScene(MORPHO_LINE);
+        assertFalse(pool.depositsPaused());
+
+        _shock(6000);
+        _liquidateMorpho(liquidator, morphoBorrower);
+        assertTrue(pool.depositsPaused(), "bad debt not checkpointed yet");
+        assertGt(pool.checkpoint(MORPHO_LINE), 1_000e18);
+        assertTrue(pool.depositsPaused(), "recorded and coverable");
+
+        pool.cover(MORPHO_LINE);
+        assertEq(pool.uncoveredLoss(MORPHO_LINE), 0);
+        assertTrue(pool.depositsPaused(), "the cover is being re-recognised");
+        _warp(1 days);
+        assertTrue(pool.depositsPaused());
+        _recognise();
+        assertFalse(pool.depositsPaused(), "recognised");
+    }
+
+    /// @dev Two things that cannot be made whole by waiting do not pause deposits: an uncovered loss the pool has
+    /// nothing to cover with, and MUSD awaiting recognition that no cover returned (a donation).
+    function test_depositsPaused_notForUncoverableLossOrDonation() public {
+        _fundLine(100_000e18);
+        (uint256 loanId,) = _openTimed(borrower, 1e18, 40_000e18);
+        _shock(6000);
+        line.startAuction(loanId);
+        _bid(bidder, loanId);
+        assertTrue(pool.depositsPaused(), "unrecorded shortfall");
+        uint256 loss = pool.checkpoint(VE_LINE);
+        assertEq(pool.uncoveredLoss(VE_LINE), loss);
+        assertEq(pool.coverCapacity(VE_LINE), 0);
+        assertFalse(pool.depositsPaused(), "nothing can cover it: lenders bear it either way");
+
+        musd.mint(address(vault), 10_000e18);
+        assertFalse(pool.depositsPaused(), "a donation alone does not pause deposits");
+    }
+
     /// @dev Without a performance fee the cover moves A*U/(A+U) MUSD, which burns U/(A+U) of the supply: exactly the
     /// shares the loss is worth at the pre-loss price (A+U)/T.
     function test_cover_feeZero_burnsExactlyAUoverAplusU() public {

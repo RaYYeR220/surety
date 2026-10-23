@@ -42,6 +42,9 @@ contract LifecycleTest is SuretyFixture {
         assertEq(vault.maxRate(), MAX_MAX_RATE);
         assertEq(vault.forceDeallocatePenalty(address(morphoAdapter)), FORCE_DEALLOCATE_PENALTY);
         assertEq(vault.forceDeallocatePenalty(address(line)), FORCE_DEALLOCATE_PENALTY);
+        assertEq(vault.receiveSharesGate(), address(gate));
+        assertEq(address(gate.pool()), address(pool));
+        assertTrue(voter.bootstrapEnded(), "later lines go through the timelock");
         assertTrue(vault.isAdapter(address(morphoAdapter)));
         assertTrue(vault.isAdapter(address(line)));
         assertEq(vault.absoluteCap(LineIds.adapterId(address(line))), LINE_CAP);
