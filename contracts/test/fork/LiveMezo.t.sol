@@ -169,8 +169,8 @@ contract LiveMezoTest is Test {
         assertGt(lineBefore, half, "veBTC line interest");
         vm.prank(keeper);
         allocator.rebalance();
-        (, uint256 pendingMorpho,) = allocator.ledger(0);
-        (, uint256 pendingLine,) = allocator.ledger(1);
+        uint256 pendingMorpho = allocator.ledger(0).pendingInterest;
+        uint256 pendingLine = allocator.ledger(1).pendingInterest;
         assertGt(pendingMorpho, 0);
         assertGt(pendingLine, 0);
         assertGt(vault.totalAssets(), DEPOSIT);

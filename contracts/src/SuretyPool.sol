@@ -6,7 +6,6 @@ import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Id, IMorpho, Market, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
 import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
@@ -19,7 +18,6 @@ import {IEscrowRegistry} from "./interfaces/IEscrowRegistry.sol";
 import {ISuretyLine} from "./interfaces/ISuretyLine.sol";
 import {ISuretyPool} from "./interfaces/ISuretyPool.sol";
 import {IVeBTC} from "./interfaces/IVeBTC.sol";
-import {IVoteAllocator} from "./interfaces/IVoteAllocator.sol";
 import {EpochLib} from "./libraries/EpochLib.sol";
 
 /// @dev Supply shares MorphoMarketV1AdapterV2 books per market; its realAssets are valued from these only.
@@ -55,8 +53,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     using SharesMathLib for uint256;
 
     // Every state-changing entry point is nonReentrant, and state is final before shares or MUSD leave the pool.
-    // Events that follow an external call follow reads of fixed contracts (vault, voter, Morpho, a line) or the
-    // allocator's bookkeeping call.
+    // Events that follow an external call follow reads of fixed contracts (vault, voter, Morpho, a line).
     // forge-lint: disable-start(reentrancy-events)
 
     /// @param shares Vault shares currently held for the cohort.
@@ -94,7 +91,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     uint256 public immutable SEASON;
     uint256 public immutable EPOCH_LENGTH;
 
-    /// @notice The VoteAllocator: the only caller of `distributeFees`, and the receiver of loss/cover adjustments.
+    /// @notice The VoteAllocator: the only caller of `distributeFees`.
     address public allocator;
     /// @notice Shares backing every line's losses after its cohorts; never claimable.
     uint256 public reserveShares;
@@ -328,7 +325,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// allow. Permissionless and repeatable; `lossCovered` never exceeds `lossRecorded`.
     /// @dev Shares come pro rata from the line's backed, unmatured cohorts, then from the reserve, and are
     /// withdrawn from the vault as MUSD. Morpho line: the MUSD goes back to the vault as idle assets. veBTC line:
-    /// paid in through `receiveCover` and reported to the allocator as a positive adjustment of the MUSD moved.
+    /// paid in through `receiveCover`.
     ///
     /// Sizing. A loss U leaves A assets for T shares, down from (A+U)/T a share. Withdrawing W burns W*T/A shares at
     /// the post-loss price, and VaultV2 later recognises the returned W as interest and mints its performance fee f
@@ -384,7 +381,6 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         } else {
             musd.forceApprove(l.adapter, assets);
             ISuretyLine(l.adapter).receiveCover(assets);
-            _noteAdjustment(lineId, SafeCast.toInt256(assets));
         }
     }
 
@@ -549,7 +545,6 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
 
         lossRecorded[lineId] += newLoss;
         emit LossRecorded(lineId, newLoss);
-        _noteAdjustment(lineId, -SafeCast.toInt256(newLoss));
     }
 
     function _morphoLoss(uint256 lineId, MarketParams memory params) internal returns (uint256 loss) {
@@ -584,9 +579,5 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         mark.set = true;
     }
 
-    function _noteAdjustment(uint256 lineId, int256 delta) internal {
-        address allocator_ = allocator;
-        if (allocator_ != address(0)) IVoteAllocator(allocator_).noteAdjustment(lineId, delta);
-    }
     // forge-lint: disable-end(reentrancy-events)
 }

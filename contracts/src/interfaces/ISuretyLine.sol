@@ -11,6 +11,11 @@ interface ISuretyLine is IAdapter {
     /// @notice Cumulative shortfall recorded on positions closed below their debt.
     function badDebtTotal() external view returns (uint256);
 
+    /// @notice Cumulative interest the line has earned: interest accrued on its loans up to the current second, plus
+    /// fees kept on liquidations. Never decreases and is not moved by capital entering or leaving the line, so its
+    /// difference over a window is the line's interest for that window. Losses are reported by `badDebtTotal`.
+    function interestEarnedTotal() external view returns (uint256);
+
     /// @notice Pulls `assets` of the loan asset from the caller to restore the line after a loss.
     function receiveCover(uint256 assets) external;
 

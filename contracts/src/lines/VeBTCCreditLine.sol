@@ -28,6 +28,9 @@ import {LoanEscrow} from "./LoanEscrow.sol";
 /// - `cash` is MUSD available to lend; `realAssets = cash + totalDebt`, interest included up to the current second.
 ///   A loan closed below its debt removes the whole debt and adds only the proceeds, so the shortfall leaves
 ///   `realAssets` at once and is recorded in `badDebtTotal` for the SuretyPool to cover.
+/// - `interestEarnedTotal` counts what the line earns (interest through the borrow index, plus liquidation fees
+///   kept) independently of the capital moved in or out, so the VoteAllocator never reads interest from changes in
+///   `realAssets`, which anyone can move with VaultV2's `forceDeallocate`.
 /// - Debt is tracked in normalised units against a global `borrowIndex` (WAD). Rounding always favours lenders:
 ///   borrowing mints normalised debt rounded up, partial repayments burn it rounded down, debts round up.
 /// - Collateral value is `locked.amount * BTC/USD` with MUSD valued at $1; lock boosts are ignored.
@@ -110,6 +113,8 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     uint256 public lastAccrual;
     /// @notice Cumulative shortfall of auctions settled below debt. Never decreases; covers add cash instead.
     uint256 public badDebtTotal;
+    /// @dev Interest booked into the borrow index plus liquidation fees kept, as of `lastAccrual`.
+    uint256 internal interestBooked;
     /// @notice Id of the most recent loan; loan ids start at 1.
     uint256 public loanCount;
     /// @notice The only address allowed to call `receiveCover`. Set once.
@@ -463,6 +468,7 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         record.state = LoanState.Liquidated;
         cash += toLine;
         badDebtTotal += shortfall;
+        if (toLine > debt) interestBooked += toLine - debt;
         emit Bid(loanId, msg.sender, price, debt, shortfall, surplus);
 
         musd.safeTransferFrom(msg.sender, address(this), price);
@@ -531,6 +537,12 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         return cash + totalDebt();
     }
 
+    /// @inheritdoc ISuretyLine
+    /// @dev Interest pending since the last accrual is included, as in `realAssets`.
+    function interestEarnedTotal() external view returns (uint256) {
+        return interestBooked + _toDebt(totalNormDebt, _currentIndex()) - _toDebt(totalNormDebt, borrowIndex);
+    }
+
     /// @notice Debt / (cash + debt), WAD.
     function utilizationWad() external view returns (uint256) {
         return _utilization(cash, totalDebt());
@@ -568,7 +580,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         // forge-lint: disable-next-line(missing-events-arithmetic)
         lastAccrual = block.timestamp;
         if (newIndex != oldIndex) {
-            emit InterestAccrued(newIndex, _toDebt(totalNormDebt, newIndex) - _toDebt(totalNormDebt, oldIndex));
+            uint256 interest = _toDebt(totalNormDebt, newIndex) - _toDebt(totalNormDebt, oldIndex);
+            interestBooked += interest;
+            emit InterestAccrued(newIndex, interest);
         }
     }
 

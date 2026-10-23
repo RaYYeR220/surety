@@ -13,23 +13,9 @@ import {IVoteAllocator} from "../../src/interfaces/IVoteAllocator.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {LineFixture} from "./LineFixture.sol";
 
-/// @notice Stand-in for the VoteAllocator: records every `noteAdjustment` and forwards `distributeFees` as the
-/// allocator would.
+/// @notice Stand-in for the VoteAllocator: forwards `distributeFees` as the allocator would.
 contract MockAllocator is IVoteAllocator {
-    struct Adjustment {
-        address caller;
-        uint256 lineId;
-        int256 delta;
-    }
-
-    Adjustment[] internal adjustments;
-    mapping(uint256 lineId => int256) public netAdjustment;
     uint256 public activeTallyEpoch;
-
-    function noteAdjustment(uint256 lineId, int256 delta) external {
-        adjustments.push(Adjustment({caller: msg.sender, lineId: lineId, delta: delta}));
-        netAdjustment[lineId] += delta;
-    }
 
     function lineAssets(uint256) external pure returns (uint256) {
         return 0;
@@ -39,14 +25,6 @@ contract MockAllocator is IVoteAllocator {
         external
     {
         pool.distributeFees(cohortEpoch, lineIds, interest);
-    }
-
-    function adjustmentCount() external view returns (uint256) {
-        return adjustments.length;
-    }
-
-    function adjustment(uint256 i) external view returns (Adjustment memory) {
-        return adjustments[i];
     }
 }
 

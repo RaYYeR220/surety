@@ -13,7 +13,7 @@ import {CreditVoter} from "../../src/CreditVoter.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "../../src/interfaces/IEscrowRegistry.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
-import {MockAllocator, PoolFixture} from "../utils/PoolFixture.sol";
+import {PoolFixture} from "../utils/PoolFixture.sol";
 
 /// @notice SuretyPool against the real VaultV2, Morpho Blue, VeBTCCreditLine and CreditVoter; only the allocator is
 /// mocked. Epochs are one week and SEASON is 4, so a cohort of tally epoch `t` matures at `t + 6 weeks`.
@@ -407,18 +407,12 @@ contract SuretyPoolTest is PoolFixture {
         assertApproxEqAbs(loss, badDebt, 2, "sole supplier bears the whole bad debt");
         assertEq(pool.lossRecorded(MORPHO_LINE), loss);
         assertEq(pool.uncoveredLoss(MORPHO_LINE), loss);
-        assertEq(mockAllocator.adjustmentCount(), 1);
-        MockAllocator.Adjustment memory adj = mockAllocator.adjustment(0);
-        assertEq(adj.caller, address(pool));
-        assertEq(adj.lineId, MORPHO_LINE);
-        assertEq(adj.delta, -int256(loss));
 
         // Recorded once: the mark moved down to the new price.
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
         _warp(1 hours);
         assertEq(pool.checkpoint(MORPHO_LINE), 0);
         assertEq(pool.lossRecorded(MORPHO_LINE), loss);
-        assertEq(mockAllocator.adjustmentCount(), 1);
     }
 
     function test_checkpoint_morphoDust_keepsMarkUntilMaterial() public {
@@ -464,7 +458,6 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(pool.checkpoint(VE_LINE), shortfall);
         assertEq(pool.lossRecorded(VE_LINE), shortfall);
         assertEq(pool.uncoveredLoss(VE_LINE), shortfall);
-        assertEq(mockAllocator.netAdjustment(VE_LINE), -int256(shortfall));
         assertEq(pool.checkpoint(VE_LINE), 0);
 
         // A second shortfall adds only its own amount.
@@ -733,7 +726,7 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(musd.balanceOf(address(pool)), 0);
         assertEq(morpho.position(btcMarketId, address(morphoAdapter)).supplyShares, positionShares);
         assertEq(morphoAdapter.supplyShares(id), positionShares, "no stranded Morpho shares");
-        assertEq(mockAllocator.netAdjustment(MORPHO_LINE), -int256(covered), "the line itself did not grow back");
+        assertEq(morphoAdapter.expectedSupplyAssets(id), adapterPostLoss, "the line itself did not grow back");
 
         // VaultV2 re-recognises the restored assets at most at maxRate; once it has, lenders are back at the pre-loss
         // price: the cover was sized for the 10% performance fee taken on them (which flows back to the pool).
@@ -790,7 +783,6 @@ contract SuretyPoolTest is PoolFixture {
         assertApproxEqAbs(first, units, 2);
         assertEq(line.cash(), cashBefore + 1_000e18, "all the idle MUSD paid in");
         assertEq(pool.uncoveredLoss(VE_LINE), shortfall - first);
-        assertEq(mockAllocator.netAdjustment(VE_LINE), -int256(shortfall) + 1_000e18, "adjusted by the MUSD moved");
         assertEq(musd.allowance(address(pool), address(line)), 0);
         assertEq(pool.cover(VE_LINE), 0, "no idle MUSD left");
 
@@ -801,7 +793,6 @@ contract SuretyPoolTest is PoolFixture {
         uint256 paid = 1_000e18 + line.cash() - cashBefore;
         assertGt(paid, shortfall, "grossed up for the fee VaultV2 takes on it");
         assertEq(pool.uncoveredLoss(VE_LINE), 0);
-        assertEq(mockAllocator.netAdjustment(VE_LINE), int256(paid) - int256(shortfall));
         assertEq(line.realAssets(), preBid - 20_000e18 - shortfall + paid, "line paid its shortfall and the gross-up");
         assertEq(line.badDebtTotal(), shortfall, "ledger stays cumulative");
         assertEq(pool.checkpoint(VE_LINE), 0);

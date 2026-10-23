@@ -340,6 +340,52 @@ contract VeBTCCreditLineTest is LineFixture {
         assertEq(vault.totalAssets(), viewAssets);
     }
 
+    /// @dev The interest counter grows with accrued interest (pending interest included, like realAssets) and with
+    /// liquidation fees kept, and is untouched by capital moving in or out, by covers and by shortfalls.
+    function test_interestEarnedTotal_countsInterestAndFeesOnly() public {
+        _fundLine(100_000e18);
+        assertEq(line.interestEarnedTotal(), 0);
+        (uint256 loanId,) = _openTimed(borrower, 1e18, 40_000e18);
+        (uint256 loan2,) = _openTimed(other, 1e18, 40_000e18);
+        uint256 opened = line.totalDebt();
+        assertEq(line.interestEarnedTotal(), 0, "borrowing is not interest");
+
+        _warp(10 days);
+        uint256 accrued = line.totalDebt() - opened;
+        assertGt(accrued, 0);
+        assertEq(line.interestEarnedTotal(), accrued, "pending interest included");
+        line.accrueInterest();
+        assertEq(line.interestEarnedTotal(), accrued, "accruing books exactly the view");
+
+        // Capital moves, repayments and covers leave it alone.
+        _deposit(lender, 5_000e18);
+        _allocateLine(5_000e18);
+        _deallocateLine(1_000e18);
+        _repay(keeper, loan2, 1_000e18);
+        vm.prank(admin);
+        line.setSuretyPool(fakePool);
+        musd.mint(fakePool, 100e18);
+        vm.startPrank(fakePool);
+        musd.approve(address(line), 100e18);
+        line.receiveCover(100e18);
+        vm.stopPrank();
+        assertEq(line.interestEarnedTotal(), accrued);
+
+        // An auction above the debt keeps the 3% fee; one below it records a shortfall and earns nothing more.
+        _shock(4500);
+        line.startAuction(loanId);
+        uint256 debt = line.debtOf(loanId);
+        uint256 before = line.interestEarnedTotal();
+        _bid(bidder, loanId);
+        assertEq(line.interestEarnedTotal(), before + debt * LIQ_FEE / BPS, "liquidation fee is income");
+        _shock(6000);
+        line.startAuction(loan2);
+        before = line.interestEarnedTotal();
+        _bid(bidder, loan2);
+        assertGt(line.badDebtTotal(), 0);
+        assertEq(line.interestEarnedTotal(), before, "a shortfall is a loss, not negative interest");
+    }
+
     /* Repay, extend, collateral */
 
     function test_fullRepay_returnsNFT() public {

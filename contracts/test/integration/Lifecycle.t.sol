@@ -205,10 +205,6 @@ contract LifecycleTest is SuretyFixture {
         _flip();
         uint256[] memory interest = _attributed();
         assertLe(interest[MORPHO_LINE], 2, "Morpho loss is not interest");
-        (,, uint256 unexplainedMorpho) = allocator.ledger(MORPHO_LINE);
-        (,, uint256 unexplainedVe) = allocator.ledger(VE_LINE);
-        assertLe(unexplainedMorpho, 2);
-        assertLe(unexplainedVe, 2);
         assertApproxEqAbs(interest[VE_LINE], debt - debtAtE4, 2, "only the interest the loan accrued");
     }
 
