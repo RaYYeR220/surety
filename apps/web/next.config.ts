@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   devIndicators: false,
-  // Do not write AGENTS.md / CLAUDE.md into the app folder on dev start.
+  // Keep the app folder free of generated rule files on dev start.
   agentRules: false,
 };
 
