@@ -6,7 +6,7 @@ import type { Address } from "viem";
 export const TEST_COUNTS = {
   /** Foundry tests, invariants and the security review's regression tests included. */
   foundry: 197,
-  invariants: 6,
+  invariants: 7,
   /** Invariant fuzzing: 256 runs x depth 64 (contracts/foundry.toml). */
   invariantRuns: 256,
   invariantDepth: 64,
