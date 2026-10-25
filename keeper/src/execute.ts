@@ -24,8 +24,13 @@ export interface ExecutorOptions {
   account: Account | Address;
   dryRun: boolean;
   log: Logger;
-  /** Gas limit = estimate * this / 100 (default 115). Mezo charges at least half the limit, so keep it tight. */
+  /** Gas limit = estimate * this / 100 (default 130). Mezo charges at least half the limit, so keep it tight. */
   gasMultiplierPct?: bigint;
+  /**
+   * Limit to fall back to when a call does not succeed at the estimated limit (default 3,000,000). Mezo's
+   * eth_estimateGas occasionally answers ~21k for calls that need hundreds of thousands.
+   */
+  fallbackGas?: bigint;
   retry?: RetryOptions;
   /** Receipt wait timeout, ms (default 120 000). */
   receiptTimeoutMs?: number;
@@ -56,6 +61,16 @@ export class Executor {
   constructor(options: ExecutorOptions) {
     if (!options.dryRun && !options.walletClient) throw new Error("a wallet client is required unless dry-run");
     this.o = options;
+  }
+
+  /** Whether the call succeeds when given exactly `gas`, so a low estimate is caught before it costs a failed tx. */
+  private async passesWith(params: Parameters<PublicClient["simulateContract"]>[0], gas: bigint): Promise<boolean> {
+    try {
+      await withRetry(() => this.o.publicClient.simulateContract({ ...params, gas }), this.o.retry ?? {});
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -101,7 +116,16 @@ export class Executor {
       () => publicClient.estimateContractGas(params as Parameters<PublicClient["estimateContractGas"]>[0]),
       retry,
     );
-    const gas = gasLimitFor(estimate, this.o.gasMultiplierPct ?? 130n);
+    let gas = gasLimitFor(estimate, this.o.gasMultiplierPct ?? 130n);
+    if (!(await this.passesWith(params, gas))) {
+      const fallback = this.o.fallbackGas ?? 3_000_000n;
+      log.warn("estimate too low; using the fallback limit", { action: label, ...fields, gasEstimate: estimate, fallback });
+      gas = fallback > gas ? fallback : gas;
+      if (!(await this.passesWith(params, gas))) {
+        log.warn("call does not pass at the fallback limit; not sent", { action: label, ...fields, gasLimit: gas });
+        return { status: "reverted", reason: "fails at the fallback gas limit" };
+      }
+    }
     // Not retried: a send that failed in transit may still land; the next tick re-plans from chain state.
     const hash = await walletClient!.writeContract({
       ...(simulated.request as Parameters<WalletClient["writeContract"]>[0]),
