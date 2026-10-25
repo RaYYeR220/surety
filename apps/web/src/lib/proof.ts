@@ -12,7 +12,7 @@ export const TEST_COUNTS = {
   invariantDepth: 64,
   /** Regression tests written from the security review's proofs of concept (contracts/test/audit). */
   regression: 9,
-  typescript: 98,
+  typescript: 99,
 } as const;
 
 /** Verified source on Sourcify's repository. */

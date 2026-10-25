@@ -204,7 +204,7 @@ SURETY_FORK=true forge test --match-contract LiveMezo  # against live Mezo mainn
 ```sh
 pnpm install
 pnpm test
-# @surety/sdk 53 passed, @surety/keeper 37 passed, @surety/mcp 8 passed: 98 in total
+# @surety/sdk 53 passed, @surety/keeper 38 passed, @surety/mcp 8 passed: 99 in total
 ```
 
 ## Reproduce the lifecycle

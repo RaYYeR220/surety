@@ -29,7 +29,7 @@ Status: live on Mezo testnet (chain 31611, one-hour epochs, full lifecycle recor
 
    ```sh
    cd contracts && forge test      # 197 passed, 1 skipped (the opt-in mainnet fork suite)
-   pnpm install && pnpm test       # 98 passed: sdk 53, keeper 37, mcp 8
+   pnpm install && pnpm test       # 99 passed: sdk 53, keeper 38, mcp 8
    ```
 
 ## How it works
@@ -230,7 +230,7 @@ Lines: 0 is BTC / MUSD on Mezo's Morpho Blue (market `0x29c2a844…d6707`), 1 is
 | Foundry invariant | 1 suite, 7 invariants | 256 runs of 64 random lender, voter, sponsor, borrower, liquidator, price-shock and keeper actions; any revert fails the run |
 | Foundry review regressions | 10 | One test per fixed review finding (9) and one verified non-issue |
 | Foundry fork | 1 (skipped by default) | Surety deployed against live Mezo mainnet state; run with `SURETY_FORK=true` |
-| TypeScript | 98 | SDK client, builders, deployments and math (53); keeper decisions, passes and runtime (37); MCP tools over in-memory and HTTP transports (8) |
+| TypeScript | 99 | SDK client, builders, deployments and math (53); keeper decisions, passes and runtime (38); MCP tools over in-memory and HTTP transports (8) |
 
 Forge reports 197 passed and 1 skipped; it counts the invariant suite as one test.
 

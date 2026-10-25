@@ -66,7 +66,7 @@ A claim can carry two tiers when both kinds of evidence exist.
 
 | # | Claim | Tier | Evidence |
 | --- | --- | --- | --- |
-| 32 | 197 Foundry tests pass and 1 opt-in fork suite is skipped by default; 98 TypeScript tests pass (sdk 53, keeper 37, mcp 8). | REPRODUCIBLE | `forge test`, `pnpm test` |
+| 32 | 197 Foundry tests pass and 1 opt-in fork suite is skipped by default; 99 TypeScript tests pass (sdk 53, keeper 38, mcp 8). | REPRODUCIBLE | `forge test`, `pnpm test` |
 | 33 | Seven system invariants hold over 256 runs of 64 random actions each, and any revert fails the run. | REPRODUCIBLE | `SuretyInvariants` |
 | 34 | Every fixed review finding has a regression test that replays the attack against the fixed code. | REPRODUCIBLE | `AuditPoCTest`: 9 regressions and 1 verified non-issue ([SECURITY.md](SECURITY.md#findings)) |
 | 35 | A large donation onto a tiny seed is not an inflation attack on later depositors. | REPRODUCIBLE | `test_NI_tinySeedDonationIsNotAnInflationAttack` |
