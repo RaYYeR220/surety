@@ -60,6 +60,7 @@ A claim can carry two tiers when both kinds of evidence exist.
 | 28 | In that run the Morpho line lost 125.4043 MUSD, of which 88.4209 was covered from voters (their whole 100 srMUSD cohort) and 36.9834 stayed with lenders; the veBTC line lost 31.7562 MUSD and was covered in full for 35.6901 srMUSD of its 150 srMUSD cohort. | VERIFIED-LIVE | `Liquidate`, `Bid`, `LossRecorded`, `CohortSlashed` and `Covered` events ([PROOF.md](PROOF.md#the-loss-from-the-events)) |
 | 29 | Once VaultV2 has recognised the 118.63 MUSD the covers returned, which takes about three weeks at the vault's size, the testnet share price is about 0.970. | MODELED | Arithmetic in [PROOF.md](PROOF.md#the-loss-from-the-events) |
 | 30 | The epoch flip after the losses attributes interest to the cohorts on chain. | VERIFIED-LIVE (PENDING) | The epoch rows of the [lifecycle table](PROOF.md#live-lifecycle-on-testnet) are not recorded yet |
+| 31 | Surety is deployed on Mezo mainnet: 11 contracts, all an exact match on Sourcify, wired to Mezo's own Morpho Blue and IRM, with 1-day timelocks and 2,000 MUSD caps. | VERIFIED-LIVE | [PROOF.md](PROOF.md#mezo-mainnet-31612) |
 
 ## Tests, review and tooling
 
@@ -78,10 +79,10 @@ A claim can carry two tiers when both kinds of evidence exist.
 
 | # | Not claimed | Why |
 | --- | --- | --- |
-| N1 | Production readiness, or safety for meaningful amounts of money | Testnet only, single-key owner roles, no external audit. Mainnet launches with 2,000 MUSD caps. |
+| N1 | Production readiness, or safety for meaningful amounts of money | Single-key owner roles, no external audit. Mainnet runs with 2,000 MUSD caps. |
 | N2 | An external audit | The reviews were internal and independent, not a contracted audit. |
 | N3 | A real Mezo gauge or MEZO emissions for srMUSD | Needs a Mezo governance call to `createVaultGauge`; on the roadmap. |
-| N4 | A mainnet deployment, mainnet TVL, users or volume | Mainnet deployment is pending. |
+| N4 | Mainnet TVL, users or volume | Mainnet is a capped launch: deployed and verified, no deposits yet. |
 | N5 | That lenders never lose money | When the line's cohorts and the reserve are short, lenders bear the rest, as in the live run (36.98 MUSD). |
 | N6 | That lenders are restored at once | A cover is recognised under VaultV2's `maxRate`; it can take weeks for a large loss. |
 | N7 | Decentralised or timelocked administration on testnet | Every owner role is the deployer key and every timelock is zero on testnet. |

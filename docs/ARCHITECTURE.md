@@ -267,7 +267,7 @@ Failing closed blocks liquidations during an outage too; that trade-off is accep
 
 ## Vault configuration as deployed
 
-| Setting | Testnet (31611) | Mainnet (31612), pending |
+| Setting | Testnet (31611) | Mainnet (31612) |
 | --- | --- | --- |
 | Name and symbol | Surety MUSD, srMUSD | same |
 | Owner, curator, sentinel | deployer key | deployer key at launch; to move to a multisig and timelock |
