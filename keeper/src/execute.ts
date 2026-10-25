@@ -65,8 +65,9 @@ export class Executor {
 
   /** Whether the call succeeds when given exactly `gas`, so a low estimate is caught before it costs a failed tx. */
   private async passesWith(params: Parameters<PublicClient["simulateContract"]>[0], gas: bigint): Promise<boolean> {
+    // One attempt: an RPC hiccup only means this tick doesn't send, and the next tick re-plans from chain state.
     try {
-      await withRetry(() => this.o.publicClient.simulateContract({ ...params, gas }), this.o.retry ?? {});
+      await this.o.publicClient.simulateContract({ ...params, gas });
       return true;
     } catch {
       return false;
