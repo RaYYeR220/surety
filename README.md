@@ -21,7 +21,7 @@ Status: live on Mezo testnet (chain 31611, one-hour epochs, full lifecycle recor
    - Loss recorded on the veBTC line: [0x9aeb…da00](https://explorer.test.mezo.org/tx/0x9aebba4424e43ed91863469c282e7c251ae855fe1c1f5e54cdd61bec8844da00)
    - Cover: voter cohort slashed, MUSD returned to the vault: [0x7a52…8b03](https://explorer.test.mezo.org/tx/0x7a528516a84e5eebc6d6b32aa99103e7ec8bc2b0b7669457f82d01fd70188b03)
    - Cover: voter cohort slashed, MUSD paid into the veBTC line: [0xf260…ae9b](https://explorer.test.mezo.org/tx/0xf260dae6094b993d93781f3f6e202e93d76344047a39ff46f86fcaa2e9b4ae9b)
-   - Next epoch: rebalance attributes interest to the cohorts: PENDING (not recorded yet)
+   - Next epoch: rebalance attributes interest to the cohorts: [0x8f22…622c](https://explorer.test.mezo.org/tx/0x8f22a2de4732ffc0ff32dfec7576c8fdcf2ec4a7234905cb43d98ed286b6622c)
 
    <!-- proof:key-steps:end -->
 

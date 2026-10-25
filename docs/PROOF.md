@@ -89,7 +89,7 @@ Check it yourself: `cast call 0x7B6673dEbB5E2480798ff3e11680182F37aF2f4f "LINE_T
 `keeper/scripts/testnet-cycle.ts` ran Surety's whole lifecycle on the current testnet deployment from the deployer account [`0x37D5…C282`](https://explorer.test.mezo.org/address/0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282), with its veBTC NFTs #1711 and #1712. Every mined transaction is appended to `proof.txs` in the deployment file as `{ label, hash, block }`, and the table below is rendered from that file by [`docs/proof-table.mjs`](proof-table.mjs). Rows marked PENDING are steps the run has not recorded yet; re-render with `node docs/proof-table.mjs --write` once it has.
 
 <!-- proof:lifecycle:start -->
-Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`: 24 transactions recorded, 3 steps PENDING.
+Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`: 28 transactions recorded, 0 steps PENDING.
 
 | # | Phase | Step | Transaction | Block |
 | --- | --- | --- | --- | --- |
@@ -117,9 +117,10 @@ Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`:
 | 22 | settle | **checkpoint veBTC line (loss recorded)** | [0x9aeb…da00](https://explorer.test.mezo.org/tx/0x9aebba4424e43ed91863469c282e7c251ae855fe1c1f5e54cdd61bec8844da00) | 16327300 |
 | 23 | settle | **cover Morpho line** | [0x7a52…8b03](https://explorer.test.mezo.org/tx/0x7a528516a84e5eebc6d6b32aa99103e7ec8bc2b0b7669457f82d01fd70188b03) | 16327301 |
 | 24 | settle | **cover veBTC line** | [0xf260…ae9b](https://explorer.test.mezo.org/tx/0xf260dae6094b993d93781f3f6e202e93d76344047a39ff46f86fcaa2e9b4ae9b) | 16327303 |
-| 25 | epoch | poke #1711 into the next epoch (not recorded yet) | PENDING | — |
-| 26 | epoch | poke #1712 into the next epoch (not recorded yet) | PENDING | — |
-| 27 | epoch | **first rebalance of the next epoch (not recorded yet)** | PENDING | — |
+| 25 | epoch | poke #1711 (epoch 23:00 UTC, by the keeper) | [0xc1bd…1ecf](https://explorer.test.mezo.org/tx/0xc1bd7ba110180b39d256954c4265f5c6213b690d4d143ba31a865951fafa1ecf) | 16327765 |
+| 26 | epoch | poke #1712 (epoch 23:00 UTC, by the keeper) | [0xe8e7…c4ad](https://explorer.test.mezo.org/tx/0xe8e74db83517ef391fe9b69a73d877b5103e10a99e6eadad7457c43e224fc4ad) | 16327767 |
+| 27 | epoch | **rebalance (epoch 23:00 UTC, by the keeper): fees attributed to the cohorts** | [0x8f22…622c](https://explorer.test.mezo.org/tx/0x8f22a2de4732ffc0ff32dfec7576c8fdcf2ec4a7234905cb43d98ed286b6622c) | 16327768 |
+| 28 | other | cover by the keeper: new fees in the reserve pay down the lenders' share of the Morpho loss | [0x8a3f…c541](https://explorer.test.mezo.org/tx/0x8a3ff37c8d20140804aa5b9d09ff5b62cf9bfb4ec5e250164915cc571c74c541) | 16327820 |
 
 <!-- proof:lifecycle:end -->
 

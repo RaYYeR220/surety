@@ -121,7 +121,7 @@
         "block": 16327137
       },
       {
-        "label": "shock −60%",
+        "label": "shock \u221260%",
         "hash": "0x1a7578c63835b13c73c7528d6e7a737da17f2eee5e0f5c20e7e02f73435f0434",
         "block": 16327139
       },
@@ -169,6 +169,26 @@
         "label": "cover veBTC line",
         "hash": "0xf260dae6094b993d93781f3f6e202e93d76344047a39ff46f86fcaa2e9b4ae9b",
         "block": 16327303
+      },
+      {
+        "label": "poke #1711 (epoch 23:00 UTC, by the keeper)",
+        "hash": "0xc1bd7ba110180b39d256954c4265f5c6213b690d4d143ba31a865951fafa1ecf",
+        "block": 16327765
+      },
+      {
+        "label": "poke #1712 (epoch 23:00 UTC, by the keeper)",
+        "hash": "0xe8e74db83517ef391fe9b69a73d877b5103e10a99e6eadad7457c43e224fc4ad",
+        "block": 16327767
+      },
+      {
+        "label": "rebalance (epoch 23:00 UTC, by the keeper): fees attributed to the cohorts",
+        "hash": "0x8f22a2de4732ffc0ff32dfec7576c8fdcf2ec4a7234905cb43d98ed286b6622c",
+        "block": 16327768
+      },
+      {
+        "label": "cover by the keeper: new fees in the reserve pay down the lenders' share of the Morpho loss",
+        "hash": "0x8a3ff37c8d20140804aa5b9d09ff5b62cf9bfb4ec5e250164915cc571c74c541",
+        "block": 16327820
       }
     ]
   }

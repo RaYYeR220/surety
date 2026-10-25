@@ -59,21 +59,21 @@ A claim can carry two tiers when both kinds of evidence exist.
 | 27 | The whole lifecycle ran live on testnet: deposit, votes, rebalance, incentives, a veBTC loan, a Morpho borrow, a price shock, a Morpho liquidation with bad debt, a veBTC auction settled below the debt, loss checkpoints and covers that slashed the voters' cohorts. | VERIFIED-LIVE | [Lifecycle table](PROOF.md#live-lifecycle-on-testnet) |
 | 28 | In that run the Morpho line lost 125.4043 MUSD, of which 88.4209 was covered from voters (their whole 100 srMUSD cohort) and 36.9834 stayed with lenders; the veBTC line lost 31.7562 MUSD and was covered in full for 35.6901 srMUSD of its 150 srMUSD cohort. | VERIFIED-LIVE | `Liquidate`, `Bid`, `LossRecorded`, `CohortSlashed` and `Covered` events ([PROOF.md](PROOF.md#the-loss-from-the-events)) |
 | 29 | Once VaultV2 has recognised the 118.63 MUSD the covers returned, which takes about three weeks at the vault's size, the testnet share price is about 0.970. | MODELED | Arithmetic in [PROOF.md](PROOF.md#the-loss-from-the-events) |
-| 30 | The epoch flip after the losses attributes interest to the cohorts on chain. | VERIFIED-LIVE (PENDING) | The epoch rows of the [lifecycle table](PROOF.md#live-lifecycle-on-testnet) are not recorded yet |
+| 30 | After the losses the keeper kept flipping epochs on testnet: hourly pokes and rebalances, and covers that use the new fees reaching the reserve to pay down the lenders' share of the Morpho loss. | VERIFIED-LIVE | Keeper rows of the [lifecycle table](PROOF.md#live-lifecycle-on-testnet) |
 | 31 | Surety is deployed on Mezo mainnet: 11 contracts, all an exact match on Sourcify, wired to Mezo's own Morpho Blue and IRM, with 1-day timelocks and 2,000 MUSD caps. | VERIFIED-LIVE | [PROOF.md](PROOF.md#mezo-mainnet-31612) |
 
 ## Tests, review and tooling
 
 | # | Claim | Tier | Evidence |
 | --- | --- | --- | --- |
-| 31 | 197 Foundry tests pass and 1 opt-in fork suite is skipped by default; 98 TypeScript tests pass (sdk 53, keeper 37, mcp 8). | REPRODUCIBLE | `forge test`, `pnpm test` |
-| 32 | Seven system invariants hold over 256 runs of 64 random actions each, and any revert fails the run. | REPRODUCIBLE | `SuretyInvariants` |
-| 33 | Every fixed review finding has a regression test that replays the attack against the fixed code. | REPRODUCIBLE | `AuditPoCTest`: 9 regressions and 1 verified non-issue ([SECURITY.md](SECURITY.md#findings)) |
-| 34 | A large donation onto a tiny seed is not an inflation attack on later depositors. | REPRODUCIBLE | `test_NI_tinySeedDonationIsNotAnInflationAttack` |
-| 35 | Slither reports 133 results on `contracts/src`, none of them a vulnerability. | REPRODUCIBLE | The command and the triage in [SECURITY.md](SECURITY.md#slither); the triage is our assessment |
-| 36 | Surety deploys and runs against live Mezo mainnet state (real veBTC, MUSD, Morpho Blue and IRM). | REPRODUCIBLE | `SURETY_FORK=true forge test --match-contract LiveMezo` (BTC and Skip precompiles mocked, because a fork cannot execute them) |
-| 37 | The keeper holds no role; every call it makes is open to anyone. | REPRODUCIBLE, VERIFIED-LIVE | Keeper tests; the called functions have no access control in the verified sources |
-| 38 | The SDK and the MCP server never hold keys; they return unsigned transactions. | REPRODUCIBLE | `packages/sdk` and `packages/mcp` tests |
+| 32 | 197 Foundry tests pass and 1 opt-in fork suite is skipped by default; 98 TypeScript tests pass (sdk 53, keeper 37, mcp 8). | REPRODUCIBLE | `forge test`, `pnpm test` |
+| 33 | Seven system invariants hold over 256 runs of 64 random actions each, and any revert fails the run. | REPRODUCIBLE | `SuretyInvariants` |
+| 34 | Every fixed review finding has a regression test that replays the attack against the fixed code. | REPRODUCIBLE | `AuditPoCTest`: 9 regressions and 1 verified non-issue ([SECURITY.md](SECURITY.md#findings)) |
+| 35 | A large donation onto a tiny seed is not an inflation attack on later depositors. | REPRODUCIBLE | `test_NI_tinySeedDonationIsNotAnInflationAttack` |
+| 36 | Slither reports 133 results on `contracts/src`, none of them a vulnerability. | REPRODUCIBLE | The command and the triage in [SECURITY.md](SECURITY.md#slither); the triage is our assessment |
+| 37 | Surety deploys and runs against live Mezo mainnet state (real veBTC, MUSD, Morpho Blue and IRM). | REPRODUCIBLE | `SURETY_FORK=true forge test --match-contract LiveMezo` (BTC and Skip precompiles mocked, because a fork cannot execute them) |
+| 38 | The keeper holds no role; every call it makes is open to anyone. | REPRODUCIBLE, VERIFIED-LIVE | Keeper tests; the called functions have no access control in the verified sources |
+| 39 | The SDK and the MCP server never hold keys; they return unsigned transactions. | REPRODUCIBLE | `packages/sdk` and `packages/mcp` tests |
 
 ## Not claimed
 
