@@ -113,6 +113,21 @@ describe("executor", () => {
   }
   const call = { address: SENDER, abi: [], functionName: "cover", args: [1n] };
 
+  it("falls back to a safe limit when the call fails at the estimated limit", async () => {
+    const { publicClient, walletClient, spies } = fakes();
+    // Mezo's estimator answering 21k for a call that needs ~500k.
+    spies.estimateContractGas.mockImplementation(async () => 21_000n);
+    spies.simulateContract.mockImplementation(async (p?: { gas?: bigint }) => {
+      if (p?.gas !== undefined && p.gas < 500_000n) throw new Error("out of gas");
+      return { result: 5n, request: { address: SENDER, functionName: "cover", abi: [], args: [1n] } };
+    });
+    const { log } = memoryLogger();
+    const ex = new Executor({ publicClient, walletClient, account: SENDER, dryRun: false, log });
+    const result = await ex.run("cover", call);
+    expect(result).toMatchObject({ status: "success", gasLimit: 3_000_000n });
+    expect(spies.writeContract).toHaveBeenCalledWith(expect.objectContaining({ gas: 3_000_000n }));
+  });
+
   it("sets the gas limit to the estimate plus 30%", async () => {
     expect(gasLimitFor(200_000n)).toBe(260_000n);
     expect(gasLimitFor(100_001n)).toBe(130_002n); // rounded up
