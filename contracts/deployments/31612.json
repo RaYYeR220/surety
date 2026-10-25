@@ -1,0 +1,54 @@
+{
+  "chainId": 31612,
+  "epochLength": 604800,
+  "deployedAt": 12755630,
+  "contracts": {
+    "vault": "0x632d627b66F2b11C8d0Fc61790422B0931D145de",
+    "morphoAdapter": "0xcB92a383a238Ce68d7b8Fe17231c90465379F779",
+    "morpho": "0x565834cE7E40b8987BC20EbF83E2159467bDA311",
+    "irm": "0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7",
+    "creditVoter": "0x7B6673dEbB5E2480798ff3e11680182F37aF2f4f",
+    "voteAllocator": "0x810e269c6ae8198d92eda674B02daB4CF7a05CEE",
+    "suretyPool": "0x0597c0aB730BE64DDf797dE999275b627D9e592f",
+    "depositGate": "0xE708dba05AC671456F6258328794a25D8A352205",
+    "veBTCLine": "0xb12ec34B417afB511A5067B31A32c65084FeE723",
+    "loanEscrowImpl": "0x1F2Fac07338B7a98B80622e436346fae13B66BE7",
+    "irmLine": "0x023091B88CE266BF841868D30AE88D767Bd8fA5b",
+    "priceSource": "0x2f72e9EEBBF8ffB9bb27c1Efd562bA3B3f2345ba",
+    "skipSource": "0x2f72e9EEBBF8ffB9bb27c1Efd562bA3B3f2345ba",
+    "morphoOracle": "0x1cc8daeb91B7da756E3eA1f51eAB8c0776f0cb9B"
+  },
+  "external": {
+    "musd": "0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186",
+    "btc": "0x7b7C000000000000000000000000000000000000",
+    "veBTC": "0x3D4b1b884A7a1E59fE8589a3296EC8f8cBB6f279",
+    "poolsVoter": "0x48233cCC97B87Ba93bCA212cbEe48e3210211f03",
+    "rewardsDistributor": "0xb58477e074265BdC7F7ca6100eD0f7De264F74A2",
+    "skipAggregator": "0x7b7c000000000000000000000000000000000015"
+  },
+  "lines": [
+    {
+      "id": 0,
+      "kind": "Morpho",
+      "name": "BTC / MUSD (Morpho)",
+      "adapter": "0xcB92a383a238Ce68d7b8Fe17231c90465379F779",
+      "marketId": "0x29c2a844b71bb5db40ca26e8880552dcd40517aa10e945b15ef616c46d5d6707",
+      "marketParams": {
+        "loanToken": "0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186",
+        "collateralToken": "0x7b7C000000000000000000000000000000000000",
+        "oracle": "0x1cc8daeb91B7da756E3eA1f51eAB8c0776f0cb9B",
+        "irm": "0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7",
+        "lltv": "860000000000000000"
+      }
+    },
+    {
+      "id": 1,
+      "kind": "VeBTC",
+      "name": "veBTC credit line",
+      "adapter": "0xb12ec34B417afB511A5067B31A32c65084FeE723"
+    }
+  ],
+  "proof": {
+    "txs": []
+  }
+}
