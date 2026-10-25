@@ -38,11 +38,22 @@ export const CONTRACT_NAMES: [keyof SuretyContracts, string][] = [
   ["skipSource", "SkipPriceSource"],
 ];
 
-/** The deployment's contracts in reading order, skipping any an older deployment does not have (the gate). */
+/** Mainnet uses Mezo's own Morpho Blue and IRM, which are Mezo's deployments rather than ours. */
+const MEZO_OWNED_ON_MAINNET = new Set<keyof SuretyContracts>(["morpho", "irm"]);
+
+/**
+ * The contracts this deployment created, in reading order: skips any an older deployment does not have (the gate),
+ * Mezo's own Morpho stack on mainnet, and a second name for the same address (the plain price source is also the
+ * Skip source).
+ */
 export function deployedContracts(d: SuretyDeployment): { key: keyof SuretyContracts; name: string; address: Address }[] {
+  const seen = new Set<string>();
   return CONTRACT_NAMES.flatMap(([key, name]) => {
     const address = d.contracts[key];
-    return address ? [{ key, name, address }] : [];
+    if (!address || seen.has(address.toLowerCase())) return [];
+    if (d.chainId === 31612 && MEZO_OWNED_ON_MAINNET.has(key)) return [];
+    seen.add(address.toLowerCase());
+    return [{ key, name, address }];
   });
 }
 
