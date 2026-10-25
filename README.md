@@ -2,7 +2,7 @@
 
 Lending gauges for MUSD on Mezo: veBTC holders decide where a MUSD lending vault lends, and their own rewards are the first loss when a line they backed goes bad.
 
-[App (Mezo testnet)](https://surety-credit.vercel.app) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Proof](docs/PROOF.md) · [Claims](docs/CLAIMS.md)
+[App](https://surety-credit.vercel.app) · [Demo video](https://youtu.be/dHxYqFmqjEg) · [Deck](https://surety-credit.vercel.app/surety-deck.pdf) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Proof](docs/PROOF.md) · [Claims](docs/CLAIMS.md)
 
 In most money markets a curator picks where deposits go and loses nothing when a listing fails. Mezo described the alternative in [Aerodrome for lending](https://mezo.org/blog/aerodrome-for-lending): let vote-escrow holders steer lending the way gauges steer liquidity, so that votes become a price for risk. Surety builds that for MUSD credit. Lenders deposit MUSD into a Morpho VaultV2. Every epoch, veBTC holders split their voting power across credit lines, and the vault's capital follows the votes. Voters earn the vault's performance fee and sponsor incentives, but those rewards season for four epochs and are slashed first if a line they voted for records a loss; the pool's reserve comes second and lenders last. One of the lines lends MUSD against a locked veBTC NFT without unlocking it: the NFT sits in its own escrow and keeps voting and earning for the borrower.
 

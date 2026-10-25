@@ -50,6 +50,16 @@ export function Footer() {
                 Deck (PDF)
               </a>
             </li>
+            <li>
+              <a href="https://youtu.be/dHxYqFmqjEg" {...EXT}>
+                Demo video
+              </a>
+            </li>
+            <li>
+              <a href="https://github.com/RaYYeR220/surety" {...EXT}>
+                Source code
+              </a>
+            </li>
           </ul>
         </div>
         <div>
