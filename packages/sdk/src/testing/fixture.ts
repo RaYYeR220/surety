@@ -5,6 +5,7 @@ import type { Abi } from "viem";
 import {
   adaptiveCurveIrmAbi,
   btcMusdPriceSourceAbi,
+  clTwapPegSourceAbi,
   creditVoterAbi,
   erc20Abi,
   linearKinkIrmAbi,
@@ -18,8 +19,10 @@ import {
   shareMarketAbi,
   skipPriceSourceAbi,
   sponsorAbi,
+  stableTwapPegSourceAbi,
   stressedPegSourceAbi,
   suretyPoolAbi,
+  tigrisBasicPoolAbi,
   vaultV2Abi,
   veBTCAbi,
   veBTCCreditLineAbi,
@@ -30,7 +33,16 @@ import {
 import { mezoTestnet } from "../chains.js";
 import { createSuretyClient, type SuretyClient } from "../client.js";
 import type { MarketParams, SuretyDeployment, SuretyDeploymentV2 } from "../deployments/types.js";
-import { auctionPrice, BPS, btcInMusdWad, collateralValue, pegHealth, shareFillPrice, WAD } from "../math.js";
+import {
+  auctionPrice,
+  BPS,
+  btcInMusdWad,
+  collateralValue,
+  pegDivisorWad,
+  pegHealth,
+  shareFillPrice,
+  WAD,
+} from "../math.js";
 import { marketIdOf } from "../reads.js";
 import { createMockChain, mockLog, MockRevert, type MockChain, type RpcLog } from "./mock.js";
 
@@ -135,10 +147,10 @@ export const fixtureDeploymentV2: SuretyDeploymentV2 = {
     protocolShareBps: 2000,
     keeperShareBps: 5000,
   },
-  peg: { minSources: 2, maxSpreadBps: 500, bandBps: 300 },
+  peg: { minSources: 2, maxSpreadBps: 1000, bandBps: 300, maxPremiumBps: 300 },
   pegSources: [
-    { kind: "ClTwap", address: fakeAddress(0x20), pool: fakeAddress(0x30), window: 1800 },
-    { kind: "StableTwap", address: fakeAddress(0x21), pool: fakeAddress(0x31), granularity: 2 },
+    { kind: "ClTwap", address: fakeAddress(0x20), pool: fakeAddress(0x30), window: 1800, minLiquidity: 10n ** 19n },
+    { kind: "StableTwap", address: fakeAddress(0x21), pool: fakeAddress(0x31), granularity: 2, maxAge: 21_600 },
     { kind: "Stressed", address: fakeAddress(0x12), base: "0x0000000000000000000000000000000000000000" },
   ],
   fees: {
@@ -267,6 +279,12 @@ export interface FixtureState {
     /** Overrides MusdPeg.pegHealthy; null = compute it from the readings. */
     healthy: boolean | null;
     stress: { musdUsdWad: bigint; endsAt: bigint };
+    /** The CL source's harmonic-mean window liquidity. */
+    windowLiquidity: bigint;
+    /** When the basic pool behind the StableTwap source last stored an observation. */
+    poolObservedAt: bigint;
+    /** The veBTC line's `pegCheck`. */
+    lineCheck: boolean;
   };
   allocator: { parking: boolean };
   savings: { parked: bigint; claimableYield: bigint; yieldClaimed: bigint };
@@ -460,6 +478,9 @@ export function defaultFixtureState(): FixtureState {
       readings: [991_440_000_000_000_000n, 991_250_000_000_000_000n, WAD],
       healthy: null,
       stress: { musdUsdWad: 0n, endsAt: 0n },
+      windowLiquidity: 267n * 10n ** 18n,
+      poolObservedAt: now - 1200n,
+      lineCheck: true,
     },
     allocator: { parking: true },
     savings: { parked: e18(400), claimableYield: e18(1) / 100n, yieldClaimed: e18(2) / 100n },
@@ -545,6 +566,7 @@ export function createSuretyFixture(
     const h = pegHealth(pegReadings(), fixtureDeploymentV2.peg);
     return h.available ? h.medianWad : null;
   };
+  const healthyMedian = () => (pegIsHealthy() ? pegMedian() : null);
   const openListings = () => s.shareMarket.listings.filter((l) => l.shares > 0n);
   const v2Contracts = () => {
     const v = fixtureDeploymentV2;
@@ -587,6 +609,28 @@ export function createSuretyFixture(
         },
       },
       { address: vc.btcUsdSource, abi: skipPriceSourceAbi as Abi, functions: { priceWad: () => price() } },
+      {
+        address: v.pegSources[0]!.address,
+        abi: clTwapPegSourceAbi as Abi,
+        functions: { windowLiquidity: () => [true, s.peg.windowLiquidity], minLiquidity: () => 10n ** 19n },
+      },
+      {
+        address: v.pegSources[1]!.address,
+        abi: stableTwapPegSourceAbi as Abi,
+        functions: {
+          lastObservationAge: () => [true, s.now > s.peg.poolObservedAt ? s.now - s.peg.poolObservedAt : 0n],
+          maxAge: () => 21_600,
+        },
+      },
+      {
+        address: v.pegSources[1]!.pool!,
+        abi: tigrisBasicPoolAbi as Abi,
+        functions: {
+          lastObservation: () => ({ timestamp: s.peg.poolObservedAt, reserve0Cumulative: 0n, reserve1Cumulative: 0n }),
+          periodSize: () => 1800n,
+          sync: () => undefined,
+        },
+      },
       {
         address: vc.stressedPegSource!,
         abi: stressedPegSourceAbi as Abi,
@@ -863,6 +907,7 @@ export function createSuretyFixture(
           },
           treasury: () => s.treasury,
           peg: () => c.musdPeg ?? ZERO,
+          pegCheck: () => s.peg.lineCheck,
           loanCount: () => BigInt(s.loans.length),
           loan: (id: bigint) => {
             const l = loanAt(id);
@@ -928,17 +973,22 @@ export function createSuretyFixture(
             address: c.priceSource,
             abi: btcMusdPriceSourceAbi as Abi,
             functions: {
-              priceWad: () => btcInMusdWad(price(), pegMedian()),
-              musdUsdWad: () => pegMedian() ?? WAD,
+              priceWad: () => btcInMusdWad(price(), healthyMedian(), fixtureDeploymentV2.peg.maxPremiumBps),
+              musdUsdWad: () => pegDivisorWad(healthyMedian(), fixtureDeploymentV2.peg.maxPremiumBps),
               btcUsd: () => c.btcUsdSource!,
               peg: () => c.musdPeg!,
+              maxPremiumBps: () => fixtureDeploymentV2.peg.maxPremiumBps,
             },
           }
         : { address: c.priceSource, abi: skipPriceSourceAbi as Abi, functions: { priceWad: () => price() } },
       {
         address: c.morphoOracle,
         abi: morphoPriceOracleAbi,
-        functions: { price: () => (version === 2 ? btcInMusdWad(price(), pegMedian()) : price()) * WAD },
+        functions: {
+          price: () =>
+            (version === 2 ? btcInMusdWad(price(), healthyMedian(), fixtureDeploymentV2.peg.maxPremiumBps) : price()) *
+            WAD,
+        },
       },
       ...(version === 2 ? v2Contracts() : []),
       {

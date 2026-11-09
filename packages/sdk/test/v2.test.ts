@@ -19,6 +19,7 @@ import {
   liquidationFeeSplit,
   managementFeeAprWad,
   originationFee,
+  pegDivisorWad,
   pegHealth,
   shareFillPrice,
   WAD,
@@ -51,7 +52,7 @@ describe("deployment schema v2", () => {
     expect(d.contracts.stressedPegSource).toBeDefined();
     expect(d.external.smusd).toBe("0x6f461c68B2c5492C0F5CCEc5a264d692aA7A8e16");
     expect(d.pegSources).toEqual([{ kind: "Stressed", address: d.contracts.stressedPegSource, base: zeroAddress }]);
-    expect(d.peg).toEqual({ minSources: 1, maxSpreadBps: 500, bandBps: 300 });
+    expect(d.peg).toEqual({ minSources: 1, maxSpreadBps: 1000, bandBps: 300, maxPremiumBps: 300 });
     expect(d.lineParams.floorBps).toBe(8500);
     expect(d.lineParams.originationFeeBps).toBe(25);
     expect(d.fees.managementFee).toBe(63_419_583n);
@@ -84,6 +85,26 @@ describe("deployment schema v2", () => {
     const future = structuredClone(exampleV2) as Record<string, unknown>;
     future.version = 3;
     expect(() => parseDeployment(future)).toThrow(/version/);
+
+    const noPremium = structuredClone(exampleV2) as { peg: Record<string, unknown> };
+    delete noPremium.peg.maxPremiumBps;
+    expect(() => parseDeployment(noPremium)).toThrow(/peg\.maxPremiumBps/);
+  });
+
+  it("reads the CL floors and basic-pool age limits of a mainnet peg", () => {
+    const mainnet = structuredClone(exampleV2) as { chainId: number; pegSources: Record<string, unknown>[] };
+    mainnet.pegSources = [
+      { kind: "ClTwap", address: "0x5e00000000000000000000000000000000000020", pool: "0xCC372B7E15535aB225fe17c1075831D38ef7aC1a", window: "1800", minLiquidity: "10000000000000000000" },
+      { kind: "StableTwap", address: "0x5e00000000000000000000000000000000000021", pool: "0xEd812AEc0Fecc8fD882Ac3eccC43f3aA80A6c356", granularity: "2", maxAge: "21600" },
+      { kind: "BtcCross", address: "0x5e00000000000000000000000000000000000022", pool: "0x9CBc1537d255768b431488305b1C7EFc2ac95022", window: "1800", minLiquidity: "200000000000000000000", btcUsd: "0x5e0000000000000000000000000000000000000e" },
+    ];
+    const d = parseDeployment(mainnet);
+    expect(d.pegSources![0]).toMatchObject({ kind: "ClTwap", window: 1800, minLiquidity: 10n ** 19n });
+    expect(d.pegSources![1]).toMatchObject({ kind: "StableTwap", granularity: 2, maxAge: 21_600 });
+    expect(d.pegSources![2]!.minLiquidity).toBe(2n * 10n ** 20n);
+
+    delete mainnet.pegSources[0]!.minLiquidity;
+    expect(() => parseDeployment(mainnet)).toThrow(/pegSources\[0\]\.minLiquidity/);
   });
 
   it("keeps the v1 deployments bundled, with their proof", () => {
@@ -138,10 +159,15 @@ describe("peg math", () => {
     );
   });
 
-  it("never values BTC above BTC/USD", () => {
+  it("never values BTC above BTC/USD, and caps the MUSD premium", () => {
     expect(btcInMusdWad(e18(80_000), 990_000_000_000_000_000n)).toBe(e18(80_000));
     expect(btcInMusdWad(e18(80_000), null)).toBe(e18(80_000));
     expect(btcInMusdWad(e18(80_000), 1_010_000_000_000_000_000n)).toBe((e18(80_000) * WAD) / 1_010_000_000_000_000_000n);
+    // A pushed peg divides by at most $1.03.
+    expect(pegDivisorWad(1_200_000_000_000_000_000n, 300)).toBe(1_030_000_000_000_000_000n);
+    expect(btcInMusdWad(e18(80_000), 1_200_000_000_000_000_000n, 300)).toBe((e18(80_000) * WAD) / 1_030_000_000_000_000_000n);
+    expect(pegDivisorWad(null, 300)).toBe(WAD);
+    expect(pegDivisorWad(980_000_000_000_000_000n, 300)).toBe(WAD);
   });
 });
 
@@ -200,6 +226,39 @@ describe("v2 reads", () => {
     // MUSD under $1 is ignored: BTC is never valued above BTC/USD.
     expect(peg.btcMusdWad).toBe(e18(80_000));
     expect(peg.stress).toEqual({ active: false, musdUsdWad: 0n, endsAt: 0n });
+    expect(peg.linePegCheck).toBe(true);
+    expect(peg.maxPremiumBps).toBe(300);
+    expect(peg.divisorWad).toBe(WAD);
+  });
+
+  it("shows the CL source's window liquidity and the basic pool's observation age", async () => {
+    const { client } = createSuretyFixture({
+      version: 2,
+      patch: (s) => {
+        s.peg.windowLiquidity = 5n * 10n ** 18n;
+        s.peg.poolObservedAt = s.now - 7_200n;
+        s.peg.lineCheck = false;
+      },
+    });
+    const peg = await client.getPeg();
+    const [cl, stable, stressed] = peg.sources;
+    expect(cl).toMatchObject({ windowLiquidity: 5n * 10n ** 18n, minLiquidity: 10n ** 19n, observationAge: null });
+    expect(stable).toMatchObject({ observationAge: 7_200n, maxAge: 21_600n, windowLiquidity: null });
+    expect(stressed).toMatchObject({ windowLiquidity: null, observationAge: null, maxAge: null });
+    expect(peg.linePegCheck).toBe(false);
+  });
+
+  it("caps what a pushed peg can take off the BTC price", async () => {
+    const { client } = createSuretyFixture({
+      version: 2,
+      patch: (s) => {
+        s.peg.readings = [1_020_000_000_000_000_000n, 1_025_000_000_000_000_000n, 1_022_000_000_000_000_000n];
+      },
+    });
+    const peg = await client.getPeg();
+    expect(peg.healthy).toBe(true);
+    expect(peg.divisorWad).toBe(1_022_000_000_000_000_000n);
+    expect(peg.btcMusdWad).toBe((e18(80_000) * WAD) / 1_022_000_000_000_000_000n);
   });
 
   it("shows a depeg on the stressed source and blocks the borrow quote", async () => {

@@ -18,6 +18,11 @@ export const stableTwapPegSourceAbi = [
         "name": "granularity_",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "maxAge_",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "stateMutability": "nonpayable"
@@ -37,6 +42,19 @@ export const stableTwapPegSourceAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_MAX_AGE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_MUSD_USD",
     "inputs": [],
     "outputs": [
@@ -44,6 +62,19 @@ export const stableTwapPegSourceAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_MAX_AGE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
@@ -70,6 +101,37 @@ export const stableTwapPegSourceAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastObservationAge",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "ok",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "age",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxAge",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
@@ -134,6 +196,11 @@ export const stableTwapPegSourceAbi = [
   {
     "type": "error",
     "name": "BadGranularity",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadMaxAge",
     "inputs": []
   },
   {

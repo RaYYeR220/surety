@@ -4,6 +4,7 @@ import { getAbiItem, type Address } from "viem";
 
 import {
   btcMusdPriceSourceAbi,
+  clTwapPegSourceAbi,
   erc20Abi,
   mezoPoolsVoterAbi,
   musdPegAbi,
@@ -12,6 +13,7 @@ import {
   savingsAdapterAbi,
   shareMarketAbi,
   sponsorAbi,
+  stableTwapPegSourceAbi,
   stressedPegSourceAbi,
   vaultV2Abi,
   veBTCCreditLineAbi,
@@ -20,7 +22,7 @@ import {
 } from "./abis/index.js";
 import { isV2Deployment, type SuretyDeploymentV2 } from "./deployments/types.js";
 import { getLogsChunked } from "./logs.js";
-import { managementFeeAprWad, pegHealth, shareFillPrice, WAD } from "./math.js";
+import { managementFeeAprWad, pegDivisorWad, pegHealth, shareFillPrice, WAD } from "./math.js";
 import { call, isRevert, orNull, type ReadCall, type Settled } from "./read.js";
 import { head, normalizeLineParams, veBTCCreditLineAbiFor, type SuretyContext } from "./reads.js";
 import type {
@@ -57,8 +59,10 @@ function must<T>(s: Settled<T>, what: string): T {
 /* MUSD peg */
 
 /**
- * The MUSD peg: every source's reading, their median, spread and distance from $1, whether the line would lend now
- * (`pegHealthy`), whether a rebalance would fund lines, and the BTC price in MUSD the line values collateral at.
+ * The MUSD peg: every source's reading (with the CL sources' window liquidity against their floor and the basic-pool
+ * sources' observation age against their limit), their median, spread and distance from $1, whether the line would
+ * lend now (`pegHealthy` and the line's `pegCheck`), whether a rebalance would fund lines, and the BTC price in MUSD
+ * the line values collateral at.
  */
 export async function getPeg(ctx: SuretyContext): Promise<PegView> {
   const d = v2(ctx, "the peg");
@@ -87,16 +91,32 @@ export async function getPeg(ctx: SuretyContext): Promise<PegView> {
   const bandBps = Number(orNull(bandS as Settled<bigint>) ?? BigInt(d.peg.bandBps));
 
   const btcUsdSource = orNull(btcUsdS as Settled<Address>) ?? c.btcUsdSource;
-  const [btcUsdPrice, stressEnd] = await ctx.reader.settle(
+  const infos = readings.map((r) => d.pegSources.find((s) => s.address.toLowerCase() === r.source.toLowerCase()) ?? null);
+  const isCl = (k: string | undefined) => k === "ClTwap" || k === "BtcCross";
+  const [btcUsdPrice, stressEnd, pegCheckS, premiumS, ...perSource] = await ctx.reader.settle(
     [
       call(btcUsdSource, btcMusdPriceSourceAbi, "priceWad"),
-      ...(c.stressedPegSource ? [call(c.stressedPegSource, stressedPegSourceAbi, "stressEndsAt")] : []),
+      c.stressedPegSource
+        ? call(c.stressedPegSource, stressedPegSourceAbi, "stressEndsAt")
+        : call(c.musdPeg, musdPegAbi, "minSources"),
+      call(c.veBTCLine, veBTCCreditLineAbi, "pegCheck"),
+      call(c.btcMusdSource, btcMusdPriceSourceAbi, "maxPremiumBps"),
+      ...readings.map((r, i) =>
+        isCl(infos[i]?.kind)
+          ? call(r.source, clTwapPegSourceAbi, "windowLiquidity")
+          : infos[i]?.kind === "StableTwap"
+            ? call(r.source, stableTwapPegSourceAbi, "lastObservationAge")
+            : call(c.musdPeg, musdPegAbi, "minSources"),
+      ),
     ] as ReadCall[],
     { blockNumber },
   );
 
   const sources: PegSourceReading[] = readings.map((r, index) => {
-    const info = d.pegSources.find((s) => s.address.toLowerCase() === r.source.toLowerCase()) ?? null;
+    const info = infos[index];
+    const extra = orNull(perSource[index] as Settled<readonly [boolean, bigint]>);
+    const cl = isCl(info?.kind);
+    const stable = info?.kind === "StableTwap";
     return {
       index,
       address: r.source,
@@ -104,8 +124,15 @@ export async function getPeg(ctx: SuretyContext): Promise<PegView> {
       pool: info?.pool ?? null,
       ok: r.ok,
       musdUsdWad: r.ok ? r.musdUsdWad : null,
+      windowLiquidity: cl && extra && extra[0] ? extra[1] : null,
+      minLiquidity: cl ? (info?.minLiquidity ?? null) : null,
+      observationAge: stable && extra && extra[0] ? extra[1] : null,
+      maxAge: stable && info?.maxAge !== undefined ? BigInt(info.maxAge) : null,
     };
   });
+  const health = pegHealth(sources, { minSources, maxSpreadBps, bandBps });
+  const healthyOnChain = orNull(healthyS as Settled<boolean>) ?? false;
+  const maxPremiumBps = Number(orNull(premiumS as Settled<number>) ?? d.peg.maxPremiumBps);
   const stress = stressS ? orNull(stressS as Settled<readonly [boolean, bigint]>) : null;
   return {
     address: c.musdPeg,
@@ -113,15 +140,18 @@ export async function getPeg(ctx: SuretyContext): Promise<PegView> {
     maxSpreadBps,
     bandBps,
     sources,
-    ...pegHealth(sources, { minSources, maxSpreadBps, bandBps }),
-    healthyOnChain: orNull(healthyS as Settled<boolean>) ?? false,
+    ...health,
+    healthyOnChain,
     allocatorGateOpen: orNull(gateS as Settled<boolean>),
+    linePegCheck: orNull(pegCheckS as Settled<boolean>),
+    maxPremiumBps,
+    divisorWad: pegDivisorWad(healthyOnChain ? health.medianWad : null, maxPremiumBps),
     btcUsdWad: orNull(btcUsdPrice as Settled<bigint>),
     btcMusdWad: orNull(btcMusdS as Settled<bigint>),
     stress:
       stress === null
         ? null
-        : { active: stress[0], musdUsdWad: stress[1], endsAt: orNull(stressEnd as Settled<bigint>) ?? 0n },
+        : { active: stress[0], musdUsdWad: stress[1], endsAt: c.stressedPegSource ? (orNull(stressEnd as Settled<bigint>) ?? 0n) : 0n },
   };
 }
 

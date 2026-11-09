@@ -768,11 +768,6 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "error",
-    "name": "PegAlreadySet",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },

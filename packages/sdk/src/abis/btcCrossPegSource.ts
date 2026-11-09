@@ -20,6 +20,11 @@ export const btcCrossPegSourceAbi = [
         "internalType": "uint32"
       },
       {
+        "name": "minLiquidity_",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
         "name": "btcUsd_",
         "type": "address",
         "internalType": "contract IPriceSource"
@@ -112,6 +117,19 @@ export const btcCrossPegSourceAbi = [
   },
   {
     "type": "function",
+    "name": "minLiquidity",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "musdIsToken0",
     "inputs": [],
     "outputs": [
@@ -179,6 +197,29 @@ export const btcCrossPegSourceAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "windowLiquidity",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "ok",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "liquidity",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "BadMinLiquidity",
+    "inputs": []
   },
   {
     "type": "error",

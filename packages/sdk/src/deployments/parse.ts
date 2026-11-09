@@ -156,6 +156,7 @@ function pegParams(value: unknown, path: string): PegParams {
     minSources: smallInt(v.minSources, `${path}.minSources`),
     maxSpreadBps: smallInt(v.maxSpreadBps, `${path}.maxSpreadBps`),
     bandBps: smallInt(v.bandBps, `${path}.bandBps`),
+    maxPremiumBps: smallInt(v.maxPremiumBps, `${path}.maxPremiumBps`),
   };
 }
 
@@ -166,10 +167,16 @@ function pegSource(value: unknown, path: string): PegSourceInfo {
   const out: PegSourceInfo = { kind, address: address(v.address, `${path}.address`) };
   if (v.pool !== undefined) out.pool = address(v.pool, `${path}.pool`);
   if (v.window !== undefined) out.window = smallInt(v.window, `${path}.window`);
+  if (v.minLiquidity !== undefined) out.minLiquidity = integer(v.minLiquidity, `${path}.minLiquidity`);
   if (v.granularity !== undefined) out.granularity = smallInt(v.granularity, `${path}.granularity`);
+  if (v.maxAge !== undefined) out.maxAge = smallInt(v.maxAge, `${path}.maxAge`);
   if (v.btcUsd !== undefined) out.btcUsd = address(v.btcUsd, `${path}.btcUsd`);
   if (v.base !== undefined) out.base = address(v.base, `${path}.base`);
   if (kind !== "Stressed" && !out.pool) fail(`${path}.pool`, "expected an address");
+  if ((kind === "ClTwap" || kind === "BtcCross") && out.minLiquidity === undefined) {
+    fail(`${path}.minLiquidity`, "expected an integer");
+  }
+  if (kind === "StableTwap" && out.maxAge === undefined) fail(`${path}.maxAge`, "expected an integer");
   return out;
 }
 

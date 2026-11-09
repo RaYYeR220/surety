@@ -651,6 +651,11 @@ export const sponsorAbi = [
   },
   {
     "type": "error",
+    "name": "MainnetNotAllowed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotRelayer",
     "inputs": []
   },
@@ -696,6 +701,11 @@ export const sponsorAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "SelfKit",
+    "inputs": []
   },
   {
     "type": "error",

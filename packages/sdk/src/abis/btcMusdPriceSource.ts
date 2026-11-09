@@ -13,9 +13,27 @@ export const btcMusdPriceSourceAbi = [
         "name": "peg_",
         "type": "address",
         "internalType": "contract IMusdPeg"
+      },
+      {
+        "name": "maxPremiumBps_",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "MAX_PREMIUM_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -26,6 +44,19 @@ export const btcMusdPriceSourceAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract IPriceSource"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxPremiumBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -72,6 +103,11 @@ export const btcMusdPriceSourceAbi = [
   {
     "type": "error",
     "name": "BadPrice",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PremiumTooHigh",
     "inputs": []
   },
   {
