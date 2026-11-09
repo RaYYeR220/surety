@@ -57,10 +57,11 @@ export function formatPerShare(value: bigint | null | undefined): string {
   return formatAmount(value, { min: 4, max: 4 });
 }
 
-/** A plain number of MUSD (not WAD), e.g. for modelled figures: "5,120" or "20.4". */
+/** A plain number of MUSD (not WAD), e.g. for modelled figures: "5,120", "20.5" or "0.07". */
 export function formatMusdNumber(value: number, max = 0): string {
   if (!Number.isFinite(value)) return "—";
-  const digits = Math.abs(value) < 100 && max === 0 ? 1 : max;
+  const abs = Math.abs(value);
+  const digits = max > 0 ? max : abs < 1 ? 2 : abs < 100 ? 1 : 0;
   return grouped(value, 0, digits);
 }
 
