@@ -84,18 +84,32 @@ export function HealthBar({
       </div>
       <div className={styles.marks} aria-hidden="true">
         <span style={{ left: at(lines.maxLtvBps) }}>max {formatBps(lines.maxLtvBps, 0)}</span>
-        <span style={{ left: at(lines.liqLtvBps) }} data-strong>
-          auction {formatBps(lines.liqLtvBps, 0)}
-        </span>
-        <span style={{ left: at(lines.floorBps) }} data-strong>
-          floor {formatBps(lines.floorBps, 0)}
-        </span>
+        {cushion > 0 ? (
+          <>
+            <span style={{ left: at(lines.liqLtvBps) }} data-strong>
+              auction {formatBps(lines.liqLtvBps, 0)}
+            </span>
+            <span style={{ left: at(lines.floorBps) }} data-strong>
+              floor {formatBps(lines.floorBps, 0)}
+            </span>
+          </>
+        ) : (
+          <span style={{ left: at(lines.liqLtvBps) }} data-strong>
+            auction and floor {formatBps(lines.liqLtvBps, 0)}
+          </span>
+        )}
       </div>
       {compact ? null : (
         <p className={styles.note}>
           {zone ? <>Now {ZONE_TEXT[zone]}. </> : null}
-          The {formatBps(cushion, 0)} between the auction trigger and the floor is the cushion: an auction started at the
-          trigger repays the debt even if it sells at the floor.
+          {cushion > 0 ? (
+            <>
+              The {formatBps(cushion, 0)} between the auction trigger and the floor is the cushion: an auction started at
+              the trigger repays the debt even if it sells at the floor.
+            </>
+          ) : (
+            <>On this line the floor sits at the trigger, so an auction that clears at the floor only just covers the debt.</>
+          )}
         </p>
       )}
     </div>

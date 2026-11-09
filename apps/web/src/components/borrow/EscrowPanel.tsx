@@ -29,8 +29,9 @@ export function EscrowPanel({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
   return (
     <Stack gap={6}>
       <Muted small>
-        The escrow can only vote, reset, claim, extend and add BTC for this one NFT, and only on your instruction (or, with
-        auto-repay on, harvest into repayment for anyone). Rewards it claims are forwarded to you.
+        The escrow can only vote, reset, claim, extend and add BTC for this one NFT, and only on your instruction
+        {isV2(env) ? " (or, with auto-repay on, harvest into repayment for anyone)" : ""}. Rewards it claims are forwarded
+        to you.
       </Muted>
       {inAuction ? (
         <Notice tone="warning" title="Mezo voting is off during the auction">
