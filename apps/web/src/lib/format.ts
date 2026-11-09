@@ -51,6 +51,12 @@ export function formatPegUsd(value: bigint | null | undefined): string {
   return formatUsd(value, 4);
 }
 
+/** MUSD per share (WAD) to exactly four decimals, so a column of prices lines up: "0.9980". */
+export function formatPerShare(value: bigint | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return formatAmount(value, { min: 4, max: 4 });
+}
+
 /** A plain number of MUSD (not WAD), e.g. for modelled figures: "5,120" or "20.4". */
 export function formatMusdNumber(value: number, max = 0): string {
   if (!Number.isFinite(value)) return "—";
