@@ -17,6 +17,7 @@ import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 import {MAX_MAX_RATE, WAD} from "vault-v2/libraries/ConstantsLib.sol";
 
 import {ICreditVoter} from "./interfaces/ICreditVoter.sol";
+import {IMusdPeg} from "./interfaces/IMusdPeg.sol";
 import {IPriceSource} from "./interfaces/IPriceSource.sol";
 import {ISavingsAdapter} from "./interfaces/ISavingsAdapter.sol";
 import {ISuretyLine} from "./interfaces/ISuretyLine.sol";
@@ -51,6 +52,8 @@ import {LineIds} from "./libraries/LineIds.sol";
 ///   off, the run brings everything in savings back to idle and funds lines from idle only. If savings cannot pay
 ///   (sMUSD withdrawals revert), the move is reported, lines are funded from idle above the buffer only, and the
 ///   run parks nothing.
+/// - Peg gate (once `setPeg` is called): while `pegHealthy()` is false (or the call fails), a run funds no line and
+///   emits PegUnhealthy; overweight lines are still deallocated and idle MUSD is still parked.
 /// - Losses: each rebalance has the pool checkpoint every line before it measures, and again after its moves so the
 ///   pool values a later Morpho loss on the adapter's shares as this run left them. A checkpoint that fails is
 ///   reported and skipped; it never blocks the run.
@@ -71,8 +74,8 @@ import {LineIds} from "./libraries/LineIds.sol";
 /// for a line (validated and, after its bootstrap, timelocked there). VaultV2 rejects addresses that are not its
 /// adapters and enforces the caps; tokens never pass through this contract. A veBTC line's own calls (ids, paused,
 /// oracle, cash, interest counter) are guarded, so a line whose calls revert only makes itself ineligible. The owner
-/// can only set the pool and the savings adapter once each, switch parking in savings on or off, and set the
-/// vault's max rate within VaultV2's bound.
+/// can only set the pool, the savings adapter and the peg once each, switch parking in savings on or off, and set
+/// the vault's max rate within VaultV2's bound.
 contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient {
     using MarketParamsLib for MarketParams;
     using MorphoBalancesLib for IMorpho;
@@ -149,6 +152,8 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     address public savings;
     /// @notice Whether idle MUSD is parked in `savings`, which is then the vault's liquidity adapter.
     bool public parking;
+    /// @notice MUSD peg monitor: while it reports unhealthy no line is funded. Zero (no gate) until set. Set once.
+    IMusdPeg public peg;
 
     mapping(uint256 lineId => Ledger) internal ledgers;
     /// @dev Savings yield measured since the last attribution, and the adapter's counter at its highest so far.
@@ -169,6 +174,10 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     event SavingsSet(address indexed adapter);
     /// @param parking Whether idle MUSD is now parked in savings (and savings is the vault's liquidity adapter).
     event ParkingSet(bool parking);
+    event PegSet(address indexed peg);
+    /// @notice This run funded no line because the MUSD peg is unhealthy (or its monitor could not be read).
+    /// Overweight lines were still deallocated and idle MUSD still parked.
+    event PegUnhealthy(uint256 indexed epoch);
     /// @notice The vault rejected a move into (`allocation`) or out of savings; the cash stays where it is.
     event SavingsMoveFailed(bool allocation, uint256 assets, bytes reason);
     /// @notice Savings yield handed to the pool with the fees of `cohortEpoch`; its fee part goes to the reserve.
@@ -182,6 +191,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     error NoSavings();
     error UnsupportedSavings();
     error SavingsCapsUnset();
+    error PegAlreadySet();
 
     /// @param vault_ The Surety VaultV2; this contract must be granted its allocator role.
     /// @param voter_ CreditVoter listing the lines and their tallies.
@@ -241,6 +251,14 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         _setParking(on);
     }
 
+    /// @notice Sets the MUSD peg monitor once. From then on a rebalance funds no line while it reports unhealthy.
+    function setPeg(IMusdPeg peg_) external onlyOwner {
+        if (address(peg_) == address(0)) revert ZeroAddress();
+        if (address(peg) != address(0)) revert PegAlreadySet();
+        peg = peg_;
+        emit PegSet(address(peg_));
+    }
+
     /* Rebalance */
 
     /// @notice Moves vault capital toward the vote-weighted targets and, on the first call of an epoch, hands the
@@ -259,7 +277,9 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         uint256 firstTotal = vault.firstTotalAssets();
         _setTargets(lines, tallyEpoch, total, firstTotal);
         _deallocateOverweight(lines);
-        bool savingsPaid = _allocateUnderweight(lines, total, firstTotal);
+        bool savingsPaid = true;
+        if (_pegHealthy()) savingsPaid = _allocateUnderweight(lines, total, firstTotal);
+        else emit PegUnhealthy(epoch);
         _settleSavings(savingsPaid);
         // Again after the moves, so the pool's Morpho marks hold the adapter's shares as this run left them.
         _checkpointLosses(lines.length);
@@ -305,6 +325,11 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     /// counter at its highest so far (the other fields are unused).
     function savingsLedger() external view returns (Ledger memory) {
         return savingsBook;
+    }
+
+    /// @notice Whether a rebalance now would fund lines: no peg is set, or it reports healthy.
+    function pegGateOpen() external view returns (bool) {
+        return _pegHealthy();
     }
 
     /* Internals: lines */
@@ -558,6 +583,15 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         parking = on;
         emit ParkingSet(on);
         vault.setLiquidityAdapterAndData(on ? savings : address(0), "");
+    }
+
+    /// @dev True without a peg; otherwise the monitor's `pegHealthy()`, with a failed or malformed answer read as
+    /// unhealthy.
+    function _pegHealthy() internal view returns (bool) {
+        address monitor = address(peg);
+        if (monitor == address(0)) return true;
+        (bool ok, bytes memory ret) = monitor.staticcall(abi.encodeCall(IMusdPeg.pegHealthy, ()));
+        return ok && ret.length == 32 && abi.decode(ret, (uint256)) == 1;
     }
 
     /// @dev One VaultV2 allocate/deallocate. A rejection is reported, not propagated, so one broken line cannot

@@ -13,6 +13,7 @@ import {CreditVoter} from "../../src/CreditVoter.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
+import {IMusdPeg} from "../../src/interfaces/IMusdPeg.sol";
 import {IEscrowRegistry} from "../../src/interfaces/IEscrowRegistry.sol";
 import {ISuretyPool} from "../../src/interfaces/ISuretyPool.sol";
 import {LineIds} from "../../src/libraries/LineIds.sol";
@@ -714,9 +715,9 @@ contract VoteAllocatorTest is AllocatorFixture {
     /// deallocate, which VaultV2 restricts to its adapters, so even a line listed with a foreign contract as its
     /// "adapter" receives nothing. The allocator itself never holds MUSD or vault shares.
     function test_onlyVaultOpsPossible() public {
-        // State-changing: rebalance (permissionless), setMaxRate / setSuretyPool / setSavings / setParking and the
-        // Ownable2Step functions (owner). Everything else is a view.
-        string[26] memory surface = [
+        // State-changing: rebalance (permissionless), setMaxRate / setSuretyPool / setSavings / setParking / setPeg
+        // and the Ownable2Step functions (owner). Everything else is a view.
+        string[29] memory surface = [
             "BPS()",
             "EPOCH_LENGTH()",
             "acceptOwnership()",
@@ -728,6 +729,8 @@ contract VoteAllocatorTest is AllocatorFixture {
             "lineAssets(uint256)",
             "owner()",
             "parking()",
+            "peg()",
+            "pegGateOpen()",
             "pendingOwner()",
             "rebalance()",
             "renounceOwnership()",
@@ -735,6 +738,7 @@ contract VoteAllocatorTest is AllocatorFixture {
             "savingsLedger()",
             "setMaxRate(uint256)",
             "setParking(bool)",
+            "setPeg(address)",
             "setSavings(address)",
             "setSuretyPool(address)",
             "suretyPool()",
@@ -766,6 +770,8 @@ contract VoteAllocatorTest is AllocatorFixture {
         allocator.setSavings(stranger);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
         allocator.setParking(true);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
+        allocator.setPeg(IMusdPeg(stranger));
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
         allocator.transferOwnership(stranger);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));

@@ -7,14 +7,42 @@ import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 
 import {SavingsAdapter} from "../../src/SavingsAdapter.sol";
 import {VoteAllocator} from "../../src/VoteAllocator.sol";
+import {IMusdPeg} from "../../src/interfaces/IMusdPeg.sol";
 import {SAVINGS_LINE_ID} from "../../src/interfaces/ISuretyPool.sol";
 import {LineIds} from "../../src/libraries/LineIds.sol";
 import {MockSavingsRate} from "../mocks/MockSavingsRate.sol";
 import {AllocatorFixture} from "../utils/AllocatorFixture.sol";
 import {RecordingPool} from "./VoteAllocator.t.sol";
 
-/// @notice VoteAllocator with idle cash parked in sMUSD through the SavingsAdapter (the vault's liquidity adapter),
-/// against the real VaultV2, Morpho Blue markets, VeBTCCreditLine and CreditVoter.
+/// @notice Settable MUSD peg monitor; can also be made to revert.
+contract MockPeg is IMusdPeg {
+    bool public healthy = true;
+    bool public broken;
+
+    function set(bool healthy_) external {
+        healthy = healthy_;
+    }
+
+    function breakIt() external {
+        broken = true;
+    }
+
+    function fix() external {
+        broken = false;
+    }
+
+    function musdUsdWad() external pure returns (uint256) {
+        return 1e18;
+    }
+
+    function pegHealthy() external view returns (bool) {
+        require(!broken, "broken");
+        return healthy;
+    }
+}
+
+/// @notice VoteAllocator with idle cash parked in sMUSD through the SavingsAdapter (the vault's liquidity adapter) and
+/// the MUSD peg gate, against the real VaultV2, Morpho Blue markets, VeBTCCreditLine and CreditVoter.
 /// @dev Lenders deposit 1,000,000 MUSD after savings is set, so it lands in sMUSD; the idle buffer is 10%. Alice (6
 /// BTC) votes the BTC Morpho line and bob (4 BTC) the veBTC line, so 540,000 / 360,000 MUSD go out to the lines and
 /// the 100,000 MUSD buffer stays in sMUSD.
@@ -25,12 +53,14 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
     uint256 internal constant DUST = 2;
 
     RecordingPool internal recorder;
+    MockPeg internal peg;
     address internal btcBorrower = makeAddr("btcBorrower");
     address internal saver = makeAddr("saver");
 
     function setUp() public override {
         super.setUp();
         recorder = new RecordingPool();
+        peg = new MockPeg();
         _deploySavings();
         vm.startPrank(admin);
         allocator.setSuretyPool(address(recorder));
@@ -113,6 +143,20 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
         vm.prank(admin);
         vm.expectRevert(VoteAllocator.UnsupportedSavings.selector);
         bare.setSavings(address(foreign));
+    }
+
+    function test_setPeg_oneShot_ownerOnly() public {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        allocator.setPeg(peg);
+        vm.startPrank(admin);
+        vm.expectRevert(VoteAllocator.ZeroAddress.selector);
+        allocator.setPeg(IMusdPeg(address(0)));
+        allocator.setPeg(peg);
+        vm.expectRevert(VoteAllocator.PegAlreadySet.selector);
+        allocator.setPeg(peg);
+        vm.stopPrank();
+        assertEq(address(allocator.peg()), address(peg));
     }
 
     /* Parking */
@@ -347,6 +391,56 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
         assertEq(vault.liquidityAdapter(), address(savings));
         _rebalance();
         assertEq(_idle(), 0);
+    }
+
+    /* Peg gate */
+
+    /// @dev While the peg is unhealthy no line gets new money; overweight lines are still pulled and idle MUSD
+    /// parked. Once healthy, the next run funds them.
+    function test_pegGate_holdsAllocations_deallocationsStillRun() public {
+        (uint256 aliceId, uint256 bobId) = _seed();
+        vm.prank(admin);
+        allocator.setPeg(peg);
+        _warpEpochs(1);
+        _rebalance();
+        assertApproxEqAbs(allocator.lineAssets(BTC_LINE), 540_000e18, DUST);
+
+        // Votes move from veBTC to cbBTC while the peg breaks.
+        _vote(alice, aliceId, BTC_LINE);
+        _vote(bob, bobId, CBTC_LINE);
+        _warpEpochs(1);
+        peg.set(false);
+        assertFalse(allocator.pegGateOpen());
+        _deposit(carol, 500_000e18);
+
+        vm.expectEmit(address(allocator));
+        emit VoteAllocator.PegUnhealthy(_currentEpoch());
+        _rebalance();
+        assertEq(allocator.lineAssets(VE_LINE), 0, "unvoted line still pulled");
+        assertApproxEqAbs(allocator.lineAssets(BTC_LINE), 540_000e18, DUST, "no new money");
+        assertEq(allocator.lineAssets(CBTC_LINE), 0, "no new money");
+        assertEq(_idle(), 0, "freed cash parked");
+        assertApproxEqAbs(_parked(), 960_000e18, DUST);
+
+        // A monitor that reverts counts as unhealthy.
+        peg.set(true);
+        peg.breakIt();
+        assertFalse(allocator.pegGateOpen());
+        _rebalance();
+        assertEq(allocator.lineAssets(CBTC_LINE), 0);
+
+        // Healthy again: the next run funds the lines.
+        peg.fix();
+        assertTrue(allocator.pegGateOpen());
+        _rebalance();
+        uint256 deployable = _deployableNow();
+        assertApproxEqAbs(allocator.lineAssets(BTC_LINE), deployable * 6 / 10, 2 * DUST);
+        assertApproxEqAbs(allocator.lineAssets(CBTC_LINE), deployable * 4 / 10, 2 * DUST);
+    }
+
+    function test_pegGate_noPegMeansOpen() public view {
+        assertEq(address(allocator.peg()), address(0));
+        assertTrue(allocator.pegGateOpen());
     }
 
     /* Reads */
