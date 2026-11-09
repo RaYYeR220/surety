@@ -46,7 +46,10 @@ contract SponsorSuretyTest is SuretyFixture {
         uint256 limit = line.maxBorrow(tokenId);
         assertEq(limit, _value(LOCK) * MAX_LTV_TIMED / BPS);
         uint256 loanId = _open(newcomer, tokenId, 40e18);
-        assertEq(musd.balanceOf(newcomer), KIT_MUSD + 40e18);
+        // The loan's MUSD, less any origination fee the line takes.
+        uint256 received = musd.balanceOf(newcomer) - KIT_MUSD;
+        assertLe(received, 40e18);
+        assertGe(received, 40e18 * 99 / 100);
         assertEq(ve.ownerOf(tokenId), address(_escrowOf(loanId)));
 
         // A week later it repays everything, interest included, from what it holds.
