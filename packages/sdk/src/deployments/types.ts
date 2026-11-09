@@ -107,8 +107,12 @@ export interface PegSourceInfo {
   pool?: Address;
   /** TWAP window in seconds (ClTwap, BtcCross). */
   window?: number;
+  /** Least harmonic-mean in-range liquidity over the window for a usable reading (ClTwap, BtcCross). */
+  minLiquidity?: bigint;
   /** Observation periods quoted (StableTwap). */
   granularity?: number;
+  /** Oldest accepted age of the pool's latest observation, seconds (StableTwap). */
+  maxAge?: number;
   /** BTC/USD source (BtcCross). */
   btcUsd?: Address;
   /** Source read when no override applies; zero for a fixed $1 (Stressed). */
@@ -119,6 +123,8 @@ export interface PegParams {
   minSources: number;
   maxSpreadBps: number;
   bandBps: number;
+  /** BtcMusdPriceSource's cap on the MUSD premium it divides BTC/USD by. */
+  maxPremiumBps: number;
 }
 
 export interface DeploymentFees {

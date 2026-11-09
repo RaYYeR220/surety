@@ -955,6 +955,19 @@ export const veBTCCreditLineAbi = [
   },
   {
     "type": "function",
+    "name": "pegCheck",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pendingOwner",
     "inputs": [],
     "outputs": [
@@ -1032,6 +1045,19 @@ export const veBTCCreditLineAbi = [
         "type": "uint256",
         "internalType": "uint256"
       },
+      {
+        "name": "enabled",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setPegCheck",
+    "inputs": [
       {
         "name": "enabled",
         "type": "bool",
@@ -1541,6 +1567,19 @@ export const veBTCCreditLineAbi = [
     "inputs": [
       {
         "name": "paused",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PegCheckSet",
+    "inputs": [
+      {
+        "name": "enabled",
         "type": "bool",
         "indexed": false,
         "internalType": "bool"

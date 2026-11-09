@@ -50,7 +50,7 @@ abstract contract ShareMarketFixture is Test {
         vault.setMaxRate(MAX_MAX_RATE);
 
         surety = new MockPausablePool();
-        gate = new DepositGate(ISuretyPool(address(surety)));
+        gate = new DepositGate(ISuretyPool(address(surety)), address(0));
         _curate(abi.encodeCall(IVaultV2.setReceiveSharesGate, (address(gate))));
 
         market = new ShareMarket(IVaultV2(address(vault)), treasury, FEE_BPS);

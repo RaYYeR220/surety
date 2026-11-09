@@ -840,6 +840,50 @@ contract VeBTCCreditLineTest is LineFixture {
         line.open(fresh, 1_000e18);
     }
 
+    /// @dev The owner can switch the peg check off when the peg would otherwise stay tripped (its pools thinned out
+    /// below `minSources`), and back on. Off, borrowing ignores the peg's health; pricing still goes through
+    /// BtcMusdPriceSource, which counts an unhealthy peg as $1 (L-01 of the v2 review).
+    function test_setPegCheck_ownerOnly_offLetsBorrowingThroughAnUnhealthyPeg() public {
+        _fundLine(100_000e18);
+        uint256 tokenId = _lockVeBTC(borrower, 1e18, 28 days);
+        vm.prank(borrower);
+        ve.approve(address(line), tokenId);
+        assertTrue(line.pegCheck(), "on by default");
+
+        vm.prank(other);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, other));
+        line.setPegCheck(false);
+
+        // Too few sources: unhealthy, and the price source reads MUSD at $1.
+        pegSource.set(false, 0);
+        assertFalse(peg.pegHealthy());
+        vm.prank(borrower);
+        vm.expectRevert(VeBTCCreditLine.PegUnhealthy.selector);
+        line.open(tokenId, 10_000e18);
+
+        vm.expectEmit(address(line));
+        emit VeBTCCreditLine.PegCheckSet(false);
+        vm.prank(admin);
+        line.setPegCheck(false);
+        assertFalse(line.pegCheck());
+        vm.prank(borrower);
+        uint256 loanId = line.open(tokenId, 10_000e18);
+        (, uint256 value) = line.healthOf(loanId);
+        assertEq(value, _value(1e18), "BTC at BTC/USD");
+        // Still LTV-capped at the oracle price.
+        vm.prank(borrower);
+        vm.expectRevert(VeBTCCreditLine.AboveMaxLtv.selector);
+        line.borrowMore(loanId, _value(1e18) / 2);
+        vm.prank(borrower);
+        line.borrowMore(loanId, 1_000e18);
+
+        vm.prank(admin);
+        line.setPegCheck(true);
+        vm.prank(borrower);
+        vm.expectRevert(VeBTCCreditLine.PegUnhealthy.selector);
+        line.borrowMore(loanId, 1_000e18);
+    }
+
     /// @dev MUSD above $1 lowers the BTC price in MUSD: a loan that is safe at $1 can reach the trigger.
     function test_musdPremium_lowersCollateralValue() public {
         _fundLine(100_000e18);

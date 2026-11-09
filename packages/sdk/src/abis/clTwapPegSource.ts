@@ -18,6 +18,11 @@ export const clTwapPegSourceAbi = [
         "name": "window_",
         "type": "uint32",
         "internalType": "uint32"
+      },
+      {
+        "name": "minLiquidity_",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "stateMutability": "nonpayable"
@@ -70,6 +75,19 @@ export const clTwapPegSourceAbi = [
         "name": "",
         "type": "uint32",
         "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "minLiquidity",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "stateMutability": "view"
@@ -156,6 +174,29 @@ export const clTwapPegSourceAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "windowLiquidity",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "ok",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "liquidity",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "BadMinLiquidity",
+    "inputs": []
   },
   {
     "type": "error",

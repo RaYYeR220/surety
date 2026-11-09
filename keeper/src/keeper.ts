@@ -3,6 +3,7 @@ import {
   morphoAbi,
   savingsAdapterAbi,
   suretyPoolAbi,
+  tigrisBasicPoolAbi,
   veBTCCreditLineAbi,
   voteAllocatorAbi,
   type SuretyClient,
@@ -27,6 +28,8 @@ export interface KeeperOptions {
   snapshotRetry?: RetryOptions;
   /** Least claimable sMUSD yield worth a savings `harvest()` (default 1 wei: anything). */
   savingsHarvestMin?: bigint;
+  /** Least seconds between two syncs of one peg pool (default 3600); 0 turns syncs off. */
+  poolSyncInterval?: bigint;
 }
 
 export interface TickResult {
@@ -61,6 +64,8 @@ export function callFor(client: SuretyClient, action: Action): ContractCall {
         functionName: "harvest",
         args: [action.loanId, action.rewards, action.tokens],
       };
+    case "syncPegPool":
+      return { address: action.pool, abi: tigrisBasicPoolAbi as Abi, functionName: "sync" };
     case "savingsHarvest":
       if (!c.savingsAdapter) throw new Error("this deployment has no savings adapter");
       return { address: c.savingsAdapter, abi: savingsAdapterAbi as Abi, functionName: "harvest" };
@@ -93,6 +98,8 @@ export class Keeper {
   private wake: (() => void) | null = null;
   /** Mezo epoch each auto-repay loan was last harvested (or simulated, in a dry run) in. */
   private readonly lastHarvest = new Map<bigint, bigint>();
+  /** When each peg pool was last synced (or simulated) by this keeper, by lowercase address. */
+  private readonly lastPoolSync = new Map<string, bigint>();
 
   constructor(options: KeeperOptions) {
     this.o = options;
@@ -109,6 +116,8 @@ export class Keeper {
       flipDelaySeconds: this.o.flipDelaySeconds ?? 5n,
       morphoLiquidations: this.o.morphoLiquidations ?? false,
       lastHarvest: this.lastHarvest,
+      lastPoolSync: this.lastPoolSync,
+      ...(this.o.poolSyncInterval !== undefined ? { poolSyncInterval: this.o.poolSyncInterval } : {}),
       ...(this.o.savingsHarvestMin !== undefined ? { savingsHarvestMin: this.o.savingsHarvestMin } : {}),
     });
     log.info("tick", {
@@ -127,9 +136,9 @@ export class Keeper {
           ...(skipIfResult ? { skipIfResult } : {}),
         });
         results.push(result);
-        if (action.kind === "harvest" && (result.status === "success" || result.status === "simulated")) {
-          this.lastHarvest.set(action.loanId, action.mezoEpoch);
-        }
+        const done = result.status === "success" || result.status === "simulated";
+        if (action.kind === "harvest" && done) this.lastHarvest.set(action.loanId, action.mezoEpoch);
+        if (action.kind === "syncPegPool" && done) this.lastPoolSync.set(action.pool.toLowerCase(), snapshot.now);
       } catch (e) {
         log.error("action failed", { action: action.kind, ...fieldsOf(action), error: e });
         results.push({ status: "reverted", reason: e instanceof Error ? e.message : String(e) });

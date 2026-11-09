@@ -38,7 +38,7 @@
     "skipAggregator": "0x7b7c000000000000000000000000000000000015",
     "smusd": "0x6f461c68B2c5492C0F5CCEc5a264d692aA7A8e16"
   },
-  "morphoMarketId": "0x2b6383d0e5dcb104f84f9a6680a4db76be2fc86576c79151054dfe111ab8697d",
+  "morphoMarketId": "0x95f61dc2e07c421dd1fd3be627b17dd297ebf337e6d294d6a277c902ff8f93d7",
   "lineParams": {
     "maxLtvTimedBps": 5000,
     "maxLtvPermanentBps": 4000,
@@ -53,8 +53,9 @@
   },
   "peg": {
     "minSources": 1,
-    "maxSpreadBps": 500,
-    "bandBps": 300
+    "maxSpreadBps": 1000,
+    "bandBps": 300,
+    "maxPremiumBps": 300
   },
   "pegSources": [
     {
@@ -92,7 +93,7 @@
       "kind": "Morpho",
       "name": "BTC / MUSD (Morpho)",
       "adapter": "0x5e00000000000000000000000000000000000002",
-      "marketId": "0x2b6383d0e5dcb104f84f9a6680a4db76be2fc86576c79151054dfe111ab8697d",
+      "marketId": "0x95f61dc2e07c421dd1fd3be627b17dd297ebf337e6d294d6a277c902ff8f93d7",
       "marketParams": {
         "loanToken": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
         "collateralToken": "0x7b7C000000000000000000000000000000000000",

@@ -1,0 +1,115 @@
+{
+  "version": 2,
+  "chainId": 31611,
+  "epochLength": 3600,
+  "deployedAt": 16667109,
+  "stress": true,
+  "timelock": 0,
+  "contracts": {
+    "vault": "0x52aD2746994a1BC318cDf09b81f7831fB9Af03b8",
+    "morphoAdapter": "0x6F31B144b51083FBbb8EA160F6f6772e37f4b79b",
+    "morpho": "0xCe1da828cA15cb1FDAfa84C366A53C8106655a73",
+    "irm": "0x0c97Fe017628636649ff374aD499529F91167441",
+    "savingsAdapter": "0x28eDb116683608Db6722dd440627A16FC7Bd30E4",
+    "shareMarket": "0x226EA3452D4238fE7Ff5a5600B5bCd991082e51a",
+    "creditVoter": "0x16D36BECF7D25af55C1658f428e33Ff34388f255",
+    "voteAllocator": "0x69Ef3397c2ffb4B23A8Fd7154243aA9C215673c0",
+    "suretyPool": "0xc9Ca8a280d6c339c3169DEEEFB2e08FcB42AcDE0",
+    "depositGate": "0xfAa1c07591b596cB3aa5D6b8054AE3d6a7Fbd8C7",
+    "veBTCLine": "0x390B074E003559Cc1868cac0D06A4364BdeDb6f1",
+    "loanEscrowImpl": "0x8d4A899372b543641468731B65f05CF74bA7ec6D",
+    "irmLine": "0x5067524ECfFEa0A43c7eA49BBe4D73663E28a667",
+    "priceSource": "0x457D8E3190DD5E75f6C5023231E33B1D687fd183",
+    "btcMusdSource": "0x457D8E3190DD5E75f6C5023231E33B1D687fd183",
+    "btcUsdSource": "0x054AE6B3c0E06F13856Abf8c8c76E40f51CdcC08",
+    "skipSource": "0x9F7Ce9D147920f2499840163858C23d1A165EFe8",
+    "morphoOracle": "0xfC1F49bFdE8A69e8d893dF8e976401232e6600Cc",
+    "musdPeg": "0xd54D93aa56B080df424847142A1aaac59bB760AB",
+    "stressedPegSource": "0xA6108bCb61a3F6C8A0D9869601368271DCA00E64",
+    "sponsor": "0x085c6e2a022363c8F8811C4242F32373055d9BA8",
+    "treasury": "0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282"
+  },
+  "external": {
+    "musd": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
+    "btc": "0x7b7C000000000000000000000000000000000000",
+    "veBTC": "0x38E35d92E6Bfc6787272A62345856B13eA12130a",
+    "poolsVoter": "0x263F1Fd5fB7F866881e1B6cD7d5d6c40Fd985F0D",
+    "rewardsDistributor": "0x9050218f89F0b5b17df4a30Ba4Fc97C72E307442",
+    "skipAggregator": "0x7b7c000000000000000000000000000000000015",
+    "smusd": "0x6f461c68B2c5492C0F5CCEc5a264d692aA7A8e16"
+  },
+  "morphoMarketId": "0xf0bb61627bebe18b8dd595e62f84f3a1f5ea9470e077394aeedab44f17d7e3ff",
+  "lineParams": {
+    "maxLtvTimedBps": 5000,
+    "maxLtvPermanentBps": 4000,
+    "liqLtvBps": 6500,
+    "liqFeeBps": 300,
+    "floorBps": 8500,
+    "auctionDuration": 600,
+    "minTerm": 3600,
+    "originationFeeBps": 25,
+    "protocolShareBps": 2000,
+    "keeperShareBps": 5000
+  },
+  "peg": {
+    "minSources": 1,
+    "maxSpreadBps": 1000,
+    "bandBps": 300,
+    "maxPremiumBps": 300
+  },
+  "pegSources": [
+    {
+      "kind": "Stressed",
+      "address": "0xA6108bCb61a3F6C8A0D9869601368271DCA00E64",
+      "base": "0x0000000000000000000000000000000000000000"
+    }
+  ],
+  "fees": {
+    "performanceFee": "100000000000000000",
+    "performanceFeeRecipient": "0xc9Ca8a280d6c339c3169DEEEFB2e08FcB42AcDE0",
+    "managementFee": "63419583",
+    "managementFeeRecipient": "0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282",
+    "forceDeallocatePenalty": "10000000000000000",
+    "shareMarketFeeBps": 10
+  },
+  "caps": {
+    "morpho": "10000000000000000000000000",
+    "line": "10000000000000000000000000",
+    "savings": "1000000000000000000000000000"
+  },
+  "sponsorKit": {
+    "relayer": "0x030E00FE424e98327332BC4f946975C4927c7DdC",
+    "btcGas": "50000000000000",
+    "lockAmount": "1000000000000000",
+    "musd": "50000000000000000000",
+    "lockDuration": 2419200,
+    "dailyLimit": 100,
+    "fundedBtc": "6000000000000000",
+    "fundedMusd": "300000000000000000000"
+  },
+  "lines": [
+    {
+      "id": 0,
+      "kind": "Morpho",
+      "name": "BTC / MUSD (Morpho)",
+      "adapter": "0x6F31B144b51083FBbb8EA160F6f6772e37f4b79b",
+      "marketId": "0xf0bb61627bebe18b8dd595e62f84f3a1f5ea9470e077394aeedab44f17d7e3ff",
+      "marketParams": {
+        "loanToken": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
+        "collateralToken": "0x7b7C000000000000000000000000000000000000",
+        "oracle": "0xfC1F49bFdE8A69e8d893dF8e976401232e6600Cc",
+        "irm": "0x0c97Fe017628636649ff374aD499529F91167441",
+        "lltv": "770000000000000000"
+      }
+    },
+    {
+      "id": 1,
+      "kind": "VeBTC",
+      "name": "veBTC credit line",
+      "adapter": "0x390B074E003559Cc1868cac0D06A4364BdeDb6f1"
+    }
+  ],
+  "proof": {
+    "txs": []
+  }
+}

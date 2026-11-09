@@ -70,6 +70,10 @@ contract PegTest is Test {
     /// @dev Skip BTC/USD on 2026-11-09 02:4x UTC, and MUSD/USD it implies against BTC_MUSD_112285.
     int256 internal constant BTC_USD = 75_387.77e18;
     uint256 internal constant CROSS_READING = 1002464759360299236;
+    /// @dev Liquidity floor of the CL sources here; the mock pools hold 1e18 in range unless a test says otherwise.
+    uint128 internal constant MIN_LIQ = 1e15;
+    /// @dev Freshness bound of the stable sources here.
+    uint32 internal constant MAX_AGE = 6 hours;
 
     TickPriceHarness internal tp;
     MockERC20 internal musd;
@@ -163,7 +167,7 @@ contract PegTest is Test {
         // Mainnet layout: mUSDC token0, MUSD token1.
         MockCLPool pool = new MockCLPool(address(usdc), address(musd));
         pool.setMeanTick(276_410, 30 minutes);
-        ClTwapPegSource source = new ClTwapPegSource(pool, address(musd), 30 minutes);
+        ClTwapPegSource source = new ClTwapPegSource(pool, address(musd), 30 minutes, MIN_LIQ);
         assertFalse(source.musdIsToken0());
         assertEq(source.stableDecimals(), 6);
         assertEq(source.other(), address(usdc));
@@ -174,7 +178,7 @@ contract PegTest is Test {
         // MUSD as token0 at the opposite tick reads the same price.
         MockCLPool flipped = new MockCLPool(address(musd), address(usdc));
         flipped.setMeanTick(-276_410, 30 minutes);
-        ClTwapPegSource source2 = new ClTwapPegSource(flipped, address(musd), 30 minutes);
+        ClTwapPegSource source2 = new ClTwapPegSource(flipped, address(musd), 30 minutes, MIN_LIQ);
         assertTrue(source2.musdIsToken0());
         (bool ok2, uint256 price2) = source2.read();
         assertTrue(ok2);
@@ -184,7 +188,7 @@ contract PegTest is Test {
     function test_clTwap_notOkWithoutHistoryLiquidityOrSanePrice() public {
         MockCLPool pool = new MockCLPool(address(usdc), address(musd));
         pool.setMeanTick(276_410, 30 minutes);
-        ClTwapPegSource source = new ClTwapPegSource(pool, address(musd), 30 minutes);
+        ClTwapPegSource source = new ClTwapPegSource(pool, address(musd), 30 minutes, MIN_LIQ);
 
         pool.setHistory(29 minutes);
         _assertNotOk(source);
@@ -209,21 +213,78 @@ contract PegTest is Test {
         _assertNotOk(source);
     }
 
+    /// @dev The window's harmonic-mean liquidity must reach the floor; one second with nothing in range is enough to
+    /// fail it, and the reading comes back once the window is clean.
+    function test_clTwap_notOkBelowTheWindowLiquidityFloor() public {
+        MockCLPool pool = new MockCLPool(address(usdc), address(musd));
+        pool.setMeanTick(276_410, 30 minutes);
+        ClTwapPegSource source = new ClTwapPegSource(pool, address(musd), 30 minutes, MIN_LIQ);
+        assertEq(source.minLiquidity(), MIN_LIQ);
+        (bool observed, uint256 liquidity) = source.windowLiquidity();
+        assertTrue(observed);
+        assertApproxEqRel(liquidity, 1e18, 1e9);
+
+        // At the floor reads; under it does not, even with liquidity in range now.
+        pool.setWindowLiquidity(MIN_LIQ);
+        (bool ok,) = source.read();
+        assertTrue(ok);
+        pool.setWindowLiquidity(MIN_LIQ / 2);
+        _assertNotOk(source);
+        assertGt(pool.liquidity(), 0);
+
+        // Out of range for the whole window: the accumulator grows by 2^128 a second.
+        pool.setWindowLiquidity(0);
+        (, liquidity) = source.windowLiquidity();
+        assertEq(liquidity, 1);
+        _assertNotOk(source);
+
+        pool.setWindowLiquidity(1e18);
+        (ok,) = source.read();
+        assertTrue(ok);
+
+        // Without the window's history there is no liquidity reading either.
+        pool.setHistory(29 minutes);
+        (observed, liquidity) = source.windowLiquidity();
+        assertFalse(observed);
+        assertEq(liquidity, 0);
+    }
+
+    /// @dev One second with nothing in range fails the window whatever the rest held, since the floor exceeds the
+    /// window; the reading returns once that second has left the window.
+    function test_clTwap_oneSecondOutOfRangeFailsTheWindow() public {
+        MockCLPool pool = new MockCLPool(address(usdc), address(musd));
+        pool.setMeanTick(276_410, 30 minutes);
+        ClTwapPegSource source = new ClTwapPegSource(pool, address(musd), 30 minutes, 30 minutes + 1);
+        pool.setWindowLiquidity(type(uint128).max);
+        pool.setSecondsOutOfRange(1);
+        (, uint256 liquidity) = source.windowLiquidity();
+        assertLe(liquidity, 30 minutes);
+        _assertNotOk(source);
+
+        pool.setSecondsOutOfRange(0);
+        (bool ok,) = source.read();
+        assertTrue(ok);
+    }
+
     function test_clTwap_constructorChecks() public {
         MockCLPool pool = new MockCLPool(address(usdc), address(musd));
         MockCLPool noMusd = new MockCLPool(address(usdc), address(btc));
         vm.expectRevert(PegSourceBase.NotMusdPool.selector);
-        new ClTwapPegSource(noMusd, address(musd), 30 minutes);
+        new ClTwapPegSource(noMusd, address(musd), 30 minutes, MIN_LIQ);
         vm.expectRevert(ClPegSourceBase.BadWindow.selector);
-        new ClTwapPegSource(pool, address(musd), 59);
+        new ClTwapPegSource(pool, address(musd), 59, MIN_LIQ);
         vm.expectRevert(ClPegSourceBase.BadWindow.selector);
-        new ClTwapPegSource(pool, address(musd), 1 days + 1);
+        new ClTwapPegSource(pool, address(musd), 1 days + 1, MIN_LIQ);
         vm.expectRevert(PegSourceBase.ZeroAddress.selector);
-        new ClTwapPegSource(ICLPool(address(0)), address(musd), 30 minutes);
+        new ClTwapPegSource(ICLPool(address(0)), address(musd), 30 minutes, MIN_LIQ);
+        // The floor must exceed the window, so one second out of range always fails it.
+        vm.expectRevert(ClPegSourceBase.BadMinLiquidity.selector);
+        new ClTwapPegSource(pool, address(musd), 30 minutes, 30 minutes);
+        new ClTwapPegSource(pool, address(musd), 30 minutes, 30 minutes + 1);
         MockERC20 odd = new MockERC20("Odd", "ODD", 19);
         MockCLPool oddPool = new MockCLPool(address(odd), address(musd));
         vm.expectRevert(PegSourceBase.UnsupportedDecimals.selector);
-        new ClTwapPegSource(oddPool, address(musd), 30 minutes);
+        new ClTwapPegSource(oddPool, address(musd), 30 minutes, MIN_LIQ);
     }
 
     /* StableTwapPegSource */
@@ -231,7 +292,7 @@ contract PegTest is Test {
     function test_stableTwap_quotesOneMusd() public {
         MockBasicPool pool = new MockBasicPool(address(usdc), address(musd));
         pool.setQuote(address(musd), 1e18, 990_825);
-        StableTwapPegSource source = new StableTwapPegSource(pool, address(musd), 2);
+        StableTwapPegSource source = new StableTwapPegSource(pool, address(musd), 2, MAX_AGE);
         assertEq(source.stableDecimals(), 6);
         (bool ok, uint256 price) = source.read();
         assertTrue(ok);
@@ -240,7 +301,7 @@ contract PegTest is Test {
         // MUSD as token0 (the mainnet MUSD/mUSDT pool).
         MockBasicPool flipped = new MockBasicPool(address(musd), address(usdc));
         flipped.setQuote(address(musd), 1e18, 986_035);
-        (ok, price) = new StableTwapPegSource(flipped, address(musd), 2).read();
+        (ok, price) = new StableTwapPegSource(flipped, address(musd), 2, MAX_AGE).read();
         assertTrue(ok);
         assertEq(price, 0.986035e18);
     }
@@ -248,7 +309,7 @@ contract PegTest is Test {
     function test_stableTwap_notOkWithoutPeriodsOrSanePrice() public {
         MockBasicPool pool = new MockBasicPool(address(usdc), address(musd));
         pool.setQuote(address(musd), 1e18, 990_825);
-        StableTwapPegSource source = new StableTwapPegSource(pool, address(musd), 4);
+        StableTwapPegSource source = new StableTwapPegSource(pool, address(musd), 4, MAX_AGE);
         pool.setPeriods(3);
         _assertNotOk(source);
         pool.setPeriods(4);
@@ -258,17 +319,46 @@ contract PegTest is Test {
         _assertNotOk(source);
     }
 
+    /// @dev Past `maxAge` since the pool's latest observation the source reads nothing; a fresh observation (any
+    /// swap or a `sync`) brings it back.
+    function test_stableTwap_notOkWhenTheLatestObservationIsTooOld() public {
+        MockBasicPool pool = new MockBasicPool(address(usdc), address(musd));
+        pool.setQuote(address(musd), 1e18, 990_825);
+        StableTwapPegSource source = new StableTwapPegSource(pool, address(musd), 2, MAX_AGE);
+        assertEq(source.maxAge(), MAX_AGE);
+        vm.warp(30 days);
+
+        pool.setLastObservationAt(block.timestamp - MAX_AGE);
+        (bool ok, uint256 price) = source.read();
+        assertTrue(ok);
+        assertEq(price, 0.990825e18);
+        (bool observed, uint256 age) = source.lastObservationAge();
+        assertTrue(observed);
+        assertEq(age, MAX_AGE);
+
+        pool.setLastObservationAt(block.timestamp - MAX_AGE - 1);
+        _assertNotOk(source);
+
+        pool.setLastObservationAt(0);
+        (ok,) = source.read();
+        assertTrue(ok);
+    }
+
     function test_stableTwap_constructorChecks() public {
         MockBasicPool pool = new MockBasicPool(address(usdc), address(musd));
         vm.expectRevert(StableTwapPegSource.BadGranularity.selector);
-        new StableTwapPegSource(pool, address(musd), 0);
+        new StableTwapPegSource(pool, address(musd), 0, MAX_AGE);
         vm.expectRevert(StableTwapPegSource.BadGranularity.selector);
-        new StableTwapPegSource(pool, address(musd), 49);
+        new StableTwapPegSource(pool, address(musd), 49, MAX_AGE);
         MockBasicPool noMusd = new MockBasicPool(address(usdc), address(btc));
         vm.expectRevert(PegSourceBase.NotMusdPool.selector);
-        new StableTwapPegSource(noMusd, address(musd), 2);
+        new StableTwapPegSource(noMusd, address(musd), 2, MAX_AGE);
         vm.expectRevert(PegSourceBase.ZeroAddress.selector);
-        new StableTwapPegSource(IBasicPool(address(0)), address(musd), 2);
+        new StableTwapPegSource(IBasicPool(address(0)), address(musd), 2, MAX_AGE);
+        vm.expectRevert(StableTwapPegSource.BadMaxAge.selector);
+        new StableTwapPegSource(pool, address(musd), 2, 1 hours - 1);
+        vm.expectRevert(StableTwapPegSource.BadMaxAge.selector);
+        new StableTwapPegSource(pool, address(musd), 2, 7 days + 1);
     }
 
     /* BtcCrossPegSource */
@@ -277,14 +367,15 @@ contract PegTest is Test {
         // Mainnet layout: BTC token0, MUSD token1.
         MockCLPool pool = new MockCLPool(address(btc), address(musd));
         pool.setMeanTick(112_285, 30 minutes);
-        BtcCrossPegSource source = new BtcCrossPegSource(pool, address(musd), 30 minutes, skipSource, 18);
+        BtcCrossPegSource source = new BtcCrossPegSource(pool, address(musd), 30 minutes, MIN_LIQ, skipSource, 18);
         (bool ok, uint256 price) = source.read();
         assertTrue(ok);
         assertApproxEqAbs(price, CROSS_READING, 1);
 
         MockCLPool flipped = new MockCLPool(address(musd), address(btc));
         flipped.setMeanTick(-112_285, 30 minutes);
-        (bool ok2, uint256 price2) = new BtcCrossPegSource(flipped, address(musd), 30 minutes, skipSource, 18).read();
+        (bool ok2, uint256 price2) =
+            new BtcCrossPegSource(flipped, address(musd), 30 minutes, MIN_LIQ, skipSource, 18).read();
         assertTrue(ok2);
         assertEq(price2, price);
     }
@@ -292,7 +383,7 @@ contract PegTest is Test {
     function test_btcCross_notOkOnStaleSkipOrWrongBtc() public {
         MockCLPool pool = new MockCLPool(address(btc), address(musd));
         pool.setMeanTick(112_285, 30 minutes);
-        BtcCrossPegSource source = new BtcCrossPegSource(pool, address(musd), 30 minutes, skipSource, 18);
+        BtcCrossPegSource source = new BtcCrossPegSource(pool, address(musd), 30 minutes, MIN_LIQ, skipSource, 18);
 
         aggregator.setUpdatedAt(block.timestamp - 61);
         _assertNotOk(source);
@@ -302,18 +393,23 @@ contract PegTest is Test {
         aggregator.setAnswer(BTC_USD);
 
         // Decimals other than the deployed ones, and a BTC address without code, read as nothing.
-        _assertNotOk(new BtcCrossPegSource(pool, address(musd), 30 minutes, skipSource, 8));
+        _assertNotOk(new BtcCrossPegSource(pool, address(musd), 30 minutes, MIN_LIQ, skipSource, 8));
         MockCLPool noCode = new MockCLPool(makeAddr("btcPrecompile"), address(musd));
         noCode.setMeanTick(112_285, 30 minutes);
-        _assertNotOk(new BtcCrossPegSource(noCode, address(musd), 30 minutes, skipSource, 18));
+        _assertNotOk(new BtcCrossPegSource(noCode, address(musd), 30 minutes, MIN_LIQ, skipSource, 18));
 
         pool.setHistory(10 minutes);
         _assertNotOk(source);
+        pool.setHistory(type(uint32).max);
+
+        // A thin window drops the cross source as it does the stablecoin ones.
+        pool.setWindowLiquidity(MIN_LIQ - 1);
+        _assertNotOk(source);
 
         vm.expectRevert(PegSourceBase.UnsupportedDecimals.selector);
-        new BtcCrossPegSource(pool, address(musd), 30 minutes, skipSource, 19);
+        new BtcCrossPegSource(pool, address(musd), 30 minutes, MIN_LIQ, skipSource, 19);
         vm.expectRevert(PegSourceBase.ZeroAddress.selector);
-        new BtcCrossPegSource(pool, address(musd), 30 minutes, IPriceSource(address(0)), 18);
+        new BtcCrossPegSource(pool, address(musd), 30 minutes, MIN_LIQ, IPriceSource(address(0)), 18);
     }
 
     /* StressedPegSource */

@@ -180,8 +180,10 @@ One run deploys and wires everything on Mezo's own Morpho Blue: the MUSD peg and
 | `MIN_TERM` | 3600 | 259200 | Lock time a timed lock must have left to borrow |
 | `VAULT_TIMELOCK` | 0 | 86400 | Timelock on every curator function of the vault and the Morpho adapter, and the CreditVoter's line timelock (0 is refused on mainnet) |
 | `TREASURY` | deployer | deployer | Fee recipient (origination, liquidation, management and ShareMarket fees); the deployer until a multisig takes over |
-| `PEG_MIN_SOURCES`, `PEG_MAX_SPREAD_BPS`, `PEG_BAND_BPS` | 1 / 500 / 300 | 2 / 500 / 300 | MusdPeg thresholds |
-| `PEG_WINDOW`, `PEG_GRANULARITY` | | 1800 / 2 | TWAP window of the CL sources, quote periods of the basic-pool sources |
+| `PEG_MIN_SOURCES`, `PEG_MAX_SPREAD_BPS`, `PEG_BAND_BPS` | 1 / 1000 / 300 | 2 / 1000 / 300 | MusdPeg thresholds |
+| `PEG_MAX_PREMIUM_BPS` | 300 | 300 | Largest MUSD premium over $1 the BTC price divides by |
+| `PEG_WINDOW`, `PEG_GRANULARITY`, `PEG_MAX_AGE` | | 1800 / 2 / 21600 | TWAP window of the CL sources; quote periods and oldest accepted observation of the basic-pool sources |
+| `PEG_CL_MIN_LIQUIDITY`, `PEG_BTC_MIN_LIQUIDITY` | | 1e19 / 2e20 | Harmonic-mean in-range liquidity the CL mUSDC/MUSD and CL BTC/MUSD sources need over the window |
 | `PEG_CL_POOL`, `PEG_USDC_POOL`, `PEG_USDT_POOL`, `PEG_BTC_POOL` | | Mezo's pools | CL mUSDC/MUSD, basic mUSDC/MUSD, basic MUSD/mUSDT, CL BTC/MUSD |
 | `RELAYER_ADDRESS` | required | | Relayer allowed to hand out starter kits |
 | `SPONSOR_BTC`, `SPONSOR_MUSD` | 0.006 BTC / 300 MUSD | | What the deployer funds the Sponsor with |

@@ -194,6 +194,7 @@ export function presentPeg(p: PegView) {
   return {
     address: p.address,
     healthy: p.healthyOnChain,
+    linePegCheck: p.linePegCheck,
     allocatorFundsLines: p.allocatorGateOpen,
     issues: p.issues,
     musdUsdMedian: musdUsd(p.medianWad),
@@ -203,6 +204,8 @@ export function presentPeg(p: PegView) {
     maxSpreadPct: p.maxSpreadBps / 100,
     offPegPct: bpsPercent(p.offPegBps),
     bandPct: p.bandBps / 100,
+    maxPremiumPct: p.maxPremiumBps / 100,
+    btcDividedByMusdUsd: musdUsd(p.divisorWad),
     btcPriceUsd: usd(p.btcUsdWad),
     btcPriceMusd: usd(p.btcMusdWad),
     sources: p.sources.map((s) => ({
@@ -211,6 +214,15 @@ export function presentPeg(p: PegView) {
       pool: s.pool,
       ok: s.ok,
       musdUsd: musdUsd(s.musdUsdWad),
+      ...(s.minLiquidity !== null
+        ? { windowLiquidity: s.windowLiquidity?.toString() ?? null, minLiquidity: s.minLiquidity.toString() }
+        : {}),
+      ...(s.maxAge !== null
+        ? {
+            lastObservationAgeSeconds: s.observationAge === null ? null : Number(s.observationAge),
+            maxAgeSeconds: Number(s.maxAge),
+          }
+        : {}),
     })),
     ...(p.stress
       ? { testnetStress: { active: p.stress.active, musdUsd: musdUsd(p.stress.musdUsdWad), endsAt: iso(p.stress.endsAt) } }

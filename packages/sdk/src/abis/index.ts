@@ -25,6 +25,6 @@ export { morphoAbi } from "./morpho.js";
 export { adaptiveCurveIrmAbi } from "./adaptiveCurveIrm.js";
 export { aggregatorV3Abi } from "./aggregatorV3.js";
 export { erc20Abi } from "./erc20.js";
-export { mezoPoolsVoterAbi, rewardsDistributorAbi, votingRewardAbi } from "./mezo.js";
+export { mezoPoolsVoterAbi, rewardsDistributorAbi, tigrisBasicPoolAbi, votingRewardAbi } from "./mezo.js";
 export { veBTCAbi } from "./veBTC.js";
 export { veBTCCreditLineV1Abi } from "./veBTCCreditLineV1.js";

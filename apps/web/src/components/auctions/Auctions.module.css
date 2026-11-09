@@ -114,3 +114,46 @@
   flex-direction: column;
   gap: var(--space-4);
 }
+
+/* ---------- A bid's split ---------- */
+.split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  border: var(--border-width) solid var(--color-line);
+  background: var(--color-surface-sunk);
+}
+
+.splitTitle {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: var(--text-sm);
+}
+
+.splitList {
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+
+.splitList li {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.splitSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: var(--border-width) solid var(--line-outline);
+}
+
+/* The example's cushion between the debt plus fee and the floor. */
+.cushion {
+  fill: var(--color-positive-soft);
+}

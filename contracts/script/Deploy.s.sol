@@ -48,9 +48,14 @@ pragma solidity 0.8.28;
  *                         timelock; 0 testnet, 86400 mainnet (the CreditVoter refuses 0 on mainnet)
  *   TREASURY              fee recipient; default the deployer (placeholder for a multisig)
  *   PEG_MIN_SOURCES, PEG_MAX_SPREAD_BPS, PEG_BAND_BPS
- *                         MusdPeg thresholds; 1 / 500 / 300 testnet, 2 / 500 / 300 mainnet
- *   PEG_WINDOW, PEG_GRANULARITY
- *                         CL TWAP window (1800 s) and basic-pool quote periods (2) of the mainnet sources
+ *                         MusdPeg thresholds; 1 / 1000 / 300 testnet, 2 / 1000 / 300 mainnet
+ *   PEG_MAX_PREMIUM_BPS   largest MUSD premium over $1 BtcMusdPriceSource divides by; 300
+ *   PEG_WINDOW, PEG_GRANULARITY, PEG_MAX_AGE
+ *                         CL TWAP window (1800 s), basic-pool quote periods (2) and the oldest accepted basic-pool
+ *                         observation (21600 s) of the mainnet sources
+ *   PEG_CL_MIN_LIQUIDITY, PEG_BTC_MIN_LIQUIDITY
+ *                         harmonic-mean in-range liquidity the CL mUSDC/MUSD (1e19) and CL BTC/MUSD (2e20) sources
+ *                         need over the window (MusdPeg and the sources' notes give the measurements)
  *   PEG_CL_POOL, PEG_USDC_POOL, PEG_USDT_POOL, PEG_BTC_POOL
  *                         mainnet pools: CL mUSDC/MUSD, basic mUSDC/MUSD, basic MUSD/mUSDT, CL BTC/MUSD
  *   RELAYER_ADDRESS       testnet, required: the relayer allowed to hand out starter kits
@@ -191,8 +196,12 @@ contract Deploy is Script {
         uint256 pegMinSources;
         uint256 pegMaxSpreadBps;
         uint256 pegBandBps;
+        uint16 pegMaxPremiumBps;
         uint32 pegWindow;
         uint256 pegGranularity;
+        uint32 pegMaxAge;
+        uint128 pegClMinLiquidity;
+        uint128 pegBtcMinLiquidity;
         address pegClPool;
         address pegUsdcPool;
         address pegUsdtPool;
@@ -205,11 +214,14 @@ contract Deploy is Script {
     /// @param kind "ClTwap", "StableTwap", "BtcCross" or "Stressed".
     /// @param pool The pool it reads; zero for a stressed source.
     /// @param param TWAP window (seconds) of CL sources, quote periods of basic-pool sources, zero otherwise.
+    /// @param limit Liquidity floor of CL sources, oldest accepted observation (seconds) of basic-pool sources, zero
+    /// otherwise.
     struct PegSourceInfo {
         string kind;
         IPegSource source;
         address pool;
         uint256 param;
+        uint256 limit;
     }
 
     struct Deployed {
@@ -311,10 +323,14 @@ contract Deploy is Script {
     /// pool and reads a StressedPegSource alone.
     function _pegConfig(Config memory c) internal view {
         c.pegMinSources = vm.envOr("PEG_MIN_SOURCES", c.mainnet ? uint256(2) : uint256(1));
-        c.pegMaxSpreadBps = vm.envOr("PEG_MAX_SPREAD_BPS", uint256(500));
+        c.pegMaxSpreadBps = vm.envOr("PEG_MAX_SPREAD_BPS", uint256(1000));
         c.pegBandBps = vm.envOr("PEG_BAND_BPS", uint256(300));
+        c.pegMaxPremiumBps = uint16(vm.envOr("PEG_MAX_PREMIUM_BPS", uint256(300)));
         c.pegWindow = uint32(vm.envOr("PEG_WINDOW", uint256(30 minutes)));
         c.pegGranularity = vm.envOr("PEG_GRANULARITY", uint256(2));
+        c.pegMaxAge = uint32(vm.envOr("PEG_MAX_AGE", uint256(6 hours)));
+        c.pegClMinLiquidity = uint128(vm.envOr("PEG_CL_MIN_LIQUIDITY", uint256(1e19)));
+        c.pegBtcMinLiquidity = uint128(vm.envOr("PEG_BTC_MIN_LIQUIDITY", uint256(2e20)));
         c.pegClPool = vm.envOr("PEG_CL_POOL", address(0xCC372B7E15535aB225fe17c1075831D38ef7aC1a));
         c.pegUsdcPool = vm.envOr("PEG_USDC_POOL", address(0xEd812AEc0Fecc8fD882Ac3eccC43f3aA80A6c356));
         c.pegUsdtPool = vm.envOr("PEG_USDT_POOL", address(0x10906a9E9215939561597b4C8e4b98F93c02031A));
@@ -386,10 +402,11 @@ contract Deploy is Script {
     }
 
     /// @dev Every price contract, in one place: Skip BTC/USD (behind StressedPriceSource on a STRESS deployment),
-    /// the MUSD peg sources and MusdPeg over them, BtcMusdPriceSource (BTC in MUSD through the peg) and the Morpho
-    /// oracle over that.
-    /// - Mainnet: CL mUSDC/MUSD, basic mUSDC/MUSD, basic MUSD/mUSDT, then BTC/USD over CL BTC/MUSD. The cross source
-    ///   reads the plain Skip source; mainnet never runs a stressed one.
+    /// the MUSD peg sources and MusdPeg over them, BtcMusdPriceSource (BTC in MUSD through the peg, the peg's premium
+    /// capped at `pegMaxPremiumBps`) and the Morpho oracle over that.
+    /// - Mainnet: CL mUSDC/MUSD (liquidity floor), basic mUSDC/MUSD and basic MUSD/mUSDT (freshness limit), then
+    ///   BTC/USD over CL BTC/MUSD (liquidity floor). The cross source reads the plain Skip source; mainnet never runs
+    ///   a stressed one. The keeper syncs the basic pools so their observations stay fresh.
     /// - Testnet: a StressedPegSource without a base, a fixed $1 that anyone can push off the peg (or take offline)
     ///   for up to two hours.
     function _deployPegAndPrices(Config memory c, Deployed memory d) internal {
@@ -400,32 +417,39 @@ contract Deploy is Script {
             d.pegSources = new PegSourceInfo[](4);
             d.pegSources[0] = PegSourceInfo({
                 kind: "ClTwap",
-                source: new ClTwapPegSource(ICLPool(c.pegClPool), c.musd, c.pegWindow),
+                source: new ClTwapPegSource(ICLPool(c.pegClPool), c.musd, c.pegWindow, c.pegClMinLiquidity),
                 pool: c.pegClPool,
-                param: c.pegWindow
+                param: c.pegWindow,
+                limit: c.pegClMinLiquidity
             });
             d.pegSources[1] = PegSourceInfo({
                 kind: "StableTwap",
-                source: new StableTwapPegSource(IBasicPool(c.pegUsdcPool), c.musd, c.pegGranularity),
+                source: new StableTwapPegSource(IBasicPool(c.pegUsdcPool), c.musd, c.pegGranularity, c.pegMaxAge),
                 pool: c.pegUsdcPool,
-                param: c.pegGranularity
+                param: c.pegGranularity,
+                limit: c.pegMaxAge
             });
             d.pegSources[2] = PegSourceInfo({
                 kind: "StableTwap",
-                source: new StableTwapPegSource(IBasicPool(c.pegUsdtPool), c.musd, c.pegGranularity),
+                source: new StableTwapPegSource(IBasicPool(c.pegUsdtPool), c.musd, c.pegGranularity, c.pegMaxAge),
                 pool: c.pegUsdtPool,
-                param: c.pegGranularity
+                param: c.pegGranularity,
+                limit: c.pegMaxAge
             });
             d.pegSources[3] = PegSourceInfo({
                 kind: "BtcCross",
-                source: new BtcCrossPegSource(ICLPool(c.pegBtcPool), c.musd, c.pegWindow, d.skipSource, BTC_DECIMALS),
+                source: new BtcCrossPegSource(
+                    ICLPool(c.pegBtcPool), c.musd, c.pegWindow, c.pegBtcMinLiquidity, d.skipSource, BTC_DECIMALS
+                ),
                 pool: c.pegBtcPool,
-                param: c.pegWindow
+                param: c.pegWindow,
+                limit: c.pegBtcMinLiquidity
             });
         } else {
             d.stressedPeg = new StressedPegSource(IPegSource(address(0)));
             d.pegSources = new PegSourceInfo[](1);
-            d.pegSources[0] = PegSourceInfo({kind: "Stressed", source: d.stressedPeg, pool: address(0), param: 0});
+            d.pegSources[0] =
+                PegSourceInfo({kind: "Stressed", source: d.stressedPeg, pool: address(0), param: 0, limit: 0});
         }
 
         IPegSource[] memory sources = new IPegSource[](d.pegSources.length);
@@ -433,7 +457,7 @@ contract Deploy is Script {
             sources[i] = d.pegSources[i].source;
         }
         d.peg = new MusdPeg(sources, c.pegMinSources, c.pegMaxSpreadBps, c.pegBandBps);
-        d.btcMusd = new BtcMusdPriceSource(d.btcUsdSource, d.peg);
+        d.btcMusd = new BtcMusdPriceSource(d.btcUsdSource, d.peg, c.pegMaxPremiumBps);
         d.morphoOracle = new MorphoPriceOracle(d.btcMusd);
     }
 
@@ -483,7 +507,8 @@ contract Deploy is Script {
             d.deployer,
             SEASON
         );
-        d.gate = new DepositGate(d.pool);
+        // The treasury is the management-fee recipient: the gate answers it without asking the pool.
+        d.gate = new DepositGate(d.pool, d.treasury);
         d.savings = new SavingsAdapter(address(d.vault), IMusdSavingsRate(c.smusd));
         d.shareMarket = new ShareMarket(IVaultV2(address(d.vault)), d.treasury, SHARE_MARKET_FEE_BPS);
     }
@@ -763,7 +788,8 @@ contract Deploy is Script {
             '  "peg": {\n',
             _num("minSources", c.pegMinSources, true),
             _num("maxSpreadBps", c.pegMaxSpreadBps, true),
-            _num("bandBps", c.pegBandBps, false),
+            _num("bandBps", c.pegBandBps, true),
+            _num("maxPremiumBps", c.pegMaxPremiumBps, false),
             "  },\n"
         );
         string memory sources = "";
@@ -778,15 +804,22 @@ contract Deploy is Script {
         bytes32 kind = keccak256(bytes(s.kind));
         string memory extra;
         if (kind == keccak256("ClTwap")) {
-            extra = string.concat(_addrAt("      ", "pool", s.pool, true), _numAt("      ", "window", s.param, false));
+            extra = string.concat(
+                _addrAt("      ", "pool", s.pool, true),
+                _numAt("      ", "window", s.param, true),
+                _numAt("      ", "minLiquidity", s.limit, false)
+            );
         } else if (kind == keccak256("StableTwap")) {
             extra = string.concat(
-                _addrAt("      ", "pool", s.pool, true), _numAt("      ", "granularity", s.param, false)
+                _addrAt("      ", "pool", s.pool, true),
+                _numAt("      ", "granularity", s.param, true),
+                _numAt("      ", "maxAge", s.limit, false)
             );
         } else if (kind == keccak256("BtcCross")) {
             extra = string.concat(
                 _addrAt("      ", "pool", s.pool, true),
                 _numAt("      ", "window", s.param, true),
+                _numAt("      ", "minLiquidity", s.limit, true),
                 _addrAt("      ", "btcUsd", address(d.skipSource), false)
             );
         } else {

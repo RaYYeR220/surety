@@ -331,6 +331,7 @@ contract AuditPoCTest is SuretyFixture {
     /// end up whole, and withdrawals stayed open throughout.
     function test_M03_jitDepositIsRefusedUntilTheCoverIsRecognised() public {
         uint256 lenderPre = _lossSetup();
+        uint256 since = block.timestamp;
         musd.mint(mallory, 100_000e18);
         vm.prank(mallory);
         musd.approve(address(vault), 100_000e18);
@@ -359,7 +360,9 @@ contract AuditPoCTest is SuretyFixture {
         vault.accrueInterest();
         assertFalse(pool.depositsPaused(), "cover recognised");
         uint256 lenderAfter = vault.previewRedeem(vault.balanceOf(lender));
-        assertGe(lenderAfter + 1e18, lenderPre, "pre-loss lender whole");
+        // Whole, less the time-based management fee every share pays meanwhile (0.20% a year to the treasury).
+        uint256 managementFee = lenderPre * MANAGEMENT_FEE * (block.timestamp - since) / 1e18;
+        assertGe(lenderAfter + 1e18 + managementFee, lenderPre, "pre-loss lender whole");
 
         // A deposit now buys in at the restored price: nothing left to capture.
         vm.prank(mallory);

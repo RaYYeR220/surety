@@ -3,8 +3,10 @@ pragma solidity 0.8.28;
 
 import {IBasicPool, ICLPool} from "../../src/interfaces/ITigrisPools.sol";
 
-/// @notice Concentrated-liquidity pool model: `observe` answers two cumulative tick readings set by the test, and
-/// reverts like Slipstream's `OLD` when asked further back than `history` seconds.
+/// @notice Concentrated-liquidity pool model: `observe` answers two cumulative tick readings set by the test, a
+/// seconds-per-liquidity accumulator whose growth over any look-back matches `windowLiquidity` in range (zero: no
+/// liquidity in range throughout), and reverts like Slipstream's `OLD` when asked further back than `history`
+/// seconds. The accumulator sits just above zero now, so every look-back wraps it, as a long-lived pool's does.
 contract MockCLPool is ICLPool {
     address public immutable token0;
     address public immutable token1;
@@ -13,6 +15,9 @@ contract MockCLPool is ICLPool {
     uint32 public history = type(uint32).max;
     int56 public cumulativeThen;
     int56 public cumulativeNow;
+    uint256 public windowLiquidity = 1e18;
+    /// @dev Seconds of any look-back spent with no liquidity in range (the rest at `windowLiquidity`).
+    uint32 public secondsOutOfRange;
     bool public broken;
 
     error OLD();
@@ -37,6 +42,14 @@ contract MockCLPool is ICLPool {
         liquidity = liquidity_;
     }
 
+    function setWindowLiquidity(uint256 windowLiquidity_) external {
+        windowLiquidity = windowLiquidity_;
+    }
+
+    function setSecondsOutOfRange(uint32 secondsOutOfRange_) external {
+        secondsOutOfRange = secondsOutOfRange_;
+    }
+
     function setHistory(uint32 history_) external {
         history = history_;
     }
@@ -57,12 +70,19 @@ contract MockCLPool is ICLPool {
         for (uint256 i; i < secondsAgos.length; ++i) {
             if (secondsAgos[i] > history) revert OLD();
             tickCumulatives[i] = secondsAgos[i] == 0 ? cumulativeNow : cumulativeThen;
+            uint256 out = secondsAgos[i] < secondsOutOfRange ? secondsAgos[i] : secondsOutOfRange;
+            uint256 growth =
+                (uint256(secondsAgos[i] - out) << 128) / (windowLiquidity == 0 ? 1 : windowLiquidity) + (out << 128);
+            unchecked {
+                secondsPerLiquidityCumulativeX128s[i] = uint160(7 - growth);
+            }
         }
     }
 }
 
 /// @notice Basic (Velodrome v2) pool model: `quote` answers a fixed amount for the expected input and reverts, like
-/// the real pool's underflow, when asked for more periods than it stores.
+/// the real pool's underflow, when asked for more periods than it stores. The latest observation is as old as the
+/// test sets, or written in the current block until it does.
 contract MockBasicPool is IBasicPool {
     address public immutable token0;
     address public immutable token1;
@@ -71,6 +91,7 @@ contract MockBasicPool is IBasicPool {
     uint256 public periods = 100;
     address public expectedIn;
     uint256 public expectedAmount;
+    uint256 public lastObservationAt;
 
     error BadQuote();
 
@@ -83,6 +104,15 @@ contract MockBasicPool is IBasicPool {
         expectedIn = tokenIn;
         expectedAmount = amountIn;
         amountOut = amountOut_;
+    }
+
+    /// @notice Pins the latest observation's timestamp; zero follows the current block.
+    function setLastObservationAt(uint256 timestamp) external {
+        lastObservationAt = timestamp;
+    }
+
+    function lastObservation() external view returns (Observation memory last) {
+        last.timestamp = lastObservationAt == 0 ? block.timestamp : lastObservationAt;
     }
 
     function setPeriods(uint256 periods_) external {

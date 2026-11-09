@@ -87,6 +87,8 @@ export interface KeeperSnapshot {
   harvests?: HarvestCandidate[];
   /** v2: the savings adapter's claimable sMUSD yield; undefined without one. */
   savingsYield?: bigint;
+  /** v2 mainnet: the basic pools behind the peg's StableTwap sources, with their latest observation's time. */
+  pegPools?: { pool: Address; observedAt: bigint }[];
 }
 
 export interface DecideOptions {
@@ -98,6 +100,10 @@ export interface DecideOptions {
   lastHarvest?: ReadonlyMap<bigint, bigint>;
   /** Least claimable sMUSD yield worth a `harvest()` (default 1: anything). */
   savingsHarvestMin?: bigint;
+  /** When the keeper last synced each peg pool (lowercase address -> timestamp). */
+  lastPoolSync?: ReadonlyMap<string, bigint>;
+  /** Least time between two syncs of one peg pool, seconds (default POOL_SYNC_INTERVAL); 0 turns syncs off. */
+  poolSyncInterval?: bigint;
 }
 
 export type Action =
@@ -108,6 +114,7 @@ export type Action =
   | { kind: "rebalance"; epoch: bigint }
   | { kind: "harvest"; loanId: bigint; rewards: Address[]; tokens: Address[][]; mezoEpoch: bigint }
   | { kind: "savingsHarvest"; yield: bigint }
+  | { kind: "syncPegPool"; pool: Address; age: bigint }
   | {
       kind: "liquidateMorpho";
       lineId: number;
@@ -223,6 +230,32 @@ export function harvestsDue(s: KeeperSnapshot, lastHarvest: ReadonlyMap<bigint, 
     .map((h) => ({ kind: "harvest", loanId: h.loanId, rewards: h.rewards, tokens: h.tokens, mezoEpoch }));
 }
 
+/** A peg pool is synced once its latest observation is this old (seconds)... */
+export const POOL_SYNC_AFTER = 3_000n;
+/** ...and at most this often by this keeper. */
+export const POOL_SYNC_INTERVAL = 3_600n;
+
+/**
+ * Syncs of the basic pools behind the peg's StableTwap sources. A source reads not ok once its pool's latest
+ * observation is older than its `maxAge`, and the pools observe only when someone trades or syncs; `sync()` is
+ * permissionless and stores a fresh observation. Each pool is synced when its latest observation is about 50 minutes
+ * old, at most hourly, which keeps both stable sources reading and limits how long a quiet pool can hide a move.
+ */
+export function syncPegPools(
+  s: KeeperSnapshot,
+  lastSync: ReadonlyMap<string, bigint> = new Map(),
+  interval: bigint = POOL_SYNC_INTERVAL,
+): Action[] {
+  if (interval === 0n) return [];
+  return (s.pegPools ?? [])
+    .filter((p) => {
+      const age = s.now > p.observedAt ? s.now - p.observedAt : 0n;
+      const last = lastSync.get(p.pool.toLowerCase());
+      return age >= POOL_SYNC_AFTER && (last === undefined || s.now - last >= interval);
+    })
+    .map((p) => ({ kind: "syncPegPool", pool: p.pool, age: s.now > p.observedAt ? s.now - p.observedAt : 0n }));
+}
+
 /** The savings adapter's yield, claimed and parked again once per epoch with the rebalance. */
 export function savingsHarvestDue(s: KeeperSnapshot, rebalancing: boolean, min = 1n): Action[] {
   if (!rebalancing || s.savingsYield === undefined || s.savingsYield < min) return [];
@@ -231,8 +264,9 @@ export function savingsHarvestDue(s: KeeperSnapshot, rebalancing: boolean, min =
 
 /**
  * Everything worth sending now, in order: auctions (lender safety first), loss checkpoints and covers (a
- * checkpoint must precede reallocating the line), ballot pokes (they matter for a bootstrap tally), then the
- * epoch's rebalance and savings harvest, auto-repay harvests, then the optional Morpho backstop.
+ * checkpoint must precede reallocating the line), ballot pokes (they matter for a bootstrap tally), peg pool syncs
+ * (so the rebalance's peg gate reads fresh pools), then the epoch's rebalance and savings harvest, auto-repay
+ * harvests, then the optional Morpho backstop.
  */
 export function decide(s: KeeperSnapshot, options: DecideOptions = {}): Action[] {
   const rebalancing = rebalanceDue(s, options.flipDelaySeconds ?? 5n);
@@ -241,6 +275,7 @@ export function decide(s: KeeperSnapshot, options: DecideOptions = {}): Action[]
     ...lossActions(s, { rebalancing }),
     ...ballotsToPoke(s).map((tokenId): Action => ({ kind: "poke", tokenId })),
   ];
+  actions.push(...syncPegPools(s, options.lastPoolSync, options.poolSyncInterval ?? POOL_SYNC_INTERVAL));
   if (rebalancing) actions.push({ kind: "rebalance", epoch: s.currentEpoch });
   actions.push(...savingsHarvestDue(s, rebalancing, options.savingsHarvestMin ?? 1n));
   actions.push(...harvestsDue(s, options.lastHarvest));

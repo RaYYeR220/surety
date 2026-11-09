@@ -1,0 +1,150 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xl);
+  color: var(--color-positive);
+}
+
+.wrap[data-compact] .value {
+  font-size: var(--text-md);
+}
+
+.value[data-zone="over-max"] {
+  color: var(--color-warning);
+}
+
+.value[data-zone="auction"],
+.value[data-zone="shortfall"] {
+  color: var(--color-danger);
+}
+
+/* Four zones: under max, over max, the cushion between trigger and floor, past the floor. */
+.bar {
+  position: relative;
+  height: 14px;
+  border-radius: var(--radius-bar);
+  overflow: visible;
+  border: var(--border-width) solid var(--color-line-strong);
+  background: var(--color-surface-sunk);
+}
+
+.safe,
+.over,
+.cushion,
+.short {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.safe {
+  left: 0;
+  width: var(--max);
+  background: var(--color-positive-soft);
+  border-radius: var(--radius-bar) 0 0 var(--radius-bar);
+}
+
+.over {
+  left: var(--max);
+  width: calc(var(--trigger) - var(--max));
+  background: var(--color-warning-soft);
+}
+
+.cushion {
+  left: var(--trigger);
+  width: calc(var(--floor) - var(--trigger));
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-danger-soft) 0 6px,
+    transparent 6px 10px
+  );
+  border-left: var(--border-width-strong) solid var(--color-danger);
+}
+
+.short {
+  left: var(--floor);
+  right: 0;
+  background: var(--color-danger-soft);
+  border-left: var(--border-width-strong) solid var(--color-danger);
+  border-radius: 0 var(--radius-bar) var(--radius-bar) 0;
+}
+
+.needle {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: var(--color-positive);
+  box-shadow: 0 0 0 2px var(--color-surface);
+}
+
+.needle[data-zone="over-max"] {
+  background: var(--color-warning);
+}
+
+.needle[data-zone="auction"],
+.needle[data-zone="shortfall"] {
+  background: var(--color-danger);
+}
+
+.marks {
+  position: relative;
+  height: 18px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-2xs);
+  color: var(--color-ink-3);
+}
+
+.marks span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.marks span[data-strong] {
+  color: var(--color-danger);
+}
+
+/* Keep the last label inside the bar's right edge. */
+.marks span:last-child {
+  transform: translateX(-70%);
+}
+
+/* On phones the labels would collide: list them in a row instead of placing them on the bar. */
+@media (max-width: 560px) {
+  .marks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-3);
+    height: auto;
+  }
+
+  .marks span,
+  .marks span:last-child {
+    position: static;
+    transform: none;
+  }
+}
+
+.note {
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+}

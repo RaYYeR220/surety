@@ -13,16 +13,19 @@ import {IPegSource} from "../../interfaces/IPegSource.sol";
 /// ok with a non-zero price; a source that reverts or answers malformed data counts as not ok. With an even number of
 /// usable sources the median is the mean of the middle two.
 ///
-/// Mainnet configuration, from the readings at block 13,100,532 (2026-11-09 03:20 UTC; see test/fork/LivePeg.t.sol):
-/// CL mUSDC/MUSD 30-minute TWAP 0.99144, sAMM mUSDC/MUSD 0.99125, sAMM MUSD/mUSDT 0.98604, BTC-cross on CL BTC/MUSD
-/// 1.00246; median 0.99134, spread 166 bps. MUSD's 30-day market range was 0.988-1.005.
-/// - `minSources` 2 of 4: no single pool prices MUSD, and one source dropping out (a stale Skip round, a pool without
-///   history) does not stop borrowing.
-/// - `bandBps` 300: the median sits about 90 bps under $1 and the 30-day range stays within 125 bps of it, so 300
-///   bps leaves room for normal drift and still trips on a real depeg.
-/// - `maxSpreadBps` 500: most of the live spread is the BTC-cross source, which sets a 30-minute TWAP against spot
-///   BTC/USD and so moves with BTC inside the window. 500 bps absorbs a 3% BTC move within the window and still trips
-///   when any source is off by more than the band.
+/// Mainnet configuration. Sources: CL mUSDC/MUSD (liquidity floor 1e19), sAMM mUSDC/MUSD and sAMM MUSD/mUSDT
+/// (maxAge 6 hours, granularity 2), BTC-cross on CL BTC/MUSD (floor 2e20); 30-minute windows. Measured on 672
+/// half-hour samples of the live pools from 2026-10-26 to 2026-11-09 (blocks 12,778,087-13,102,180):
+/// - `minSources` 2 of 4: no single pool prices MUSD, and a source that drops out (a thin CL window, a quiet stable
+///   pool, a stale Skip round) does not stop borrowing while two others read.
+/// - `maxSpreadBps` 1000: the honest spread peaked at 322 bps (95th percentile 157), mostly the BTC-cross source,
+///   which sets a 30-minute TWAP against spot BTC/USD and so moves with BTC inside the window. 1000 keeps one lagging
+///   or pushed source from tripping the breaker; the median and the band catch a real depeg.
+/// - `bandBps` 300: the median stayed within 0.986-0.995, so 300 bps leaves room for drift and trips at $0.97.
+/// With these values the breaker was open in 671 of 672 samples, and in all of them when the keeper syncs the stable
+/// pools hourly. A source pushed out of range drops out instead of reading as an outlier, so tripping the breaker
+/// takes either dropping both CL sources while a stable pool is stale (one block each, about $78 per 30 minutes) or
+/// keeping MUSD about 6% off in both stable pools for an hour, open to arbitrage.
 contract MusdPeg is IMusdPeg {
     uint256 public constant MAX_SOURCES = 8;
     uint256 public constant MAX_SPREAD_BPS = 2000;

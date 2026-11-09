@@ -101,6 +101,13 @@ contract SponsorTest is Test {
         vm.expectRevert(Sponsor.BadLockDuration.selector);
         _newSponsor(21 days + 1);
 
+        // Testnet only: never on Mezo mainnet.
+        uint256 chain = block.chainid;
+        vm.chainId(31_612);
+        vm.expectRevert(Sponsor.MainnetNotAllowed.selector);
+        _newSponsor(MIN_TERM);
+        vm.chainId(chain);
+
         Sponsor fresh = _newSponsor(21 days);
         assertEq(fresh.lockDuration(), 28 days);
         assertEq(fresh.lockAmount(), 0);
@@ -172,6 +179,13 @@ contract SponsorTest is Test {
         vm.prank(relayer);
         vm.expectRevert(Sponsor.ZeroAddress.selector);
         sponsor.starterKit(address(0));
+    }
+
+    /// @dev A kit for the Sponsor itself would strand its veBTC NFT, which `withdraw` (ERC-20 only) cannot move.
+    function test_starterKit_rejectsTheSponsorItself() public {
+        vm.prank(relayer);
+        vm.expectRevert(Sponsor.SelfKit.selector);
+        sponsor.starterKit(address(sponsor));
     }
 
     function test_starterKit_needsAKit() public {

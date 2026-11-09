@@ -284,6 +284,18 @@ export interface PegSourceReading {
   ok: boolean;
   /** MUSD/USD, WAD; null when the source has no usable reading. */
   musdUsdWad: bigint | null;
+  /**
+   * CL sources: the pool's harmonic-mean in-range liquidity over the window (`windowLiquidity`) and the floor a
+   * reading needs; a reading below the floor is not ok. Null for other kinds or when unreadable.
+   */
+  windowLiquidity: bigint | null;
+  minLiquidity: bigint | null;
+  /**
+   * Basic-pool sources: seconds since the pool's latest observation (`lastObservationAge`) and the oldest it may
+   * be; an older one is not ok. Null for other kinds or when unreadable.
+   */
+  observationAge: bigint | null;
+  maxAge: bigint | null;
 }
 
 export interface PegView extends PegHealth {
@@ -296,6 +308,12 @@ export interface PegView extends PegHealth {
   healthyOnChain: boolean;
   /** `VoteAllocator.pegGateOpen()`: whether a rebalance would fund lines now. */
   allocatorGateOpen: boolean | null;
+  /** `VeBTCCreditLine.pegCheck()`: whether new loans require a healthy peg (on by default). */
+  linePegCheck: boolean | null;
+  /** BtcMusdPriceSource's cap on the MUSD premium, bps. */
+  maxPremiumBps: number;
+  /** What BTC/USD is divided by now: the healthy median clamped to [$1, $1 + maxPremium], else $1. */
+  divisorWad: bigint;
   /** BTC/USD under the line's price (stressed on a stress deployment); null when it reverts. */
   btcUsdWad: bigint | null;
   /** BTC in MUSD as the line and the Morpho oracle value it; null when it reverts. */

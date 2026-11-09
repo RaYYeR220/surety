@@ -766,6 +766,7 @@ contract SuretyPoolTest is PoolFixture {
     /// Morpho on its behalf (see the stranded-supply test below). Cover instead returns the redeemed MUSD to the
     /// vault, which restores the assets the vault lost through the adapter without leaving shares stranded.
     function test_cover_restoresMorphoAdapterAssets() public {
+        _withoutManagementFee();
         uint256 a = _lockPermanent(alice, 1e18);
         _deposit(lender, 100_000e18);
         _allocateMorpho(20_000e18);
@@ -1015,6 +1016,7 @@ contract SuretyPoolTest is PoolFixture {
     /// value (net of the fee shares VaultV2 mints it on the returned MUSD) is down by exactly the loss. Checked on a
     /// veBTC-line shortfall and, separately, on Morpho bad debt.
     function test_cover_restoresLenderPriceExactly_afterRecognition() public {
+        _withoutManagementFee();
         assertEq(vault.performanceFee(), 0.1e18);
         assertEq(vault.maxRate(), MAX_MAX_RATE);
         uint256 snap = vm.snapshotState();
@@ -1039,9 +1041,27 @@ contract SuretyPoolTest is PoolFixture {
         }
     }
 
+    /// @dev With the production management fee on, the cover still restores the pre-loss price; lenders pay only the
+    /// fee's time charge (0.20% a year) over the scene, the same as without a loss.
+    function test_cover_withManagementFee_lenderPaysOnlyTheTimeCharge() public {
+        assertEq(vault.managementFee(), MANAGEMENT_FEE);
+        assertEq(vault.managementFeeRecipient(), treasury);
+        uint256 loanId = _sizingScene(VE_LINE);
+        uint256 lenderPre = _valueOf(lender);
+        uint256 since = block.timestamp;
+        uint256 loss = _takeLoss(VE_LINE, loanId);
+        assertEq(pool.cover(VE_LINE), loss);
+        _recognise();
+        uint256 timeCharge = lenderPre * MANAGEMENT_FEE * (block.timestamp - since) / 1e18;
+        assertGt(timeCharge, 0);
+        assertApproxEqRel(_valueOf(lender), lenderPre - timeCharge, EXACT, "pre-loss price less the time charge");
+        assertGt(vault.balanceOf(treasury), 0, "the treasury holds the fee shares");
+    }
+
     /// @dev A cover cut short by idle MUSD, then finished once the allocator frees liquidity, ends at the same
     /// lender price as one cover of the whole loss: right away, or after VaultV2 recognised the first part.
     function test_cover_partialThenFull_equalsOneShot() public {
+        _withoutManagementFee();
         uint256 loanId = _sizingScene(VE_LINE);
         // Leave 4,000 MUSD idle: less than a full cover needs.
         _allocateLine(66_000e18);
@@ -1166,6 +1186,7 @@ contract SuretyPoolTest is PoolFixture {
     /// @dev Without a performance fee the cover moves A*U/(A+U) MUSD, which burns U/(A+U) of the supply: exactly the
     /// shares the loss is worth at the pre-loss price (A+U)/T.
     function test_cover_feeZero_burnsExactlyAUoverAplusU() public {
+        _withoutManagementFee();
         _curate(abi.encodeCall(IVaultV2.setPerformanceFee, (0)));
         uint256 loanId = _sizingScene(VE_LINE);
         uint256 lenderPre = _valueOf(lender);

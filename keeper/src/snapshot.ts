@@ -8,6 +8,7 @@ import {
   orNull,
   savingsAdapterAbi,
   suretyPoolAbi,
+  tigrisBasicPoolAbi,
   veBTCAbi,
   veBTCCreditLineAbi,
   votedEvent,
@@ -98,6 +99,7 @@ export class SnapshotSource {
       }));
     const harvests = v2 ? await this.readHarvests(open.filter((l) => l.autoRepay).map((l) => l.loanId)) : undefined;
     const savingsYield = v2 ? await this.readSavingsYield(head) : undefined;
+    const pegPools = v2 ? await this.readPegPools(head) : undefined;
 
     const morphoPositions = this.options.morphoLiquidations
       ? await this.readMorphoPositions(
@@ -119,7 +121,31 @@ export class SnapshotSource {
       mezoEpoch: mezoEpochOf(board.epoch.now),
       ...(harvests ? { harvests } : {}),
       ...(savingsYield !== undefined ? { savingsYield } : {}),
+      ...(pegPools && pegPools.length > 0 ? { pegPools } : {}),
     };
+  }
+
+  /**
+   * The basic pools behind the deployment's StableTwap peg sources (mainnet; testnet has none) and when each last
+   * stored an observation. A pool whose observation cannot be read is left out.
+   */
+  private async readPegPools(head: bigint): Promise<{ pool: Address; observedAt: bigint }[]> {
+    const pools = [
+      ...new Set(
+        (this.client.deployment.pegSources ?? [])
+          .filter((src) => src.kind === "StableTwap" && src.pool)
+          .map((src) => src.pool!),
+      ),
+    ];
+    if (pools.length === 0) return [];
+    const reads = await this.client.reader.settle(
+      pools.map((pool) => call(pool, tigrisBasicPoolAbi, "lastObservation")),
+      { blockNumber: head },
+    );
+    return pools.flatMap((pool, i) => {
+      const obs = orNull(reads[i] as Settled<{ timestamp: bigint }>);
+      return obs ? [{ pool, observedAt: obs.timestamp }] : [];
+    });
   }
 
   /** What a harvest would claim for each auto-repay loan; a loan whose plan cannot be read is left out. */

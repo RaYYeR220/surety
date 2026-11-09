@@ -168,7 +168,9 @@ export function createSuretyMcpServer(options: SuretyMcpOptions): McpServer {
     {
       title: "MUSD peg",
       description:
-        "The MUSD/USD peg Surety reads from Mezo's own pools: each source's reading, the median, the spread between " +
+        "The MUSD/USD peg Surety reads from Mezo's own pools: each source's reading (CL sources with their window " +
+        "liquidity against a floor, stable-pool sources with the age of their pool's last observation against a " +
+        "limit), the median, the spread between " +
         "sources and the distance from $1 against their limits, whether the veBTC line lends now (it stops while the " +
         "peg is unhealthy) and whether a rebalance funds lines, plus BTC/USD and the BTC price in MUSD the line " +
         "values collateral at (MUSD is never taken below $1).",

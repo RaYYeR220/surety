@@ -134,7 +134,7 @@ const index =
   `${header}\n` +
   written.map((name) => `export { ${name}Abi } from "./${name}.js";`).join("\n") +
   `\nexport { erc20Abi } from "./erc20.js";\n` +
-  `export { mezoPoolsVoterAbi, rewardsDistributorAbi, votingRewardAbi } from "./mezo.js";\n` +
+  `export { mezoPoolsVoterAbi, rewardsDistributorAbi, tigrisBasicPoolAbi, votingRewardAbi } from "./mezo.js";\n` +
   `export { veBTCAbi } from "./veBTC.js";\n` +
   `export { veBTCCreditLineV1Abi } from "./veBTCCreditLineV1.js";\n`;
 writeFileSync(join(abiDir, "index.ts"), index);

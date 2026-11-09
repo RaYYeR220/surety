@@ -225,12 +225,26 @@ export function pegHealth(
 }
 
 /**
- * BtcMusdPriceSource: BTC in MUSD from BTC/USD and the MUSD peg, with MUSD never taken below $1
- * (`btcUsd * 1e18 / max(peg, 1e18)`, rounded down; the peg counts as $1 while it is unavailable).
+ * What BtcMusdPriceSource divides BTC/USD by: the peg's median clamped to [$1, $1 + maxPremiumBps] while the peg is
+ * healthy, exactly $1 otherwise (pass `null` for an unhealthy or unavailable peg).
  */
-export function btcInMusdWad(btcUsdWad: bigint, musdUsdWad: bigint | null): bigint {
-  const peg = musdUsdWad ?? WAD;
-  return peg > WAD ? mulDivDown(btcUsdWad, WAD, peg) : btcUsdWad;
+export function pegDivisorWad(healthyMedianWad: bigint | null, maxPremiumBps: bigint | number): bigint {
+  if (healthyMedianWad === null || healthyMedianWad <= WAD) return WAD;
+  const cap = WAD + BigInt(maxPremiumBps) * 10n ** 14n;
+  return healthyMedianWad < cap ? healthyMedianWad : cap;
+}
+
+/**
+ * BtcMusdPriceSource: BTC in MUSD, `btcUsd * 1e18 / divisor` rounded down, with the divisor from `pegDivisorWad`.
+ * BTC is never valued above BTC/USD, and a MUSD premium lowers it by at most `maxPremiumBps`.
+ */
+export function btcInMusdWad(
+  btcUsdWad: bigint,
+  healthyMedianWad: bigint | null,
+  maxPremiumBps: bigint | number = 300,
+): bigint {
+  const divisor = pegDivisorWad(healthyMedianWad, maxPremiumBps);
+  return divisor === WAD ? btcUsdWad : mulDivDown(btcUsdWad, WAD, divisor);
 }
 
 /* veBTC line fees */

@@ -35,7 +35,10 @@ interface IVeBTCLocks {
 ///   28 days, veBTC's maximum.
 /// - Limits: one kit per wallet, ever; at most `dailyLimit` kits per UTC day, so a leaked relayer key costs at most a
 ///   day of kits before the owner removes it; amounts capped by the MAX_ constants. A daily limit of 0 stops kits.
-/// - The owner can withdraw everything at any time. Nothing here belongs to users.
+/// - The owner can withdraw everything at any time. Nothing here belongs to users. `withdraw` moves ERC-20s only, so
+///   a kit never goes to the Sponsor itself (its veBTC NFT would be stuck); relayers serve wallets, and a contract
+///   that cannot use a veBTC NFT keeps it stuck just the same.
+/// - Refuses to deploy on Mezo mainnet (chain 31612).
 contract Sponsor is Ownable2Step, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
@@ -50,6 +53,7 @@ contract Sponsor is Ownable2Step, ReentrancyGuardTransient {
     uint256 public constant MAX_LOCK_DURATION = 28 days;
     uint256 public constant MAX_DAILY_LIMIT = 10_000;
     uint256 internal constant WEEK = 1 weeks;
+    uint256 internal constant MEZO_MAINNET = 31_612;
 
     IVeBTCLocks public immutable veBTC;
     /// @notice BTC as veBTC locks it: the precompile on Mezo.
@@ -91,12 +95,15 @@ contract Sponsor is Ownable2Step, ReentrancyGuardTransient {
     error KitNotSet();
     error DailyLimitReached();
     error OutOfFunds();
+    error MainnetNotAllowed();
+    error SelfKit();
 
     /// @param veBTC_ Mezo's veBTC; BTC is its `token()`.
     /// @param musd_ The MUSD the vault lends (test MUSD).
     /// @param minTerm_ The veBTC credit line's `minTerm`, in seconds.
     /// @param owner_ Funds the Sponsor, sets kits and relayers, withdraws.
     constructor(IVeBTCLocks veBTC_, IERC20 musd_, uint256 minTerm_, address owner_) Ownable(owner_) {
+        if (block.chainid == MEZO_MAINNET) revert MainnetNotAllowed();
         if (address(veBTC_) == address(0) || address(musd_) == address(0)) revert ZeroAddress();
         if (minTerm_ + WEEK > MAX_LOCK_DURATION) revert BadLockDuration();
         veBTC = veBTC_;
@@ -118,6 +125,7 @@ contract Sponsor is Ownable2Step, ReentrancyGuardTransient {
     function starterKit(address user) external nonReentrant returns (uint256 tokenId) {
         if (!isRelayer[msg.sender]) revert NotRelayer();
         if (user == address(0)) revert ZeroAddress();
+        if (user == address(this)) revert SelfKit();
         if (claimed[user]) revert AlreadyClaimed(user);
         uint256 lock = lockAmount;
         if (lock == 0) revert KitNotSet();
