@@ -60,17 +60,33 @@ export interface MorphoPosition {
   oraclePrice: bigint | null;
 }
 
+/** A loan with auto-repay on, and what a harvest of its escrowed NFT's rewards would claim now. */
+export interface HarvestCandidate {
+  loanId: bigint;
+  /** Reward contracts with something earned, and the tokens to claim from each (`harvest`'s arguments). */
+  rewards: Address[];
+  tokens: Address[][];
+  /** veBTC rebase the distributor reports claimable. */
+  claimableRebase: bigint;
+}
+
 export interface KeeperSnapshot {
   now: bigint;
   currentEpoch: bigint;
   epochLength: bigint;
   lastRebalanceEpoch: bigint;
-  /** MUSD idle in the vault: `cover` can pay at most this. */
+  /** MUSD not lent out (the vault's own plus what is parked in sMUSD): `cover` can pay at most this. */
   vaultIdle: bigint;
   ballots: BallotState[];
   lines: LineState[];
   loans: LoanStateView[];
   morphoPositions: MorphoPosition[];
+  /** Start of the current Mezo epoch (weeks from Thursday 00:00 UTC), when veBTC rewards become claimable. */
+  mezoEpoch?: bigint;
+  /** v2: loans with auto-repay on (Active or Auction). */
+  harvests?: HarvestCandidate[];
+  /** v2: the savings adapter's claimable sMUSD yield; undefined without one. */
+  savingsYield?: bigint;
 }
 
 export interface DecideOptions {
@@ -78,6 +94,10 @@ export interface DecideOptions {
   flipDelaySeconds?: bigint;
   /** Morpho liquidation backstop (off by default). */
   morphoLiquidations?: boolean;
+  /** Mezo epoch each loan was last harvested in; a loan is harvested at most once per Mezo epoch. */
+  lastHarvest?: ReadonlyMap<bigint, bigint>;
+  /** Least claimable sMUSD yield worth a `harvest()` (default 1: anything). */
+  savingsHarvestMin?: bigint;
 }
 
 export type Action =
@@ -86,6 +106,8 @@ export type Action =
   | { kind: "checkpoint"; lineId: number; reason: CheckpointReason; loss: bigint }
   | { kind: "poke"; tokenId: bigint }
   | { kind: "rebalance"; epoch: bigint }
+  | { kind: "harvest"; loanId: bigint; rewards: Address[]; tokens: Address[][]; mezoEpoch: bigint }
+  | { kind: "savingsHarvest"; yield: bigint }
   | {
       kind: "liquidateMorpho";
       lineId: number;
@@ -184,10 +206,33 @@ export function morphoLiquidations(s: KeeperSnapshot): Action[] {
   return out;
 }
 
+/** Mezo epochs are weeks from Thursday 00:00 UTC (the unix epoch was a Thursday). */
+export const MEZO_WEEK = 604_800n;
+export const mezoEpochOf = (ts: bigint) => ts - (ts % MEZO_WEEK);
+
+/**
+ * Harvests for auto-repay loans: fees and bribes become claimable when the Mezo epoch they were earned in ends, so
+ * each loan is harvested once per Mezo epoch, as soon as it has fees, bribes or a rebase to claim. A rebase the
+ * distributor still refuses (before it books the week) does not stop the harvest, and is not retried within the
+ * epoch.
+ */
+export function harvestsDue(s: KeeperSnapshot, lastHarvest: ReadonlyMap<bigint, bigint> = new Map()): Action[] {
+  const mezoEpoch = s.mezoEpoch ?? mezoEpochOf(s.now);
+  return (s.harvests ?? [])
+    .filter((h) => (h.rewards.length > 0 || h.claimableRebase > 0n) && lastHarvest.get(h.loanId) !== mezoEpoch)
+    .map((h) => ({ kind: "harvest", loanId: h.loanId, rewards: h.rewards, tokens: h.tokens, mezoEpoch }));
+}
+
+/** The savings adapter's yield, claimed and parked again once per epoch with the rebalance. */
+export function savingsHarvestDue(s: KeeperSnapshot, rebalancing: boolean, min = 1n): Action[] {
+  if (!rebalancing || s.savingsYield === undefined || s.savingsYield < min) return [];
+  return [{ kind: "savingsHarvest", yield: s.savingsYield }];
+}
+
 /**
  * Everything worth sending now, in order: auctions (lender safety first), loss checkpoints and covers (a
  * checkpoint must precede reallocating the line), ballot pokes (they matter for a bootstrap tally), then the
- * epoch's rebalance, then the optional Morpho backstop.
+ * epoch's rebalance and savings harvest, auto-repay harvests, then the optional Morpho backstop.
  */
 export function decide(s: KeeperSnapshot, options: DecideOptions = {}): Action[] {
   const rebalancing = rebalanceDue(s, options.flipDelaySeconds ?? 5n);
@@ -197,6 +242,8 @@ export function decide(s: KeeperSnapshot, options: DecideOptions = {}): Action[]
     ...ballotsToPoke(s).map((tokenId): Action => ({ kind: "poke", tokenId })),
   ];
   if (rebalancing) actions.push({ kind: "rebalance", epoch: s.currentEpoch });
+  actions.push(...savingsHarvestDue(s, rebalancing, options.savingsHarvestMin ?? 1n));
+  actions.push(...harvestsDue(s, options.lastHarvest));
   if (options.morphoLiquidations) actions.push(...morphoLiquidations(s));
   return actions;
 }

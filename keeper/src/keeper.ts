@@ -1,4 +1,12 @@
-import { morphoAbi, suretyPoolAbi, veBTCCreditLineAbi, voteAllocatorAbi, creditVoterAbi, type SuretyClient } from "@surety/sdk";
+import {
+  creditVoterAbi,
+  morphoAbi,
+  savingsAdapterAbi,
+  suretyPoolAbi,
+  veBTCCreditLineAbi,
+  voteAllocatorAbi,
+  type SuretyClient,
+} from "@surety/sdk";
 import type { Abi } from "viem";
 
 import { decide, type Action, type KeeperSnapshot } from "./decide.js";
@@ -17,6 +25,8 @@ export interface KeeperOptions {
   morphoLiquidations?: boolean;
   /** Retry policy for reading the snapshot (default: 5 retries from 500 ms). */
   snapshotRetry?: RetryOptions;
+  /** Least claimable sMUSD yield worth a savings `harvest()` (default 1 wei: anything). */
+  savingsHarvestMin?: bigint;
 }
 
 export interface TickResult {
@@ -44,6 +54,16 @@ export function callFor(client: SuretyClient, action: Action): ContractCall {
       return { address: c.creditVoter, abi: creditVoterAbi as Abi, functionName: "poke", args: [action.tokenId] };
     case "rebalance":
       return { address: c.voteAllocator, abi: voteAllocatorAbi as Abi, functionName: "rebalance" };
+    case "harvest":
+      return {
+        address: c.veBTCLine,
+        abi: veBTCCreditLineAbi as Abi,
+        functionName: "harvest",
+        args: [action.loanId, action.rewards, action.tokens],
+      };
+    case "savingsHarvest":
+      if (!c.savingsAdapter) throw new Error("this deployment has no savings adapter");
+      return { address: c.savingsAdapter, abi: savingsAdapterAbi as Abi, functionName: "harvest" };
     case "liquidateMorpho":
       return {
         address: c.morpho,
@@ -60,6 +80,10 @@ function fieldsOf(action: Action): Record<string, unknown> {
     const { marketParams: _m, ...short } = rest;
     return short;
   }
+  if ("tokens" in rest) {
+    const { tokens, ...short } = rest;
+    return { ...short, tokenCount: tokens.reduce((n, t) => n + t.length, 0) };
+  }
   return rest;
 }
 
@@ -67,6 +91,8 @@ export class Keeper {
   private readonly o: KeeperOptions;
   private stopped = false;
   private wake: (() => void) | null = null;
+  /** Mezo epoch each auto-repay loan was last harvested (or simulated, in a dry run) in. */
+  private readonly lastHarvest = new Map<bigint, bigint>();
 
   constructor(options: KeeperOptions) {
     this.o = options;
@@ -82,6 +108,8 @@ export class Keeper {
     const actions = decide(snapshot, {
       flipDelaySeconds: this.o.flipDelaySeconds ?? 5n,
       morphoLiquidations: this.o.morphoLiquidations ?? false,
+      lastHarvest: this.lastHarvest,
+      ...(this.o.savingsHarvestMin !== undefined ? { savingsHarvestMin: this.o.savingsHarvestMin } : {}),
     });
     log.info("tick", {
       epoch: snapshot.currentEpoch,
@@ -95,11 +123,13 @@ export class Keeper {
       try {
         // A cover that would pay nothing (no idle MUSD to redeem, rounding) is not worth its gas.
         const skipIfResult = action.kind === "cover" ? (r: unknown) => r === 0n : undefined;
-        results.push(
-          await this.o.executor.run(action.kind, callFor(this.o.client, action), fieldsOf(action), {
-            ...(skipIfResult ? { skipIfResult } : {}),
-          }),
-        );
+        const result = await this.o.executor.run(action.kind, callFor(this.o.client, action), fieldsOf(action), {
+          ...(skipIfResult ? { skipIfResult } : {}),
+        });
+        results.push(result);
+        if (action.kind === "harvest" && (result.status === "success" || result.status === "simulated")) {
+          this.lastHarvest.set(action.loanId, action.mezoEpoch);
+        }
       } catch (e) {
         log.error("action failed", { action: action.kind, ...fieldsOf(action), error: e });
         results.push({ status: "reverted", reason: e instanceof Error ? e.message : String(e) });

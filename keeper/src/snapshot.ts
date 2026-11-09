@@ -2,9 +2,11 @@ import {
   call,
   creditVoterAbi,
   getLogsChunked,
+  isV2Deployment,
   morphoAbi,
   morphoPriceOracleAbi,
   orNull,
+  savingsAdapterAbi,
   suretyPoolAbi,
   veBTCAbi,
   veBTCCreditLineAbi,
@@ -15,7 +17,14 @@ import {
 } from "@surety/sdk";
 import { getAbiItem, type Address, type Hex } from "viem";
 
-import type { BallotState, KeeperSnapshot, LineState, MorphoPosition } from "./decide.js";
+import {
+  mezoEpochOf,
+  type BallotState,
+  type HarvestCandidate,
+  type KeeperSnapshot,
+  type LineState,
+  type MorphoPosition,
+} from "./decide.js";
 import type { Logger } from "./log.js";
 
 const borrowEvent = getAbiItem({ abi: morphoAbi, name: "Borrow" });
@@ -77,12 +86,18 @@ export class SnapshotSource {
     await this.scanVoters(head);
     const ballots = await this.readBallots(currentEpoch, head);
 
-    const loans = (await client.listLoans({ states: ["Active"] })).map((l) => ({
-      loanId: l.loanId,
-      state: l.state,
-      liquidatable: l.liquidatable,
-      reason: l.liquidationReason,
-    }));
+    const v2 = isV2Deployment(client.deployment);
+    const open = await client.listLoans({ states: v2 ? ["Active", "Auction"] : ["Active"] });
+    const loans = open
+      .filter((l) => l.state === "Active")
+      .map((l) => ({
+        loanId: l.loanId,
+        state: l.state,
+        liquidatable: l.liquidatable,
+        reason: l.liquidationReason,
+      }));
+    const harvests = v2 ? await this.readHarvests(open.filter((l) => l.autoRepay).map((l) => l.loanId)) : undefined;
+    const savingsYield = v2 ? await this.readSavingsYield(head) : undefined;
 
     const morphoPositions = this.options.morphoLiquidations
       ? await this.readMorphoPositions(
@@ -101,7 +116,34 @@ export class SnapshotSource {
       lines,
       loans,
       morphoPositions,
+      mezoEpoch: mezoEpochOf(board.epoch.now),
+      ...(harvests ? { harvests } : {}),
+      ...(savingsYield !== undefined ? { savingsYield } : {}),
     };
+  }
+
+  /** What a harvest would claim for each auto-repay loan; a loan whose plan cannot be read is left out. */
+  private async readHarvests(loanIds: bigint[]): Promise<HarvestCandidate[]> {
+    const out: HarvestCandidate[] = [];
+    for (const loanId of loanIds) {
+      try {
+        const plan = await this.client.getHarvestPlan(loanId);
+        out.push({ loanId, rewards: plan.rewards, tokens: plan.tokens, claimableRebase: plan.claimableRebase });
+      } catch (e) {
+        this.options.log.warn("harvest plan unreadable", { loanId, error: e });
+      }
+    }
+    return out;
+  }
+
+  /** The savings adapter's claimable sMUSD yield; undefined when unreadable. */
+  private async readSavingsYield(head: bigint): Promise<bigint | undefined> {
+    const adapter = this.client.deployment.contracts.savingsAdapter;
+    if (!adapter) return undefined;
+    const [s] = await this.client.reader.settle([call(adapter, savingsAdapterAbi, "claimableYield")], {
+      blockNumber: head,
+    });
+    return orNull(s as Settled<bigint>) ?? undefined;
   }
 
   /** What `checkpoint(lineId)` would record now, or null if the simulation fails. */
