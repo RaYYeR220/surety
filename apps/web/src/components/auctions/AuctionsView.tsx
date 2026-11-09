@@ -1,15 +1,16 @@
 "use client";
 
-import { auctionPrice, type AuctionView } from "@surety/sdk";
+import { auctionPrice, bidOutcome, type AuctionView, type BidOutcome } from "@surety/sdk";
 import { useEffect, useRef, useState } from "react";
 
 import { Stack } from "@/components/layout/Layout";
+import { AppLink } from "@/components/shell/AppLink";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
 import { useTx, type TxPlan, type TxStep } from "@/components/tx/TxProvider";
-import { Empty, KeyValues, Muted, Notice, PageHead, Pill, SectionTitle, Skeleton } from "@/components/ui/Bits";
+import { Empty, KeyValues, Muted, Notice, PageHead, Pill, SectionTitle, Skeleton, StackBar } from "@/components/ui/Bits";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { AmountField, DataTable, type Column } from "@/components/ui/Controls";
+import { AmountField, DataTable, ExplorerLink, type Column } from "@/components/ui/Controls";
 import type { ReadyEnv } from "@/lib/env";
 import {
   formatBps,
@@ -22,11 +23,12 @@ import {
   toInput,
 } from "@/lib/format";
 import { useAuctions, useBoard, useChainNow, useLineParams, useLiquidatable, useWallet } from "@/lib/queries";
-import { readAllowance } from "@/lib/reads";
+import { readAllowance, type LineParams } from "@/lib/reads";
 
 import styles from "./Auctions.module.css";
 
 const BPS = 10_000n;
+const WAD = 10n ** 18n;
 
 export function AuctionsPage() {
   return <EnvGate>{(env) => <AuctionsView env={env} />}</EnvGate>;
@@ -36,7 +38,7 @@ function AuctionsView({ env }: { env: ReadyEnv }) {
   const auctions = useAuctions();
   const board = useBoard();
   const params = useLineParams();
-  const fee = params.data ? params.data.liqFeeBps : null;
+  const p = params.data ?? null;
   return (
     <Stack gap={6}>
       <PageHead
@@ -52,9 +54,10 @@ function AuctionsView({ env }: { env: ReadyEnv }) {
           Loans that cross their liquidation line or reach their lock end can be auctioned; they show up below first.
         </Empty>
       ) : (
-        auctions.data.map((a) => <AuctionCard key={a.loanId.toString()} env={env} a={a} fee={fee} />)
+        auctions.data.map((a) => <AuctionCard key={a.loanId.toString()} env={env} a={a} params={p} />)
       )}
       <Liquidatable env={env} />
+      {p ? <HowAuctionsRun params={p} /> : params.isPending ? <Skeleton height={320} /> : null}
       {board.data && board.data.lines.some((l) => l.kind === "VeBTC" && l.oracleLive === false) ? (
         <Notice tone="danger" title="Price feed stale" role="alert">
           While the BTC price is stale the line refuses to start auctions and to take bids. Repaying a loan always works.
@@ -171,7 +174,68 @@ function CurveSvg({ a, now, W, H }: { a: AuctionView; now: number | null; W: num
 
 /* ---------- Auction card ---------- */
 
-function AuctionCard({ env, a, fee }: { env: ReadyEnv; a: AuctionView; fee: number | null }) {
+/** The plan rows for a bid's split: debt, the fee three ways, surplus or shortfall. */
+function splitRows(o: BidOutcome) {
+  return [
+    { rule: true, label: "", value: "" },
+    { label: "Repays the debt", value: `${formatMusd(o.toLine - o.fee)} MUSD` },
+    o.fee > 0n && { label: "Liquidation fee: lenders", value: `${formatMusd(o.toLenders)} MUSD` },
+    o.fee > 0n && { label: "Liquidation fee: treasury", value: `${formatMusd(o.toTreasury)} MUSD` },
+    o.fee > 0n && { label: "Liquidation fee: keeper", value: `${formatMusd(o.toKeeper)} MUSD` },
+    o.surplus > 0n && { label: "Back to the borrower", value: `${formatMusd(o.surplus)} MUSD` },
+    o.shortfall > 0n && { label: "Bad debt for cover", value: `${formatMusd(o.shortfall)} MUSD` },
+  ];
+}
+
+/** Where a bid at the live price goes: the debt, the liquidation fee split three ways, the borrower's surplus. */
+function FeeSplit({ outcome: o, params }: { outcome: BidOutcome; params: LineParams }) {
+  const debtPart = o.toLine - o.fee;
+  const segments = [
+    { key: "debt", value: Number(debtPart / 10n ** 12n), color: "var(--line-1)", label: `Repays the debt: ${formatMusd(debtPart)} MUSD` },
+    { key: "lenders", value: Number(o.toLenders / 10n ** 12n), color: "var(--line-3)", label: `Fee to lenders: ${formatMusd(o.toLenders)} MUSD` },
+    { key: "treasury", value: Number(o.toTreasury / 10n ** 12n), color: "var(--line-5)", label: `Fee to the treasury: ${formatMusd(o.toTreasury)} MUSD` },
+    { key: "keeper", value: Number(o.toKeeper / 10n ** 12n), color: "var(--line-4)", label: `Fee to the keeper: ${formatMusd(o.toKeeper)} MUSD` },
+    { key: "surplus", value: Number(o.surplus / 10n ** 12n), color: "var(--line-idle)", label: `Back to the borrower: ${formatMusd(o.surplus)} MUSD`, hatched: true },
+  ];
+  return (
+    <div className={styles.split}>
+      <p className={styles.splitTitle}>Where a bid at this price goes</p>
+      <StackBar segments={segments} label={segments.filter((s) => s.value > 0).map((s) => s.label).join("; ")} />
+      <ul className={styles.splitList}>
+        {segments
+          .filter((s) => s.value > 0)
+          .map((s) => (
+            <li key={s.key}>
+              <span className={styles.splitSwatch} style={{ background: s.color }} aria-hidden="true" />
+              <span>{s.label.split(":")[0]}</span>
+              <span className="num">{s.label.split(": ")[1]}</span>
+            </li>
+          ))}
+        {o.shortfall > 0n ? (
+          <li>
+            <span className={styles.splitSwatch} style={{ background: "var(--color-danger)" }} aria-hidden="true" />
+            <span>Bad debt, covered by the voters first</span>
+            <span className="num">{formatMusd(o.shortfall)} MUSD</span>
+          </li>
+        ) : null}
+      </ul>
+      <Muted small>
+        The line keeps the debt plus up to {formatBps(params.liqFeeBps, 0)} of it.{" "}
+        {params.protocolShareBps === 0 ? (
+          <>The whole fee stays with the lenders.</>
+        ) : (
+          <>
+            Of that fee {formatBps(10_000 - params.protocolShareBps, 0)} stays with the lenders; the rest is split{" "}
+            {formatBps(10_000 - params.keeperShareBps, 0)} to the treasury and {formatBps(params.keeperShareBps, 0)} to
+            whoever started the auction. <AppLink href="/app/business">Where fees go</AppLink>
+          </>
+        )}
+      </Muted>
+    </div>
+  );
+}
+
+function AuctionCard({ env, a, params }: { env: ReadyEnv; a: AuctionView; params: LineParams | null }) {
   const tx = useTx();
   const wallet = useWallet();
   const now = useChainNow();
@@ -201,6 +265,18 @@ function AuctionCard({ env, a, fee }: { env: ReadyEnv; a: AuctionView; fee: numb
           ? `Your wallet holds ${formatMusd(musd)} MUSD.`
           : null;
   const shortfall = priceNow !== null && priceNow < a.debt ? a.debt - priceNow : 0n;
+  const fee = params?.liqFeeBps ?? null;
+  // Where a bid at the live price would go, as VeBTCCreditLine.bid books it.
+  const outcome =
+    priceNow !== null && params
+      ? bidOutcome({
+          price: priceNow,
+          debt: a.debt,
+          liqFeeBps: params.liqFeeBps,
+          protocolShareBps: params.protocolShareBps,
+          keeperShareBps: params.keeperShareBps,
+        })
+      : null;
 
   const plan = async (): Promise<TxPlan> => {
     const m = maxPrice!;
@@ -229,6 +305,7 @@ function AuctionCard({ env, a, fee }: { env: ReadyEnv; a: AuctionView; fee: numb
         { label: "Your max", value: `${formatMusd(m)} MUSD` },
         { label: "You receive", value: `veBTC #${a.tokenId}: ${formatBtc(a.lock.amount)} BTC locked` },
         { label: "Lock", value: a.lock.isPermanent ? "Permanent" : `Until ${formatDate(a.lock.end)}` },
+        ...(outcome ? splitRows(outcome) : []),
       ],
       notes: [
         fee === null
@@ -275,8 +352,13 @@ function AuctionCard({ env, a, fee }: { env: ReadyEnv; a: AuctionView; fee: numb
               { label: "Floor", value: `${formatMusd(a.floorPrice, 0)} MUSD` },
               { label: "Debt", value: `${formatMusd(a.debt, 0)} MUSD` },
               shortfall > 0n && { label: "Shortfall at this price", value: `${formatMusd(shortfall, 0)} MUSD` },
+              a.keeper && {
+                label: "Started by",
+                value: <ExplorerLink kind="address" value={a.keeper} />,
+              },
             ]}
           />
+          {outcome && params ? <FeeSplit outcome={outcome} params={params} /> : null}
           <AmountField
             label="Your max price"
             unit="MUSD"
@@ -342,5 +424,112 @@ function Liquidatable({ env }: { env: ReadyEnv }) {
         </Card>
       )}
     </Stack>
+  );
+}
+
+/* ---------- How an auction runs: the line's own parameters on an example loan ---------- */
+
+/** Collateral value of the example loan, MUSD. */
+const EXAMPLE_VALUE = 1_000n * WAD;
+
+function HowAuctionsRun({ params: p }: { params: LineParams }) {
+  const [ref, W] = useWidth<HTMLDivElement>(640);
+  const H = Math.max(200, Math.min(260, Math.round(W * 0.38)));
+  const value = EXAMPLE_VALUE;
+  const debt = (value * BigInt(p.liqLtvBps)) / BPS;
+  const floor = (value * BigInt(p.floorBps)) / BPS;
+  const owed = debt + (debt * BigInt(p.liqFeeBps)) / BPS;
+  const atFloor = bidOutcome({
+    price: floor,
+    debt,
+    liqFeeBps: p.liqFeeBps,
+    protocolShareBps: p.protocolShareBps,
+    keeperShareBps: p.keeperShareBps,
+  });
+  const n = (x: bigint) => Number(x / 10n ** 15n) / 1000;
+  const V = n(value);
+  const F = n(floor);
+  const D = n(debt);
+  const O = n(owed);
+  const duration = p.auctionDuration || 600;
+  const tail = duration * 0.2;
+  const yMax = V * 1.03;
+  const yMin = D * 0.88;
+  const x = (t: number) => PAD.l + (t / (duration + tail)) * (W - PAD.l - PAD.r);
+  const y = (v: number) => PAD.t + (1 - (v - yMin) / (yMax - yMin)) * (H - PAD.t - PAD.b);
+  const curve = `M ${x(0)} ${y(V)} L ${x(duration)} ${y(F)} L ${x(duration + tail)} ${y(F)}`;
+  const area = `${curve} L ${x(duration + tail)} ${y(yMin)} L ${x(0)} ${y(yMin)} Z`;
+  const cushionTop = y(F);
+  const cushionBottom = y(O);
+  const fmt = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const cushion = p.floorBps - p.liqLtvBps;
+  return (
+    <Card
+      title="How an auction runs"
+      description={`A loan reaches the ${formatBps(p.liqLtvBps, 0)} trigger. Its price starts at the full collateral value and falls to the ${formatBps(p.floorBps, 0)} floor over ${formatDuration(duration)}. Shown on 1,000 MUSD of collateral.`}
+    >
+      <div className={styles.auction}>
+        <div ref={ref}>
+          <svg
+            className={styles.chart}
+            viewBox={`0 0 ${W} ${H}`}
+            role="img"
+            aria-label={`Example: collateral worth ${fmt(V)} MUSD, debt ${fmt(D)} MUSD at the trigger. The auction price falls from ${fmt(V)} to the floor of ${fmt(F)} over ${formatDuration(duration)}. Even at the floor it covers the debt plus the fee, ${fmt(O)} MUSD.`}
+          >
+            <path className={styles.area} d={area} />
+            <rect
+              className={styles.cushion}
+              x={x(0)}
+              width={x(duration + tail) - x(0)}
+              y={cushionTop}
+              height={Math.max(0, cushionBottom - cushionTop)}
+            />
+            {[V, F].map((v) => (
+              <g key={v}>
+                <line className={styles.grid} x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} />
+                <text className={styles.label} x={PAD.l - 8} y={y(v) + 4} textAnchor="end">
+                  {fmt(v)}
+                </text>
+              </g>
+            ))}
+            <line className={styles.debt} x1={PAD.l} x2={W - PAD.r} y1={y(O)} y2={y(O)} />
+            <text className={styles.label} x={PAD.l - 8} y={y(O) + 4} textAnchor="end">
+              {fmt(O)}
+            </text>
+            <text className={styles.labelDanger} x={W - PAD.r} y={y(O) + 16} textAnchor="end">
+              debt + fee · {fmt(O)}
+            </text>
+            <text className={styles.labelStrong} x={W - PAD.r} y={(cushionTop + cushionBottom) / 2 + 4} textAnchor="end">
+              cushion · {formatBps(cushion, 0)} of value
+            </text>
+            <line className={styles.axis} x1={PAD.l} x2={W - PAD.r} y1={H - PAD.b} y2={H - PAD.b} />
+            <path className={styles.curve} d={curve} />
+            <text className={styles.label} x={x(0)} y={H - PAD.b + 18} textAnchor="start">
+              start · 100%
+            </text>
+            <text className={styles.label} x={x(duration)} y={H - PAD.b + 18} textAnchor="middle">
+              floor · {formatBps(p.floorBps, 0)}
+            </text>
+          </svg>
+        </div>
+        <div className={styles.side}>
+          <KeyValues
+            label="Example auction"
+            items={[
+              { label: "Collateral value", value: `${fmt(V)} MUSD` },
+              { label: `Debt at the ${formatBps(p.liqLtvBps, 0)} trigger`, value: `${fmt(D)} MUSD` },
+              { label: `Plus the ${formatBps(p.liqFeeBps, 0)} fee`, value: `${fmt(O)} MUSD` },
+              { label: `Floor price (${formatBps(p.floorBps, 0)})`, value: `${fmt(F)} MUSD` },
+            ]}
+          />
+          <FeeSplit outcome={atFloor} params={p} />
+          <Muted small>
+            So an auction that starts at the trigger repays lenders in full even if it clears at the floor. A sale at
+            the floor falls short of the debt only if BTC drops another{" "}
+            {formatBps(10_000 - Math.round((p.liqLtvBps * 10_000) / Math.max(1, p.floorBps)), 1)} after the trigger.
+          </Muted>
+        </div>
+      </div>
+    </Card>
   );
 }
