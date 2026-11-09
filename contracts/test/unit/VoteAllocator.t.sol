@@ -714,9 +714,9 @@ contract VoteAllocatorTest is AllocatorFixture {
     /// deallocate, which VaultV2 restricts to its adapters, so even a line listed with a foreign contract as its
     /// "adapter" receives nothing. The allocator itself never holds MUSD or vault shares.
     function test_onlyVaultOpsPossible() public {
-        // State-changing: rebalance (permissionless), setMaxRate / setSuretyPool and the
+        // State-changing: rebalance (permissionless), setMaxRate / setSuretyPool / setSavings / setParking and the
         // Ownable2Step functions (owner). Everything else is a view.
-        string[21] memory surface = [
+        string[26] memory surface = [
             "BPS()",
             "EPOCH_LENGTH()",
             "acceptOwnership()",
@@ -727,10 +727,15 @@ contract VoteAllocatorTest is AllocatorFixture {
             "ledger(uint256)",
             "lineAssets(uint256)",
             "owner()",
+            "parking()",
             "pendingOwner()",
             "rebalance()",
             "renounceOwnership()",
+            "savings()",
+            "savingsLedger()",
             "setMaxRate(uint256)",
+            "setParking(bool)",
+            "setSavings(address)",
             "setSuretyPool(address)",
             "suretyPool()",
             "targets()",
@@ -757,6 +762,10 @@ contract VoteAllocatorTest is AllocatorFixture {
         allocator.setMaxRate(0);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
         allocator.setSuretyPool(stranger);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
+        allocator.setSavings(stranger);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
+        allocator.setParking(true);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
         allocator.transferOwnership(stranger);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));

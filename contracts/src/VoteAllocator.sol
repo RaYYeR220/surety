@@ -18,8 +18,9 @@ import {MAX_MAX_RATE, WAD} from "vault-v2/libraries/ConstantsLib.sol";
 
 import {ICreditVoter} from "./interfaces/ICreditVoter.sol";
 import {IPriceSource} from "./interfaces/IPriceSource.sol";
+import {ISavingsAdapter} from "./interfaces/ISavingsAdapter.sol";
 import {ISuretyLine} from "./interfaces/ISuretyLine.sol";
-import {ISuretyPool} from "./interfaces/ISuretyPool.sol";
+import {ISuretyPool, SAVINGS_LINE_ID} from "./interfaces/ISuretyPool.sol";
 import {IVoteAllocator} from "./interfaces/IVoteAllocator.sol";
 import {LineIds} from "./libraries/LineIds.sol";
 
@@ -39,8 +40,17 @@ import {LineIds} from "./libraries/LineIds.sol";
 ///   unvoted lines target zero. When several lines grow into one shared cap, targets are upper bounds: caps are
 ///   re-checked before each allocation, in line order.
 /// - Moves: overweight lines are deallocated first, bounded by what they can pay out now (Morpho market liquidity,
-///   veBTC line cash), then underweight lines are allocated from idle assets above the buffer. Nothing reverts on an
-///   illiquid line; a re-run inside the epoch continues the move. A move the vault rejects is skipped and reported.
+///   veBTC line cash), then underweight lines are allocated from the vault's cash above the buffer. Nothing reverts
+///   on an illiquid line; a re-run inside the epoch continues the move. A move the vault rejects is skipped and
+///   reported.
+/// - Savings (once `setSavings` is called): the vault's cash is its idle MUSD plus what the SavingsAdapter holds in
+///   sMUSD, which is also the vault's liquidity adapter while parking is on (deposits land there, withdrawals pull
+///   from it). A line is funded from idle MUSD first, then from savings, withdrawn just before the line's
+///   allocation; every run ends by parking all idle MUSD (what deallocations, forced exits and covers left there)
+///   back in savings. Savings is not a line: no votes, no target, no cap room; the buffer stays in it. With parking
+///   off, the run brings everything in savings back to idle and funds lines from idle only. If savings cannot pay
+///   (sMUSD withdrawals revert), the move is reported, lines are funded from idle above the buffer only, and the
+///   run parks nothing.
 /// - Losses: each rebalance has the pool checkpoint every line before it measures, and again after its moves so the
 ///   pool values a later Morpho loss on the adapter's shares as this run left them. A checkpoint that fails is
 ///   reported and skipped; it never blocks the run.
@@ -52,12 +62,17 @@ import {LineIds} from "./libraries/LineIds.sol";
 ///     bad debt lowers it, so nobody else's moves change the result; a drop measures zero (the pool handles it as a
 ///     loss).
 ///   - veBTC lines: the line's cumulative `interestEarnedTotal()`, and measures its increase.
-///   Interest accumulates until the first rebalance of the next epoch hands it to `SuretyPool.distributeFees`.
+///   - Savings: the SavingsAdapter's cumulative `interestEarnedTotal()` (sMUSD yield paid plus claimable), measured
+///     against the highest value seen, at the start of each run.
+///   Interest accumulates until the first rebalance of the next epoch hands it to `SuretyPool.distributeFees`; the
+///   savings yield is reported under SAVINGS_LINE_ID, so the fee VaultV2 took on it goes to the reserve, not to the
+///   line cohorts.
 /// Trust: the only capital moves are VaultV2 `allocate` / `deallocate` with the adapter and data the CreditVoter lists
 /// for a line (validated and, after its bootstrap, timelocked there). VaultV2 rejects addresses that are not its
 /// adapters and enforces the caps; tokens never pass through this contract. A veBTC line's own calls (ids, paused,
 /// oracle, cash, interest counter) are guarded, so a line whose calls revert only makes itself ineligible. The owner
-/// can only set the pool once and set the vault's max rate within VaultV2's bound.
+/// can only set the pool and the savings adapter once each, switch parking in savings on or off, and set the
+/// vault's max rate within VaultV2's bound.
 contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient {
     using MarketParamsLib for MarketParams;
     using MorphoBalancesLib for IMorpho;
@@ -130,8 +145,14 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     uint256 public lastRebalanceEpoch;
     /// @notice Lines with a baseline (ids below this). Lines listed later join at their next rebalance.
     uint256 public trackedLines;
+    /// @notice The vault's SavingsAdapter, where idle MUSD is parked; zero until set. Set once.
+    address public savings;
+    /// @notice Whether idle MUSD is parked in `savings`, which is then the vault's liquidity adapter.
+    bool public parking;
 
     mapping(uint256 lineId => Ledger) internal ledgers;
+    /// @dev Savings yield measured since the last attribution, and the adapter's counter at its highest so far.
+    Ledger internal savingsBook;
 
     /// @param interest Interest each line earned since the previous rebalance.
     event Rebalanced(
@@ -145,11 +166,22 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     event CheckpointFailed(uint256 indexed lineId, bytes reason);
     event SuretyPoolSet(address indexed pool);
     event MaxRateSet(uint256 maxRate);
+    event SavingsSet(address indexed adapter);
+    /// @param parking Whether idle MUSD is now parked in savings (and savings is the vault's liquidity adapter).
+    event ParkingSet(bool parking);
+    /// @notice The vault rejected a move into (`allocation`) or out of savings; the cash stays where it is.
+    event SavingsMoveFailed(bool allocation, uint256 assets, bytes reason);
+    /// @notice Savings yield handed to the pool with the fees of `cohortEpoch`; its fee part goes to the reserve.
+    event SavingsInterestAttributed(uint256 indexed cohortEpoch, uint256 interest);
 
     error ZeroAddress();
     error BadIdleBuffer();
     error SuretyPoolAlreadySet();
     error MaxRateTooHigh();
+    error SavingsAlreadySet();
+    error NoSavings();
+    error UnsupportedSavings();
+    error SavingsCapsUnset();
 
     /// @param vault_ The Surety VaultV2; this contract must be granted its allocator role.
     /// @param voter_ CreditVoter listing the lines and their tallies.
@@ -182,6 +214,33 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         vault.setMaxRate(newMaxRate);
     }
 
+    /// @notice Sets the SavingsAdapter once and turns parking on, which makes it the vault's liquidity adapter.
+    /// @dev The adapter must belong to the vault and already be one of its adapters, with a non-zero absolute cap and
+    /// a 100% relative cap on its id: as the liquidity adapter it takes every deposit, and a cap it hits would make
+    /// deposits revert. Its interest counter is read now as the baseline.
+    function setSavings(address adapter) external onlyOwner {
+        if (adapter == address(0)) revert ZeroAddress();
+        if (savings != address(0)) revert SavingsAlreadySet();
+        if (ISavingsAdapter(adapter).parentVault() != address(vault) || !vault.isAdapter(adapter)) {
+            revert UnsupportedSavings();
+        }
+        bytes32 id = ISavingsAdapter(adapter).adapterId();
+        if (vault.absoluteCap(id) == 0 || vault.relativeCap(id) != WAD) revert SavingsCapsUnset();
+        savings = adapter;
+        (bool ok, uint256 earned) = _earnedOf(adapter);
+        if (ok) savingsBook.earned = earned;
+        emit SavingsSet(adapter);
+        _setParking(true);
+    }
+
+    /// @notice Turns parking in savings on or off. Off unsets the vault's liquidity adapter, so deposits stay idle
+    /// and withdrawals use idle MUSD only; the next rebalance brings what savings holds back to idle. For when sMUSD
+    /// misbehaves (deposits or withdrawals revert), or before the curator removes the adapter.
+    function setParking(bool on) external onlyOwner {
+        if (savings == address(0)) revert NoSavings();
+        _setParking(on);
+    }
+
     /* Rebalance */
 
     /// @notice Moves vault capital toward the vote-weighted targets and, on the first call of an epoch, hands the
@@ -192,6 +251,7 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         LineState[] memory lines = _loadLines();
         _checkpointLosses(lines.length);
         uint256[] memory interest = _measure(lines);
+        _measureSavings();
 
         bool newEpoch = epoch > lastRebalanceEpoch;
         uint256 tallyEpoch = newEpoch ? _tallyEpoch(epoch, lines) : activeTallyEpoch;
@@ -199,7 +259,8 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         uint256 firstTotal = vault.firstTotalAssets();
         _setTargets(lines, tallyEpoch, total, firstTotal);
         _deallocateOverweight(lines);
-        _allocateUnderweight(lines, total, firstTotal);
+        bool savingsPaid = _allocateUnderweight(lines, total, firstTotal);
+        _settleSavings(savingsPaid);
         // Again after the moves, so the pool's Morpho marks hold the adapter's shares as this run left them.
         _checkpointLosses(lines.length);
 
@@ -238,6 +299,12 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     /// @notice Interest ledger of `lineId`: see `Ledger`.
     function ledger(uint256 lineId) external view returns (Ledger memory) {
         return ledgers[lineId];
+    }
+
+    /// @notice Savings yield ledger: `pendingInterest` since the last attribution and `earned`, the adapter's
+    /// counter at its highest so far (the other fields are unused).
+    function savingsLedger() external view returns (Ledger memory) {
+        return savingsBook;
     }
 
     /* Internals: lines */
@@ -412,14 +479,23 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         }
     }
 
-    /// @dev Funds underweight lines in id order from idle assets above the buffer. Caps are re-read before each move
-    /// against the allocations the deallocations actually left, so lines contending for a shared cap are served in
-    /// id order and a line that could not release does not let another overshoot.
-    function _allocateUnderweight(LineState[] memory lines, uint256 total, uint256 firstTotal) internal {
+    /// @dev Funds underweight lines in id order from the vault's cash above the buffer: idle MUSD plus what is
+    /// parked in savings, withdrawn from savings just before the allocation that needs it. Caps are re-read before
+    /// each move against the allocations the deallocations actually left, so lines contending for a shared cap are
+    /// served in id order and a line that could not release does not let another overshoot. If savings cannot pay,
+    /// lines are funded from idle MUSD above the buffer only.
+    /// @return savingsPaid False if a withdrawal from savings failed.
+    function _allocateUnderweight(LineState[] memory lines, uint256 total, uint256 firstTotal)
+        internal
+        returns (bool savingsPaid)
+    {
+        savingsPaid = true;
         for (uint256 j; j < lines.length; ++j) {
             lines[j].release = 0;
         }
-        uint256 available = _floorSub(asset.balanceOf(address(vault)), Math.mulDiv(total, idleBufferBps, BPS));
+        uint256 buffer = Math.mulDiv(total, idleBufferBps, BPS);
+        uint256 parked = parking ? ISavingsAdapter(savings).realAssets() : 0;
+        uint256 available = _floorSub(asset.balanceOf(address(vault)) + parked, buffer);
         for (uint256 i = 0; i < lines.length && available != 0; ++i) {
             LineState memory l = lines[i];
             if (l.target == 0) continue;
@@ -427,8 +503,61 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
             uint256 assets = _assetsOf(l);
             if (assets + goal / MOVE_TOLERANCE >= goal) continue;
             uint256 amount = Math.min(goal - assets, available);
-            if (_move(i, l, amount, true)) available -= amount;
+            uint256 idle = asset.balanceOf(address(vault));
+            if (amount > idle && parked != 0) {
+                uint256 pull = Math.min(amount - idle, parked);
+                if (_moveSavings(pull, false)) {
+                    parked -= pull;
+                    idle += pull;
+                } else {
+                    savingsPaid = false;
+                    parked = 0;
+                    available = Math.min(available, _floorSub(idle, buffer));
+                }
+            }
+            amount = Math.min(amount, Math.min(available, idle));
+            if (amount != 0 && _move(i, l, amount, true)) available -= amount;
         }
+    }
+
+    /// @dev With parking on, parks all idle MUSD in savings, unless savings failed to pay in this run (idle MUSD then
+    /// stays liquid); with it off, brings everything in savings back to idle.
+    function _settleSavings(bool savingsPaid) internal {
+        address adapter = savings;
+        if (adapter == address(0)) return;
+        if (parking) {
+            if (!savingsPaid) return;
+            uint256 idle = asset.balanceOf(address(vault));
+            if (idle != 0) _moveSavings(idle, true);
+        } else {
+            uint256 parked = ISavingsAdapter(adapter).realAssets();
+            if (parked != 0) _moveSavings(parked, false);
+        }
+    }
+
+    /// @dev One VaultV2 allocate/deallocate on savings; a rejection is reported, not propagated.
+    function _moveSavings(uint256 assets, bool allocation) internal returns (bool) {
+        address adapter = savings;
+        if (allocation) {
+            try vault.allocate(adapter, "", assets) {
+                return true;
+            } catch (bytes memory reason) {
+                emit SavingsMoveFailed(true, assets, reason);
+            }
+        } else {
+            try vault.deallocate(adapter, "", assets) {
+                return true;
+            } catch (bytes memory reason) {
+                emit SavingsMoveFailed(false, assets, reason);
+            }
+        }
+        return false;
+    }
+
+    function _setParking(bool on) internal {
+        parking = on;
+        emit ParkingSet(on);
+        vault.setLiquidityAdapterAndData(on ? savings : address(0), "");
     }
 
     /// @dev One VaultV2 allocate/deallocate. A rejection is reported, not propagated, so one broken line cannot
@@ -492,6 +621,19 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         return ok ? _floorSub(earned, book.earned) : 0;
     }
 
+    /// @dev Adds the savings yield since the counter's highest value to the pending interest. The counter is
+    /// measured before the moves and not again after them: moves do not change it, and yield sMUSD distributes
+    /// during them is then measured by the next run. A counter that cannot be read waits for a later run.
+    function _measureSavings() internal {
+        address adapter = savings;
+        if (adapter == address(0)) return;
+        (bool ok, uint256 earned) = _earnedOf(adapter);
+        Ledger storage book = savingsBook;
+        if (!ok || earned <= book.earned) return;
+        book.pendingInterest += earned - book.earned;
+        book.earned = earned;
+    }
+
     /// @dev Snapshots every line after the moves: Morpho shares and share price, veBTC interest counter.
     function _snapshot(LineState[] memory lines)
         internal
@@ -525,7 +667,8 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
         (supplyAssets, supplyShares,,) = morpho.expectedMarketBalances(l.params);
     }
 
-    /// @dev The veBTC line's interest counter; `ok` is false if the call reverts or returns something malformed.
+    /// @dev A veBTC line's or the savings adapter's interest counter; `ok` is false if the call reverts or returns
+    /// something malformed.
     function _earnedOf(address adapter) internal view returns (bool ok, uint256 earned) {
         bytes memory ret;
         (ok, ret) = adapter.staticcall(abi.encodeCall(ISuretyLine.interestEarnedTotal, ()));
@@ -534,24 +677,41 @@ contract VoteAllocator is IVoteAllocator, Ownable2Step, ReentrancyGuardTransient
     }
 
     /// @dev First rebalance of `epoch`: hands the pending interest to the pool for the cohort whose tally drove the
-    /// allocation until now, then switches to `tallyEpoch`. Skipped (interest dropped) on the very first rebalance
-    /// and while no pool is set.
+    /// allocation until now, then switches to `tallyEpoch`. With savings set, its yield follows the lines' interest
+    /// under SAVINGS_LINE_ID. Skipped (interest dropped) on the very first rebalance and while no pool is set.
     function _closeEpoch(uint256 epoch, uint256 tallyEpoch, uint256[] memory lineIds) internal {
         uint256 cohortEpoch = activeTallyEpoch;
         address pool = suretyPool;
         bool attribute = lastRebalanceEpoch != 0 && pool != address(0);
+        bool withSavings = savings != address(0);
 
-        uint256[] memory earned = new uint256[](lineIds.length);
-        for (uint256 i; i < lineIds.length; ++i) {
+        uint256 n = lineIds.length;
+        uint256[] memory earned = new uint256[](n);
+        for (uint256 i; i < n; ++i) {
             earned[i] = ledgers[i].pendingInterest;
             ledgers[i].pendingInterest = 0;
         }
+        uint256 savingsInterest = savingsBook.pendingInterest;
+        savingsBook.pendingInterest = 0;
         activeTallyEpoch = tallyEpoch;
         lastRebalanceEpoch = epoch;
 
         if (!attribute) return;
         emit InterestAttributed(cohortEpoch, lineIds, earned);
-        ISuretyPool(pool).distributeFees(cohortEpoch, lineIds, earned);
+        if (!withSavings) {
+            ISuretyPool(pool).distributeFees(cohortEpoch, lineIds, earned);
+            return;
+        }
+        emit SavingsInterestAttributed(cohortEpoch, savingsInterest);
+        uint256[] memory ids = new uint256[](n + 1);
+        uint256[] memory amounts = new uint256[](n + 1);
+        for (uint256 i; i < n; ++i) {
+            ids[i] = lineIds[i];
+            amounts[i] = earned[i];
+        }
+        ids[n] = SAVINGS_LINE_ID;
+        amounts[n] = savingsInterest;
+        ISuretyPool(pool).distributeFees(cohortEpoch, ids, amounts);
     }
 
     function _floorSub(uint256 a, uint256 b) internal pure returns (uint256) {

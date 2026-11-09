@@ -53,6 +53,9 @@ import {MockVeBTC} from "../mocks/MockVeBTC.sol";
 ///   penalties on both adapters, the DepositGate as the vault's receive-shares gate, and the Morpho line's loss mark
 ///   set. Unit fixtures that assemble their own pieces override it; until
 ///   then `admin` is a vault allocator.
+/// - `withSavings` (assign before `super.setUp()`) also deploys a mock sMUSD and a SavingsAdapter (SAVINGS_CAP, 100%
+///   relative cap, the force-deallocate penalty) and has the VoteAllocator park idle MUSD in it, which makes it the
+///   vault's liquidity adapter.
 /// - VaultV2 accrues interest once per transaction (transient `firstTotalAssets`). Forge resets transient storage
 ///   between top-level calls of a test, so each call from a test behaves like its own transaction.
 abstract contract SuretyFixture is Test {
@@ -94,6 +97,8 @@ abstract contract SuretyFixture is Test {
 
     /// @dev Epoch length used by Surety contracts and `_warpEpochs`. Assign before `super.setUp()` to change it.
     uint256 internal EPOCH_LENGTH = 1 weeks;
+    /// @dev Whether `_deploySurety` parks idle MUSD in sMUSD. Assign before `super.setUp()`.
+    bool internal withSavings;
 
     address internal admin;
 
@@ -260,6 +265,11 @@ abstract contract SuretyFixture is Test {
         _curate(abi.encodeCall(IVaultV2.setForceDeallocatePenalty, (address(line), FORCE_DEALLOCATE_PENALTY)));
         vm.prank(admin);
         allocator.setMaxRate(MAX_MAX_RATE);
+        if (withSavings) {
+            _deploySavings();
+            vm.prank(admin);
+            allocator.setSavings(address(savings));
+        }
 
         // New shares wait while a loss is pending, uncovered or being re-recognised (the pool always receives).
         gate = new DepositGate(pool);
