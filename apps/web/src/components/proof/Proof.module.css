@@ -95,3 +95,98 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- v1 and v2 side by side ---------- */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.sectionTitle {
+  font-family: var(--heading-font);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-4);
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.contracts {
+  list-style: none;
+  display: grid;
+  font-size: var(--text-sm);
+  border-top: var(--border-width) solid var(--color-line);
+}
+
+.contract {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 5.5em;
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--color-line);
+}
+
+.contractName {
+  overflow-wrap: anywhere;
+}
+
+.source {
+  text-align: right;
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 420px) {
+  .contract {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .source {
+    grid-column: 2;
+  }
+}
+
+.pad {
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+.after {
+  margin-top: var(--space-3);
+}
+
+/* Escrow steps stand out in the full lists; the targeted row (from a link) is outlined. */
+.tx[data-escrow] {
+  background: var(--color-accent-soft);
+  margin: 0 calc(-1 * var(--space-3));
+  padding-left: var(--space-3);
+  padding-right: var(--space-3);
+  border-radius: var(--radius-chip);
+}
+
+.tx:target {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+  scroll-margin-top: calc(var(--header-height) + var(--space-5));
+}
+
+a.step {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.step:hover {
+  text-decoration: underline;
+}
