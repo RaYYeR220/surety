@@ -4,7 +4,62 @@ Every public claim about Surety points to something that can be checked: a verif
 
 ## Verified contracts
 
-### Mezo testnet (31611)
+### Mezo testnet (31611), v2
+
+All 18 Surety contracts in [`contracts/deployments/31611.json`](../contracts/deployments/31611.json) are verified on Sourcify with an exact match (runtime bytecode and metadata). Checked on 2026-11-09. The deployment also uses Mezo's own testnet Morpho Blue ([`0xCe1d…5a73`](https://explorer.test.mezo.org/address/0xCe1da828cA15cb1FDAfa84C366A53C8106655a73)) and AdaptiveCurveIrm ([`0x0c97…7441`](https://explorer.test.mezo.org/address/0x0c97Fe017628636649ff374aD499529F91167441)), both verified on Mezo's explorer since May 2026, months before Surety's first deployment.
+
+| Contract | Address | Sourcify | Explorer |
+| --- | --- | --- | --- |
+| Surety vault (VaultV2, srMUSD) | `0x52aD2746994a1BC318cDf09b81f7831fB9Af03b8` | [source](https://repo.sourcify.dev/31611/0x52aD2746994a1BC318cDf09b81f7831fB9Af03b8) | [explorer](https://explorer.test.mezo.org/address/0x52aD2746994a1BC318cDf09b81f7831fB9Af03b8) |
+| MorphoMarketV1AdapterV2 | `0x6F31B144b51083FBbb8EA160F6f6772e37f4b79b` | [source](https://repo.sourcify.dev/31611/0x6F31B144b51083FBbb8EA160F6f6772e37f4b79b) | [explorer](https://explorer.test.mezo.org/address/0x6F31B144b51083FBbb8EA160F6f6772e37f4b79b) |
+| SavingsAdapter | `0x28eDb116683608Db6722dd440627A16FC7Bd30E4` | [source](https://repo.sourcify.dev/31611/0x28eDb116683608Db6722dd440627A16FC7Bd30E4) | [explorer](https://explorer.test.mezo.org/address/0x28eDb116683608Db6722dd440627A16FC7Bd30E4) |
+| CreditVoter | `0x16D36BECF7D25af55C1658f428e33Ff34388f255` | [source](https://repo.sourcify.dev/31611/0x16D36BECF7D25af55C1658f428e33Ff34388f255) | [explorer](https://explorer.test.mezo.org/address/0x16D36BECF7D25af55C1658f428e33Ff34388f255) |
+| VoteAllocator | `0x69Ef3397c2ffb4B23A8Fd7154243aA9C215673c0` | [source](https://repo.sourcify.dev/31611/0x69Ef3397c2ffb4B23A8Fd7154243aA9C215673c0) | [explorer](https://explorer.test.mezo.org/address/0x69Ef3397c2ffb4B23A8Fd7154243aA9C215673c0) |
+| SuretyPool | `0xc9Ca8a280d6c339c3169DEEEFB2e08FcB42AcDE0` | [source](https://repo.sourcify.dev/31611/0xc9Ca8a280d6c339c3169DEEEFB2e08FcB42AcDE0) | [explorer](https://explorer.test.mezo.org/address/0xc9Ca8a280d6c339c3169DEEEFB2e08FcB42AcDE0) |
+| DepositGate | `0xfAa1c07591b596cB3aa5D6b8054AE3d6a7Fbd8C7` | [source](https://repo.sourcify.dev/31611/0xfAa1c07591b596cB3aa5D6b8054AE3d6a7Fbd8C7) | [explorer](https://explorer.test.mezo.org/address/0xfAa1c07591b596cB3aa5D6b8054AE3d6a7Fbd8C7) |
+| VeBTCCreditLine | `0x390B074E003559Cc1868cac0D06A4364BdeDb6f1` | [source](https://repo.sourcify.dev/31611/0x390B074E003559Cc1868cac0D06A4364BdeDb6f1) | [explorer](https://explorer.test.mezo.org/address/0x390B074E003559Cc1868cac0D06A4364BdeDb6f1) |
+| LoanEscrow implementation | `0x8d4A899372b543641468731B65f05CF74bA7ec6D` | [source](https://repo.sourcify.dev/31611/0x8d4A899372b543641468731B65f05CF74bA7ec6D) | [explorer](https://explorer.test.mezo.org/address/0x8d4A899372b543641468731B65f05CF74bA7ec6D) |
+| LinearKinkIrm (veBTC line) | `0x5067524ECfFEa0A43c7eA49BBe4D73663E28a667` | [source](https://repo.sourcify.dev/31611/0x5067524ECfFEa0A43c7eA49BBe4D73663E28a667) | [explorer](https://explorer.test.mezo.org/address/0x5067524ECfFEa0A43c7eA49BBe4D73663E28a667) |
+| ShareMarket | `0x226EA3452D4238fE7Ff5a5600B5bCd991082e51a` | [source](https://repo.sourcify.dev/31611/0x226EA3452D4238fE7Ff5a5600B5bCd991082e51a) | [explorer](https://explorer.test.mezo.org/address/0x226EA3452D4238fE7Ff5a5600B5bCd991082e51a) |
+| MusdPeg | `0xd54D93aa56B080df424847142A1aaac59bB760AB` | [source](https://repo.sourcify.dev/31611/0xd54D93aa56B080df424847142A1aaac59bB760AB) | [explorer](https://explorer.test.mezo.org/address/0xd54D93aa56B080df424847142A1aaac59bB760AB) |
+| StressedPegSource (the peg's testnet source) | `0xA6108bCb61a3F6C8A0D9869601368271DCA00E64` | [source](https://repo.sourcify.dev/31611/0xA6108bCb61a3F6C8A0D9869601368271DCA00E64) | [explorer](https://explorer.test.mezo.org/address/0xA6108bCb61a3F6C8A0D9869601368271DCA00E64) |
+| BtcMusdPriceSource (lines' price) | `0x457D8E3190DD5E75f6C5023231E33B1D687fd183` | [source](https://repo.sourcify.dev/31611/0x457D8E3190DD5E75f6C5023231E33B1D687fd183) | [explorer](https://explorer.test.mezo.org/address/0x457D8E3190DD5E75f6C5023231E33B1D687fd183) |
+| StressedPriceSource (BTC/USD) | `0x054AE6B3c0E06F13856Abf8c8c76E40f51CdcC08` | [source](https://repo.sourcify.dev/31611/0x054AE6B3c0E06F13856Abf8c8c76E40f51CdcC08) | [explorer](https://explorer.test.mezo.org/address/0x054AE6B3c0E06F13856Abf8c8c76E40f51CdcC08) |
+| SkipPriceSource | `0x9F7Ce9D147920f2499840163858C23d1A165EFe8` | [source](https://repo.sourcify.dev/31611/0x9F7Ce9D147920f2499840163858C23d1A165EFe8) | [explorer](https://explorer.test.mezo.org/address/0x9F7Ce9D147920f2499840163858C23d1A165EFe8) |
+| MorphoPriceOracle | `0xfC1F49bFdE8A69e8d893dF8e976401232e6600Cc` | [source](https://repo.sourcify.dev/31611/0xfC1F49bFdE8A69e8d893dF8e976401232e6600Cc) | [explorer](https://explorer.test.mezo.org/address/0xfC1F49bFdE8A69e8d893dF8e976401232e6600Cc) |
+| Sponsor (starter kits) | `0x085c6e2a022363c8F8811C4242F32373055d9BA8` | [source](https://repo.sourcify.dev/31611/0x085c6e2a022363c8F8811C4242F32373055d9BA8) | [explorer](https://explorer.test.mezo.org/address/0x085c6e2a022363c8F8811C4242F32373055d9BA8) |
+
+Mezo's Blockscout verifier currently lists no Solidity compiler versions, so no contract can be verified there for now:
+
+```sh
+curl -s https://api.explorer.test.mezo.org/api/v2/smart-contracts/verification/config | grep -o '"solidity_compiler_versions":\[[^]]*\]'
+# "solidity_compiler_versions":[]      (the same on api.explorer.mezo.org, checked 2026-11-09)
+```
+
+### Configuration on chain, v2
+
+Each line below can be run as is against the testnet RPC (`--rpc-url https://rpc.test.mezo.org`). Values were read on 2026-11-09.
+
+| What | Call | Value |
+| --- | --- | --- |
+| The VoteAllocator is the vault's allocator, the deployer is not | `cast call 0x52aD2746994a1BC318cDf09b81f7831fB9Af03b8 "isAllocator(address)(bool)" 0x69Ef3397c2ffb4B23A8Fd7154243aA9C215673c0` (and `0x37D5…C282`) | `true` (`false`) |
+| Performance fee is 10%, paid to the SuretyPool | `performanceFee()(uint96)`, `performanceFeeRecipient()(address)` on the vault | `1e17`, `0xc9Ca…cDE0` |
+| Management fee is 0.20% a year, paid to the treasury | `managementFee()(uint96)`, `managementFeeRecipient()(address)` on the vault | `63419583` (0.002e18 / 31,536,000), `0x37D5…C282` |
+| Idle MUSD parks in sMUSD | `liquidityAdapter()(address)` on the vault; `parking()(bool)` on the VoteAllocator | `0x28eD…30E4` (SavingsAdapter), `true` |
+| The DepositGate is the receive-shares gate and lets the treasury through | `receiveSharesGate()(address)` on the vault; `treasury()(address)` on the gate | `0xfAa1…d8C7`, `0x37D5…C282` |
+| Max rate is 200% a year | `maxRate()(uint64)` on the vault | `63419583967` |
+| Forced-exit penalty is 1%, savings included | `forceDeallocatePenalty(address)(uint256)` for each adapter | `1e16` |
+| Savings cap | `absoluteCap(bytes32)` for the savings adapter id | `1e27` |
+| veBTC line parameters | `params()(uint16,uint16,uint16,uint16,uint16,uint32,uint32,uint16,uint16,uint16)` on the VeBTCCreditLine | `5000 4000 6500 300 8500 600 3600 25 2000 5000` |
+| The line's fees go to the treasury, and its peg check is on | `treasury()(address)`, `pegCheck()(bool)` on the VeBTCCreditLine | `0x37D5…C282`, `true` |
+| Peg thresholds | `minSources()`, `maxSpreadBps()`, `bandBps()`, `pegHealthy()(bool)` on the MusdPeg | `1`, `1000`, `300`, `true` |
+| Premium cap | `maxPremiumBps()(uint16)` on the BtcMusdPriceSource | `300` |
+| The allocator funds lines | `pegGateOpen()(bool)` on the VoteAllocator | `true` |
+| ShareMarket fee | `feeBps()(uint16)`, `treasury()(address)` on the ShareMarket | `10`, `0x37D5…C282` |
+| Starter kits | `kitsLeft()(uint256)`, `dailyLimit()(uint256)` on the Sponsor | `4`, `100` |
+| Line listing is closed to instant adds; epochs and seasoning | `bootstrapEnded()(bool)`, `EPOCH_LENGTH()` on the CreditVoter; `SEASON()` on the SuretyPool | `true`, `3600`, `4` |
+
+### Mezo testnet (31611), v1
 
 All 14 contracts in [`contracts/deployments/v1/31611.json`](../contracts/deployments/v1/31611.json) are verified on Sourcify with an exact match (metadata and bytecode). Checked on 2026-10-24.
 
@@ -34,7 +89,7 @@ curl -s https://sourcify.dev/server/v2/contract/31611/0xEF54E2e74118B0ea58Eb4226
 
 ### Configuration on chain
 
-Each line below can be run as is against the testnet RPC (`--rpc-url https://rpc.test.mezo.org`). Values were read on 2026-10-24.
+The v1 testnet deployment. Each line below can be run as is against the testnet RPC (`--rpc-url https://rpc.test.mezo.org`). Values were read on 2026-10-24.
 
 | What | Call | Value |
 | --- | --- | --- |
@@ -62,7 +117,7 @@ Mezo's explorer serves the verified sources of a contract at `https://api.explor
 | AdaptiveCurveIrm [`0x3760…C1e7`](https://explorer.mezo.org/address/0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7) | 11 | all identical to `contracts/lib/morpho-blue-irm` at `10be222` |
 | Morpho Blue [`0x5658…A311`](https://explorer.mezo.org/address/0x565834cE7E40b8987BC20EbF83E2159467bDA311) | 14 | 12 identical to `contracts/lib/morpho-blue` at `792a3c9`; 2 differ only in one NatSpec comment each (`IMorpho.sol`, `ErrorsLib.sol`) |
 
-The deployed bytecode differs from Mezo's because Surety compiles with its own settings (solc 0.8.28, optimizer at 200 runs; Mezo's VaultV2 was built with via-IR at 100,000 runs). On mainnet Surety will use Mezo's own Morpho Blue and IRM; the vendored Morpho Blue is deployed on testnet only.
+The deployed bytecode differs from Mezo's because Surety compiles with its own settings (solc 0.8.28, optimizer at 200 runs; Mezo's VaultV2 was built with via-IR at 100,000 runs). Surety uses Mezo's own Morpho Blue and IRM on mainnet, and in v2 on testnet too; the vendored Morpho Blue was deployed only for the v1 testnet deployment.
 
 ### Mezo mainnet (31612)
 
@@ -285,39 +340,60 @@ VaultV2 recognises the 118.63 MUSD at no more than 200% a year of its total asse
 
 ## Tests
 
+Counts at `23f8596`, run on 2026-11-09.
+
 ### Foundry
 
 ```sh
 cd contracts
 forge test
-# Ran 16 test suites: 197 tests passed, 0 failed, 1 skipped (198 total tests)
+# Ran 36 test suites: 379 tests passed, 0 failed, 4 skipped (383 total tests)
 forge test --summary   # per-suite table
 ```
 
 | Suite | Passed |
 | --- | --- |
+| `VeBTCCreditLineTest` | 40 |
+| `SuretyPoolTest` | 35 |
 | `CreditVoterTest` | 34 |
-| `SuretyPoolTest` | 32 |
-| `VeBTCCreditLineTest` | 31 |
+| `PegTest` | 26 |
 | `VoteAllocatorTest` | 22 |
-| `VoteAllocatorLossTest` | 1 |
 | `MezoMocksTest` | 21 |
-| `OraclesTest` | 18 |
+| `OraclesTest` | 21 |
+| `ShareMarketTest` | 21 |
+| `SavingsAdapterTest` | 17 |
+| `SponsorTest` | 16 |
+| `VoteAllocatorSavingsTest` | 11 |
+| `HarvestTest` | 9 |
 | `FixtureTest` | 7 |
 | `LinearKinkIrmTest` | 6 |
 | `LoanEscrowTest` | 5 |
+| `DepositGateTest` | 4 |
 | `EpochLibTest` | 4 |
-| `DepositGateTest` | 2 |
+| `ShareMarketFuzzTest` | 3 |
+| `VoteAllocatorLossTest` | 1 |
+| `LifecycleSavingsTest` (integration: `LifecycleTest`'s 3 with sMUSD parking, plus 2) | 5 |
 | `LifecycleTest` (integration) | 3 |
-| `AuditPoCTest` (review regressions) | 10 |
-| `SuretyInvariants` (7 invariants, 256 runs × 64 calls) | 1 |
-| `LiveMezoTest` (fork, opt-in) | 0, 1 skipped |
+| `ShareMarketSuretyTest` (integration) | 2 |
+| `SponsorSuretyTest` (integration) | 1 |
+| `DeployScriptTest` (the deploy script against local stand-ins for Mezo) | 7 |
+| `AuditPoCTest` (v1 review regressions) | 10 |
+| `AuditV2GateTest` (v2 review: 3 regressions, plus `SuretyPoolTest` re-run with the production fees) | 38 |
+| `AuditV2GateLifecycleTest` (v2 review: 1 regression, plus `LifecycleTest` re-run) | 4 |
+| `AuditV2LineTest` (v2 review regressions) | 2 |
+| `AuditV2PegTest` (v2 review regression) | 1 |
+| `SuretyInvariants` (9 invariants, 256 runs × 64 calls) | 1 |
+| `SuretyInvariantsWithSavings` (the same 9 with sMUSD parking) | 1 |
+| `LineInvariants` (6 invariants, 256 runs × 64 calls) | 1 |
+| `LiveMezoTest`, `LivePegTest`, `LiveSavingsTest`, `AuditV2ForkTest` (fork, opt-in) | 0, 1 skipped each |
 
-The invariants: `invariant_vaultAssetsBacked`, `invariant_lineAccounting`, `invariant_cohortConservation`, `invariant_coverNeverExceedsLoss`, `invariant_depositGate`, `invariant_tallyConservation`, `invariant_escrowsHoldTheirNFT`. Fuzzed unit tests run 512 times.
+The system invariants: `invariant_vaultAssetsBacked`, `invariant_lineAccounting`, `invariant_cohortConservation`, `invariant_coverNeverExceedsLoss`, `invariant_depositGate`, `invariant_accrualStaysCheap`, `invariant_tallyConservation`, `invariant_escrowsHoldTheirNFT`, `invariant_savingsAccounting`. The line invariants: `invariant_booksBalance`, `invariant_cashMatchesLedger`, `invariant_feeConservation`, `invariant_badDebtIsShortfalls`, `invariant_noBorrowingWhileUnhealthy`, `invariant_escrowsHoldTheirNFT`. Any revert in a handler action fails the run. Fuzzed unit tests run 512 times.
 
 ```sh
-forge test --match-contract AuditPoCTest -vv        # the review regressions
-SURETY_FORK=true forge test --match-contract LiveMezo  # against live Mezo mainnet state; SURETY_FORK_RPC overrides the RPC
+forge test --match-contract 'AuditPoCTest|AuditV2'   # the review regressions
+SURETY_FORK=true forge test --match-contract 'LiveMezo|LivePeg|LiveSavings|AuditV2Fork'
+# against live Mezo mainnet state; SURETY_FORK_RPC overrides the RPC
+# Ran 4 test suites: 18 tests passed, 0 failed, 0 skipped (18 total tests)
 ```
 
 ### TypeScript
@@ -325,7 +401,7 @@ SURETY_FORK=true forge test --match-contract LiveMezo  # against live Mezo mainn
 ```sh
 pnpm install
 pnpm test
-# @surety/sdk 53 passed, @surety/keeper 38 passed, @surety/mcp 8 passed: 99 in total
+# @surety/sdk 83 passed, @surety/keeper 56 passed, @surety/mcp 13 passed, web 21 passed: 173 in total
 ```
 
 ## Reproduce the lifecycle
