@@ -71,6 +71,14 @@ abstract contract PoolFixture is LineFixture {
 
         _curate(abi.encodeCall(IVaultV2.setPerformanceFeeRecipient, (address(pool))));
         _curate(abi.encodeCall(IVaultV2.setPerformanceFee, (VOTER_FEE)));
+        _curate(abi.encodeCall(IVaultV2.setManagementFeeRecipient, (treasury)));
+        _curate(abi.encodeCall(IVaultV2.setManagementFee, (MANAGEMENT_FEE)));
+    }
+
+    /// @notice Turns the time-based management fee off, for tests that check the cover sizing against the
+    /// performance fee alone.
+    function _withoutManagementFee() internal {
+        _curate(abi.encodeCall(IVaultV2.setManagementFee, (0)));
     }
 
     function _distribute(uint256 cohortEpoch, uint256[] memory lineIds, uint256[] memory interest) internal {

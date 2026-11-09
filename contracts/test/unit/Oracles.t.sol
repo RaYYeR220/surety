@@ -19,12 +19,19 @@ import {MockPegSource} from "../mocks/MockPegSource.sol";
 contract ScriptedPeg is IMusdPeg {
     uint256 public value;
     bytes public revertData;
+    bool public healthy = true;
+    bool public healthReverts;
 
     error Boom();
 
     function set(uint256 value_, bytes memory revertData_) external {
         value = value_;
         revertData = revertData_;
+    }
+
+    function setHealth(bool healthy_, bool reverts_) external {
+        healthy = healthy_;
+        healthReverts = reverts_;
     }
 
     function musdUsdWad() external view returns (uint256) {
@@ -37,8 +44,9 @@ contract ScriptedPeg is IMusdPeg {
         return value;
     }
 
-    function pegHealthy() external pure returns (bool) {
-        return true;
+    function pegHealthy() external view returns (bool) {
+        if (healthReverts) revert Boom();
+        return healthy;
     }
 }
 
@@ -182,60 +190,97 @@ contract OraclesTest is Test {
 
     /* BtcMusdPriceSource */
 
-    function test_btcMusd_dividesByPegAboveOneOnly() public {
+    /// @dev The peg moves the price only while healthy, only above $1 and never by more than the premium cap.
+    function test_btcMusd_dividesByAHealthyPegClampedToThePremium() public {
         MockPegSource s = new MockPegSource(1e18);
         IPegSource[] memory list = new IPegSource[](1);
         list[0] = s;
         MusdPeg peg = new MusdPeg(list, 1, 500, 300);
-        BtcMusdPriceSource source = new BtcMusdPriceSource(skipSource, peg);
+        BtcMusdPriceSource source = new BtcMusdPriceSource(skipSource, peg, 300);
+        assertEq(source.maxPremiumBps(), 300);
         assertEq(source.priceWad(), uint256(BTC_USD));
 
-        // MUSD below $1 is ignored: BTC is never worth more MUSD than USD.
+        // MUSD below $1 is ignored, healthy or not: BTC is never worth more MUSD than USD.
+        s.set(true, 0.98e18);
+        assertTrue(peg.pegHealthy());
+        assertEq(source.musdUsdWad(), 1e18);
+        assertEq(source.priceWad(), uint256(BTC_USD));
         s.set(true, 0.95e18);
-        assertEq(source.musdUsdWad(), 0.95e18);
         assertEq(source.priceWad(), uint256(BTC_USD));
 
-        // MUSD above $1 lowers the BTC price in MUSD, even when the peg is unhealthy.
+        // A healthy MUSD above $1 lowers the BTC price in MUSD, up to the band's edge.
+        s.set(true, 1.02e18);
+        assertEq(source.priceWad(), uint256(BTC_USD) * 1e18 / 1.02e18);
+        s.set(true, 1.03e18);
+        assertTrue(peg.pegHealthy());
+        assertEq(source.musdUsdWad(), 1.03e18);
+
+        // An unhealthy peg counts as exactly $1, however high its median: the lifted median of the H-01 push
+        // (1.466) and a median just past the band alike.
         s.set(true, 1.04e18);
         assertFalse(peg.pegHealthy());
-        assertEq(source.priceWad(), uint256(BTC_USD) * 1e18 / 1.04e18);
+        assertEq(source.priceWad(), uint256(BTC_USD));
+        s.set(true, 1.466e18);
+        assertEq(source.priceWad(), uint256(BTC_USD));
 
         // An unavailable peg counts as exactly $1.
         s.set(false, 0);
         assertEq(source.musdUsdWad(), 1e18);
         assertEq(source.priceWad(), uint256(BTC_USD));
 
-        // Morpho's oracle stays a plain scale of the source.
+        // The premium cap binds below the band: with 100 bps a healthy 1.02 divides by 1.01, and with 0 never.
         s.set(true, 1.02e18);
+        assertEq(new BtcMusdPriceSource(skipSource, peg, 100).musdUsdWad(), 1.01e18);
+        assertEq(new BtcMusdPriceSource(skipSource, peg, 0).priceWad(), uint256(BTC_USD));
+
+        // Morpho's oracle stays a plain scale of the source.
         MorphoPriceOracle oracle = new MorphoPriceOracle(source);
         assertEq(oracle.price(), uint256(BTC_USD) * 1e18 / 1.02e18 * 1e18);
     }
 
-    function test_btcMusd_revertsOnlyWithSkip_orOnOtherPegFailures() public {
+    /// @dev Whatever the peg does wrong reads as $1; only the BTC/USD source can make the price revert.
+    function test_btcMusd_anyPegFailureReadsAsOneDollar_onlySkipReverts() public {
         ScriptedPeg peg = new ScriptedPeg();
-        BtcMusdPriceSource source = new BtcMusdPriceSource(skipSource, peg);
+        BtcMusdPriceSource source = new BtcMusdPriceSource(skipSource, peg, 300);
         peg.set(1.01e18, "");
         assertEq(source.priceWad(), uint256(BTC_USD) * 1e18 / 1.01e18);
 
         peg.set(0, abi.encodeWithSelector(IMusdPeg.PegUnavailable.selector));
         assertEq(source.priceWad(), uint256(BTC_USD));
-
-        // Only a bare PegUnavailable falls back; anything else propagates.
         peg.set(0, abi.encodeWithSelector(ScriptedPeg.Boom.selector));
-        vm.expectRevert(ScriptedPeg.Boom.selector);
-        source.priceWad();
+        assertEq(source.priceWad(), uint256(BTC_USD));
         peg.set(0, abi.encodePacked(IMusdPeg.PegUnavailable.selector, uint256(1)));
-        vm.expectRevert(abi.encodePacked(IMusdPeg.PegUnavailable.selector, uint256(1)));
-        source.priceWad();
+        assertEq(source.priceWad(), uint256(BTC_USD));
 
-        peg.set(1e18, "");
+        peg.set(1.01e18, "");
+        peg.setHealth(false, false);
+        assertEq(source.priceWad(), uint256(BTC_USD));
+        peg.setHealth(true, true);
+        assertEq(source.priceWad(), uint256(BTC_USD));
+        peg.setHealth(true, false);
+
         aggregator.setUpdatedAt(block.timestamp - 61);
         vm.expectRevert(IPriceSource.StalePrice.selector);
         source.priceWad();
 
         vm.expectRevert(BtcMusdPriceSource.ZeroAddress.selector);
-        new BtcMusdPriceSource(IPriceSource(address(0)), peg);
+        new BtcMusdPriceSource(IPriceSource(address(0)), peg, 300);
         vm.expectRevert(BtcMusdPriceSource.ZeroAddress.selector);
-        new BtcMusdPriceSource(skipSource, IMusdPeg(address(0)));
+        new BtcMusdPriceSource(skipSource, IMusdPeg(address(0)), 300);
+        vm.expectRevert(BtcMusdPriceSource.PremiumTooHigh.selector);
+        new BtcMusdPriceSource(skipSource, peg, 501);
+        new BtcMusdPriceSource(skipSource, peg, 500);
+    }
+
+    /// @dev Whatever the peg reads, the price never leaves [BTC/USD / (1 + premium), BTC/USD].
+    function testFuzz_btcMusd_boundedByThePremium(uint256 median, bool healthy, uint16 premium) public {
+        premium = uint16(bound(premium, 0, 500));
+        median = bound(median, 0, 10e18);
+        ScriptedPeg peg = new ScriptedPeg();
+        peg.set(median, "");
+        peg.setHealth(healthy, false);
+        uint256 price = new BtcMusdPriceSource(skipSource, peg, premium).priceWad();
+        assertLe(price, uint256(BTC_USD));
+        assertGe(price, uint256(BTC_USD) * 10_000 / (10_000 + premium));
     }
 }

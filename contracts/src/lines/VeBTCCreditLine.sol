@@ -49,10 +49,10 @@ import {LoanEscrow} from "./LoanEscrow.sol";
 ///   `protocolShareBps` leaves the line, `keeperShareBps` of that to the address that started the auction and the
 ///   rest to `treasury`; lenders keep the remainder.
 /// Fail-closed oracle: open, borrowMore, startAuction and bid revert when the price source does; repay never reads it.
-/// Depeg breaker: open and borrowMore also revert while `peg` reports MUSD unhealthy; repayment, harvests, auctions
-/// and escrow actions never read the peg.
-/// The owner can pause new borrowing and set the SuretyPool once. It cannot move NFTs or MUSD. `treasury` is fixed at
-/// deployment.
+/// Depeg breaker: open and borrowMore also revert while `peg` reports MUSD unhealthy (unless the owner has switched
+/// the check off); repayment, harvests, auctions and escrow actions never read the peg.
+/// The owner can pause new borrowing, set the SuretyPool once and switch the peg check off or on. It cannot move NFTs
+/// or MUSD. `treasury` is fixed at deployment. These owner powers are meant to sit behind a timelock and a multisig.
 contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
@@ -157,6 +157,8 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     address public suretyPool;
     /// @notice When true, `open` and `borrowMore` are disabled.
     bool public paused;
+    /// @notice Whether open and borrowMore require a healthy peg. On by default.
+    bool public pegCheck = true;
 
     mapping(uint256 loanId => Loan) internal loans;
     /// @notice Loan behind each escrow, zero for addresses that are not escrows.
@@ -194,6 +196,7 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     event CoverReceived(uint256 assets);
     event SuretyPoolSet(address indexed pool);
     event PauseSet(bool paused);
+    event PegCheckSet(bool enabled);
 
     error ZeroAddress();
     error BadParams();
@@ -611,6 +614,15 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         emit PauseSet(paused_);
     }
 
+    /// @notice Switches the peg health check on `open` and `borrowMore` off or back on. For when the peg's pools thin
+    /// out below its `minSources` and the breaker would otherwise stay tripped for good. Pricing is unaffected: the
+    /// oracle still reads the peg, and an unhealthy peg prices MUSD at exactly $1 there. Owner power, meant to sit
+    /// behind a timelock and a multisig; `pause` remains the way to stop borrowing outright.
+    function setPegCheck(bool enabled) external onlyOwner {
+        pegCheck = enabled;
+        emit PegCheckSet(enabled);
+    }
+
     /* Views */
 
     /// @inheritdoc IEscrowRegistry
@@ -737,9 +749,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         ) revert BadParams();
     }
 
-    /// @dev Reverts with PegUnhealthy unless the peg reports MUSD healthy.
+    /// @dev Reverts with PegUnhealthy unless the peg reports MUSD healthy or the check is off.
     function _checkPeg() internal view {
-        if (!peg.pegHealthy()) revert PegUnhealthy();
+        if (pegCheck && !peg.pegHealthy()) revert PegUnhealthy();
     }
 
     /// @dev Origination fee on `amount`, rounded down; emits OriginationFeePaid when non-zero.

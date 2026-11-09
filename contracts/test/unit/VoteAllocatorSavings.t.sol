@@ -145,18 +145,34 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
         bare.setSavings(address(foreign));
     }
 
-    function test_setPeg_oneShot_ownerOnly() public {
+    /// @dev The owner can set the peg, replace it and remove it (zero opens the gate): the way out when the peg's
+    /// pools thin out and it would stay unhealthy for good (L-01 of the v2 review).
+    function test_setPeg_ownerOnly_replaceableAndRemovable() public {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
         allocator.setPeg(gatePeg);
+
         vm.startPrank(admin);
-        vm.expectRevert(VoteAllocator.ZeroAddress.selector);
-        allocator.setPeg(IMusdPeg(address(0)));
+        vm.expectEmit(address(allocator));
+        emit VoteAllocator.PegSet(address(gatePeg));
         allocator.setPeg(gatePeg);
-        vm.expectRevert(VoteAllocator.PegAlreadySet.selector);
-        allocator.setPeg(gatePeg);
-        vm.stopPrank();
         assertEq(address(allocator.peg()), address(gatePeg));
+        gatePeg.set(false);
+        assertFalse(allocator.pegGateOpen(), "stuck unhealthy");
+
+        MockPeg replacement = new MockPeg();
+        allocator.setPeg(replacement);
+        assertEq(address(allocator.peg()), address(replacement));
+        assertTrue(allocator.pegGateOpen(), "replaced");
+
+        allocator.setPeg(gatePeg);
+        assertFalse(allocator.pegGateOpen());
+        vm.expectEmit(address(allocator));
+        emit VoteAllocator.PegSet(address(0));
+        allocator.setPeg(IMusdPeg(address(0)));
+        vm.stopPrank();
+        assertEq(address(allocator.peg()), address(0));
+        assertTrue(allocator.pegGateOpen(), "no peg, no gate");
     }
 
     /* Parking */

@@ -48,6 +48,9 @@ contract LifecycleTest is SuretyFixture {
         assertEq(vault.forceDeallocatePenalty(address(line)), FORCE_DEALLOCATE_PENALTY);
         assertEq(vault.receiveSharesGate(), address(gate));
         assertEq(address(gate.pool()), address(pool));
+        assertEq(vault.managementFeeRecipient(), treasury);
+        assertEq(vault.managementFee(), MANAGEMENT_FEE);
+        assertEq(gate.treasury(), treasury);
         assertTrue(voter.bootstrapEnded(), "later lines go through the timelock");
         assertTrue(vault.isAdapter(address(morphoAdapter)));
         assertTrue(vault.isAdapter(address(line)));
@@ -130,8 +133,10 @@ contract LifecycleTest is SuretyFixture {
         assertGt(_redeemAll(bob), INCENTIVE * 4 / 10, "bob: his part of the incentive plus fees");
         assertEq(vault.balanceOf(sponsor), 0);
 
-        // Everything left in the vault is the pool's (later cohorts and the reserve) and is fully backed by its cash.
-        assertEq(vault.totalSupply(), vault.balanceOf(address(pool)));
+        // Everything left in the vault is the pool's (later cohorts and the reserve) or the treasury's management-fee
+        // shares, and is fully backed by its cash.
+        assertGt(vault.balanceOf(treasury), 0, "management fee accrued to the treasury");
+        assertEq(vault.totalSupply(), vault.balanceOf(address(pool)) + vault.balanceOf(treasury));
         assertLe(pool.accountedShares(), vault.balanceOf(address(pool)));
         assertApproxEqAbs(vault.totalAssets(), _cash(), 2);
         assertEq(pool.lossRecorded(MORPHO_LINE) + pool.lossRecorded(VE_LINE), 0);
@@ -177,17 +182,18 @@ contract LifecycleTest is SuretyFixture {
         uint256 reserve = pool.reserveShares();
         CoverResult memory ve_ = _cover(VE_LINE);
         assertEq(ve_.fromCohorts, veCohorts, "veBTC cohorts slashed first, in full");
-        assertEq(ve_.fromReserve, reserve, "then the reserve");
+        // The pool-limited cover redeems the whole pool; previewWithdraw(previewRedeem(x)) can leave one share.
+        assertApproxEqAbs(ve_.fromReserve, reserve, 1, "then the reserve");
         assertEq(_unmatured(VE_LINE), 0);
         assertEq(_unmatured(MORPHO_LINE), morphoCohorts, "the other line's cohorts are untouched");
-        assertEq(pool.reserveShares(), 0);
+        assertLe(pool.reserveShares(), 1);
         assertLt(ve_.covered, lossVe, "the pool is smaller than the loss");
         assertEq(line.cash(), ve_.lineCashBefore + ve_.assets, "cover paid into the line");
         assertLt(ve_.covered, ve_.assets, "the fee VaultV2 takes on the returned MUSD is not cover");
 
         CoverResult memory mo = _cover(MORPHO_LINE);
         assertEq(mo.fromCohorts, morphoCohorts, "Morpho cohorts slashed");
-        assertEq(mo.fromReserve, 0, "reserve already used");
+        assertLe(mo.fromReserve, 1, "reserve already used, but for a dust share");
         assertEq(_unmatured(MORPHO_LINE), 0);
 
         // Covers never exceed recorded losses; lenders bear the rest. Repeats pay nothing more.

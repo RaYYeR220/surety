@@ -160,15 +160,25 @@ contract SuretyInvariants is SuretyFixture {
         assertLe(pool.lossRecorded(VE_LINE), line.badDebtTotal(), "recorded <= bad debt");
     }
 
-    /// @notice The DepositGate never refuses the pool (fee recipient and incentive depositor), and new shares wait
-    /// whenever a recorded loss is uncovered while the pool could cover it.
+    /// @notice The DepositGate never refuses the pool (performance-fee recipient and incentive depositor) or the
+    /// treasury (management-fee recipient), and new shares wait whenever a recorded loss is uncovered while the pool
+    /// could cover it.
     function invariant_depositGate() public synced {
         assertTrue(vault.canReceiveShares(address(pool)), "the pool always receives shares");
+        assertTrue(vault.canReceiveShares(treasury), "the treasury always receives shares");
         for (uint256 lineId; lineId < 2; ++lineId) {
             if (pool.uncoveredLoss(lineId) > pool.LOSS_DUST() && pool.coverCapacity(lineId) != 0) {
                 assertTrue(pool.depositsPaused(), "deposits wait while a coverable loss is uncovered");
             }
         }
+    }
+
+    /// @notice The vault's first accrual of a transaction asks the gate about both fee recipients; neither answer
+    /// reads the vault, so it stays cheap in every state, a cover in re-recognition included (M-02 of the v2 review).
+    function invariant_accrualStaysCheap() public synced {
+        uint256 before = gasleft();
+        vault.accrueInterest();
+        assertLt(before - gasleft(), 1_000_000, "accrual gas");
     }
 
     /// @notice Per epoch, line tallies sum to the epoch total and each line's tally is the sum of its ballots.
