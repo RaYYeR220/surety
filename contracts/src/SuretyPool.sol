@@ -18,7 +18,7 @@ import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 import {ICreditVoter} from "./interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "./interfaces/IEscrowRegistry.sol";
 import {ISuretyLine} from "./interfaces/ISuretyLine.sol";
-import {ISuretyPool} from "./interfaces/ISuretyPool.sol";
+import {ISuretyPool, SAVINGS_LINE_ID} from "./interfaces/ISuretyPool.sol";
 import {IVeBTC} from "./interfaces/IVeBTC.sol";
 import {EpochLib} from "./libraries/EpochLib.sol";
 import {LineIds} from "./libraries/LineIds.sol";
@@ -30,7 +30,9 @@ import {LineIds} from "./libraries/LineIds.sol";
 /// lenders bear whatever is left. Matured cohorts are never slashed and are claimed pro rata to each NFT's votes.
 /// @dev
 /// - Cohort `(L, t)` collects incentives posted during epoch `t` and the fee shares the allocator attributes to the
-///   votes of tally epoch `t`. Its shares stay in the vault and keep compounding.
+///   votes of tally epoch `t`. Its shares stay in the vault and keep compounding. The fee VaultV2 takes on the yield
+///   of the vault's idle MUSD parked in sMUSD is not a line's: the allocator reports that yield under
+///   SAVINGS_LINE_ID and its part goes to the reserve.
 /// - A cohort is slashable while unmatured and backed (`lineVotes(t, L) > 0`); at most SEASON + 2 epochs per line
 ///   are unmatured. Matured cohorts take no inflows (late fees go to the reserve), so the share count a cohort holds
 ///   at maturity is final; it is frozen into `finalShares` at the first claim.
@@ -278,8 +280,8 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// @dev Distributes the vault shares received since the last call (performance fees, plus anything sent to the
     /// pool directly). First, the fee shares VaultV2 minted on covers' re-recognised MUSD go back to whoever each
     /// cover slashed (see `_creditCoverFees`). Each line's part of the rest is pro rata to `interest`; it goes to the
-    /// reserve when the line had no votes in `cohortEpoch`, as do rounding dust, a zero total, and every part when
-    /// `cohortEpoch` is not an ended, unmatured epoch.
+    /// reserve when the line had no votes in `cohortEpoch` or is SAVINGS_LINE_ID (the savings yield), as do rounding
+    /// dust, a zero total, and every part when `cohortEpoch` is not an ended, unmatured epoch.
     function distributeFees(uint256 cohortEpoch, uint256[] calldata lineIds, uint256[] calldata interest)
         external
         nonReentrant
@@ -354,11 +356,12 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         return _checkpoint(lineId, voter.line(lineId));
     }
 
-    /// @notice Checkpoints `lineId`, then covers as much of its uncovered loss as the pool and the vault's idle MUSD
+    /// @notice Checkpoints `lineId`, then covers as much of its uncovered loss as the pool and the vault's liquid MUSD
     /// allow. Permissionless and repeatable; `lossCovered` never exceeds `lossRecorded`.
     /// @dev Shares come pro rata from the line's backed, unmatured cohorts, then from the reserve, and are
     /// withdrawn from the vault as MUSD. Morpho line: the MUSD goes back to the vault as idle assets. veBTC line:
-    /// paid in through `receiveCover`.
+    /// paid in through `receiveCover`. The vault's liquid MUSD is its idle MUSD plus what its liquidity adapter holds
+    /// (the savings adapter, which the allocator sets and which VaultV2 withdraws from when idle MUSD is short).
     ///
     /// Sizing. A loss U leaves A assets for T shares, down from (A+U)/T a share. Withdrawing W burns W*T/A shares at
     /// the post-loss price, and VaultV2 later recognises the returned W as interest and mints its performance fee f
@@ -367,7 +370,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// (A+U)/T and the pool is down exactly U from its pre-loss value, net of the fee shares it got back. Those fee
     /// shares are credited back to the cohorts (and reserve) the cover slashed, pro rata to what each paid, by the
     /// `distributeFees` calls that follow the re-recognition, so the slashed cohorts net exactly U. A cover cut
-    /// short (by the pool or by idle MUSD) moves less and covers `W*(1-f)*(A+U) / (A - f*W)` loss units: the shares
+    /// short (by the pool or by liquid MUSD) moves less and covers `W*(1-f)*(A+U) / (A - f*W)` loss units: the shares
     /// it takes, net of their fee shares, priced at (A+U)/T, so covering the rest later ends at the same price as
     /// one full cover. Returned MUSD that VaultV2 has not recognised yet (R = realAssets - A) enters through
     /// X = A + (1-f)*R and the gap G = U*X/(A+R): W = A*G/(X + G - f*A), and a partial W closes W*(X + G - f*A)/A
@@ -396,8 +399,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         uint256 available = cohortShares + reserveShares;
         if (available == 0) return 0;
         uint256 assets;
-        (covered, assets) =
-            _sizeCover(uncovered, Math.min(vault.previewRedeem(available), musd.balanceOf(address(vault))));
+        (covered, assets) = _sizeCover(uncovered, Math.min(vault.previewRedeem(available), _vaultLiquidity()));
         if (covered == 0) return 0;
 
         // At most `available`, since `assets` is at most what `available` redeems for.
@@ -555,7 +557,8 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     }
 
     /// @dev Credits `shares` to the cohorts of `cohortEpoch` pro rata to each line's interest, skipping lines without
-    /// votes in it. Returns what it credited; the rest is left for the reserve.
+    /// votes in it and the savings yield (SAVINGS_LINE_ID), which count in the total but credit no cohort. Returns
+    /// what it credited; the rest is left for the reserve.
     function _splitByInterest(
         uint256 shares,
         uint256 cohortEpoch,
@@ -570,8 +573,9 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         if (totalInterest == 0) return 0;
         // Bounded by the allocator's line list.
         for (uint256 i; i < n; ++i) {
+            if (interest[i] == 0 || lineIds[i] == SAVINGS_LINE_ID) continue;
             // forge-lint: disable-next-line(calls-loop)
-            if (interest[i] == 0 || voter.lineVotes(cohortEpoch, lineIds[i]) == 0) continue;
+            if (voter.lineVotes(cohortEpoch, lineIds[i]) == 0) continue;
             uint256 part = Math.mulDiv(shares, interest[i], totalInterest);
             cohorts[lineIds[i]][cohortEpoch].shares += part;
             toCohorts += part;
@@ -698,6 +702,15 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         uint256 real = _vaultRealAssets();
         uint256 total = vault.totalAssets();
         return real > total ? real - total : 0;
+    }
+
+    /// @dev MUSD a withdrawal from the vault can pay now: idle MUSD plus what the liquidity adapter holds, which
+    /// VaultV2 deallocates on a withdrawal larger than idle. The allocator only ever sets the savings adapter there,
+    /// whose position is all withdrawable while sMUSD pays out; if it does not, the cover's withdrawal reverts.
+    function _vaultLiquidity() internal view returns (uint256 liquid) {
+        liquid = musd.balanceOf(address(vault));
+        address adapter = vault.liquidityAdapter();
+        if (adapter != address(0)) liquid += IAdapter(adapter).realAssets();
     }
 
     /// @dev What VaultV2 values its assets at before the max rate: idle MUSD plus every adapter's real assets.

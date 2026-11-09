@@ -8,6 +8,7 @@ import {SuretyPool} from "../../src/SuretyPool.sol";
 import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {LineIds} from "../../src/libraries/LineIds.sol";
+import {MockPeg} from "../unit/VoteAllocatorSavings.t.sol";
 import {SuretyFixture} from "../utils/SuretyFixture.sol";
 
 /// @notice The whole system end to end on the integrated fixture: lenders, veBTC voters, a sponsor, a Morpho BTC
@@ -17,6 +18,7 @@ import {SuretyFixture} from "../utils/SuretyFixture.sol";
 /// line; flip to E2 and rebalance (9,090 MUSD deployable: ~6,363 to Morpho, ~2,727 to the veBTC line); a BTC
 /// borrower borrows 4,000 MUSD on Morpho against 0.1 BTC and a veBTC borrower 2,000 MUSD against a 0.05 BTC lock.
 /// Every flip is a keeper run: warp one epoch, rebalance, poke both ballots into the new epoch.
+/// LifecycleSavingsTest runs the same flows with idle cash parked in sMUSD.
 contract LifecycleTest is SuretyFixture {
     uint256 internal constant LENDER_DEPOSIT = 9_000e18;
     uint256 internal constant CAROL_DEPOSIT = 1_000e18;
@@ -36,7 +38,9 @@ contract LifecycleTest is SuretyFixture {
     function test_wiring_matchesProduction() public view {
         assertTrue(vault.isAllocator(address(allocator)));
         assertFalse(vault.isAllocator(admin), "the allocator is the only allocator");
-        assertEq(vault.liquidityAdapter(), address(0));
+        assertEq(vault.liquidityAdapter(), withSavings ? address(savings) : address(0));
+        assertEq(allocator.savings(), withSavings ? address(savings) : address(0));
+        assertEq(allocator.parking(), withSavings);
         assertEq(vault.performanceFeeRecipient(), address(pool));
         assertEq(vault.performanceFee(), VOTER_FEE);
         assertEq(vault.maxRate(), MAX_MAX_RATE);
@@ -126,10 +130,10 @@ contract LifecycleTest is SuretyFixture {
         assertGt(_redeemAll(bob), INCENTIVE * 4 / 10, "bob: his part of the incentive plus fees");
         assertEq(vault.balanceOf(sponsor), 0);
 
-        // Everything left in the vault is the pool's (later cohorts and the reserve) and is fully backed by idle MUSD.
+        // Everything left in the vault is the pool's (later cohorts and the reserve) and is fully backed by its cash.
         assertEq(vault.totalSupply(), vault.balanceOf(address(pool)));
         assertLe(pool.accountedShares(), vault.balanceOf(address(pool)));
-        assertApproxEqAbs(vault.totalAssets(), musd.balanceOf(address(vault)), 2);
+        assertApproxEqAbs(vault.totalAssets(), _cash(), 2);
         assertEq(pool.lossRecorded(MORPHO_LINE) + pool.lossRecorded(VE_LINE), 0);
     }
 
@@ -294,6 +298,11 @@ contract LifecycleTest is SuretyFixture {
         }
     }
 
+    /// @dev The vault's idle MUSD plus what it has parked in sMUSD.
+    function _cash() internal view returns (uint256) {
+        return musd.balanceOf(address(vault)) + (withSavings ? savings.realAssets() : 0);
+    }
+
     function _value(address who) internal view returns (uint256) {
         return vault.previewRedeem(vault.balanceOf(who));
     }
@@ -338,5 +347,112 @@ contract LifecycleTest is SuretyFixture {
         musd.approve(address(morpho), budget);
         morpho.repay(btcMarket, 0, shares, user, "");
         vm.stopPrank();
+    }
+}
+
+/// @notice The lifecycle with idle cash parked in sMUSD (the production v2 wiring): every LifecycleTest flow, plus
+/// the savings-specific path. Cash the lines do not hold sits in sMUSD; the sMUSD yield reaches lenders through the
+/// share price, and the fee VaultV2 takes on it goes to the reserve, never to a line's voters.
+contract LifecycleSavingsTest is LifecycleTest {
+    function setUp() public override {
+        withSavings = true;
+        super.setUp();
+    }
+
+    function test_wiring_savings() public view {
+        assertTrue(vault.isAdapter(address(savings)));
+        assertEq(vault.absoluteCap(savings.adapterId()), SAVINGS_CAP);
+        assertEq(vault.relativeCap(savings.adapterId()), 1e18);
+        assertEq(vault.forceDeallocatePenalty(address(savings)), FORCE_DEALLOCATE_PENALTY);
+        assertEq(savings.parentVault(), address(vault));
+        assertEq(address(savings.savings()), address(smusd));
+    }
+
+    /// @dev Deposits park, the flip funds the lines out of sMUSD, sMUSD yield accrues to the vault, and each
+    /// attribution credits the line cohorts only the fee share of their own interest; a peg scare holds new money
+    /// back without touching what the lines have; lenders exit through sMUSD.
+    function test_fullCycle_savings() public {
+        // Other sMUSD holders, so the vault earns its share of Mezo's yield like on mainnet.
+        address others = makeAddr("otherSavers");
+        musd.mint(others, 90_000e18);
+        vm.startPrank(others);
+        musd.approve(address(smusd), 90_000e18);
+        smusd.deposit(90_000e18);
+        vm.stopPrank();
+
+        _openBook();
+        assertEq(musd.balanceOf(address(vault)), 0, "nothing idle");
+        uint256 buffer = vault.totalAssets() * IDLE_BUFFER_BPS / BPS;
+        assertApproxEqAbs(savings.realAssets(), buffer, 4, "the buffer sits in sMUSD");
+
+        uint256 reserveBefore = pool.reserveShares();
+        for (uint256 k; k < 3; ++k) {
+            _smusdYield(1_000e18);
+            vm.recordLogs();
+            _flip();
+            _checkFeeSplit();
+        }
+        assertGt(pool.reserveShares(), reserveBefore, "savings fees reached the reserve");
+        assertGt(savings.interestEarnedTotal(), 0);
+
+        // A peg scare: a new deposit waits in sMUSD instead of going out to the lines.
+        MockPeg peg = new MockPeg();
+        vm.prank(admin);
+        allocator.setPeg(peg);
+        peg.set(false);
+        uint256 morphoBefore = allocator.lineAssets(MORPHO_LINE);
+        uint256 lineBefore = allocator.lineAssets(VE_LINE);
+        _deposit(lender, 5_000e18);
+        _rebalance();
+        assertGe(allocator.lineAssets(MORPHO_LINE), morphoBefore - 2, "nothing pulled");
+        assertLe(allocator.lineAssets(MORPHO_LINE), morphoBefore + 2, "nothing added");
+        assertGe(allocator.lineAssets(VE_LINE), lineBefore);
+        assertEq(musd.balanceOf(address(vault)), 0);
+        peg.set(true);
+        _rebalance();
+        uint256 deployable = vault.totalAssets() * (BPS - IDLE_BUFFER_BPS) / BPS;
+        assertApproxEqAbs(
+            allocator.lineAssets(MORPHO_LINE) + allocator.lineAssets(VE_LINE), deployable, 1e18, "funded again"
+        );
+
+        // Lenders exit through sMUSD with interest; the sMUSD yield is part of it.
+        _repayMorphoAll(morphoBorrower);
+        _repay(borrower, loanId, type(uint256).max);
+        uint256 carolOut = _redeemAll(carol);
+        assertGt(carolOut, CAROL_DEPOSIT);
+        assertEq(musd.balanceOf(address(vault)), 0, "paid from sMUSD");
+    }
+
+    /// @dev In the InterestAttributed / SavingsInterestAttributed / FeesDistributed events of the recorded flip, the
+    /// line cohorts got at most the lines' interest share of the fees (no cover credits are pending in this flow).
+    function _checkFeeSplit() internal view {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 lineInterest;
+        uint256 savingsInterest;
+        uint256 shares;
+        uint256 toReserve;
+        bool distributed;
+        for (uint256 i; i < logs.length; ++i) {
+            bytes32 topic = logs[i].topics[0];
+            if (logs[i].emitter == address(allocator) && topic == VoteAllocator.InterestAttributed.selector) {
+                (, uint256[] memory interest) = abi.decode(logs[i].data, (uint256[], uint256[]));
+                for (uint256 j; j < interest.length; ++j) {
+                    lineInterest += interest[j];
+                }
+            } else if (
+                logs[i].emitter == address(allocator) && topic == VoteAllocator.SavingsInterestAttributed.selector
+            ) {
+                savingsInterest = abi.decode(logs[i].data, (uint256));
+            } else if (logs[i].emitter == address(pool) && topic == SuretyPool.FeesDistributed.selector) {
+                (shares, toReserve) = abi.decode(logs[i].data, (uint256, uint256));
+                distributed = true;
+            }
+        }
+        assertTrue(distributed, "one attribution per flip");
+        assertGt(savingsInterest, 0, "sMUSD yield measured");
+        assertGt(lineInterest, 0, "lines earned");
+        uint256 toCohorts = shares - toReserve;
+        assertLe(toCohorts, shares * lineInterest / (lineInterest + savingsInterest), "no savings fees to cohorts");
+        assertGe(toReserve, shares * savingsInterest / (lineInterest + savingsInterest), "savings fees to the reserve");
     }
 }

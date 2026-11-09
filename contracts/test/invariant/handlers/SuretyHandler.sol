@@ -8,18 +8,23 @@ import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
 import {VaultV2} from "vault-v2/VaultV2.sol";
 
 import {CreditVoter} from "../../../src/CreditVoter.sol";
+import {SavingsAdapter} from "../../../src/SavingsAdapter.sol";
 import {SuretyPool} from "../../../src/SuretyPool.sol";
 import {VoteAllocator} from "../../../src/VoteAllocator.sol";
 import {IVeBTC} from "../../../src/interfaces/IVeBTC.sol";
 import {VeBTCCreditLine} from "../../../src/lines/VeBTCCreditLine.sol";
 import {StressedPriceSource} from "../../../src/oracles/StressedPriceSource.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
+import {MockSavingsRate} from "../../mocks/MockSavingsRate.sol";
 import {MockVeBTC} from "../../mocks/MockVeBTC.sol";
 
 /// @notice Drives the integrated Surety system with realistic, bounded actors: lenders, veBTC voters, a sponsor,
 /// veBTC and Morpho borrowers, liquidators/bidders, a price shock source and a keeper. Time only moves through
 /// `warp` and `flip`.
 /// @dev Records every SuretyPool event into a ghost ledger so cohort conservation can be checked from outside.
+/// With savings (idle cash parked in sMUSD), it also pays sMUSD yield, harvests and forces cash out of savings, and
+/// checks every fee attribution against the interest the allocator reported: line cohorts may get at most the lines'
+/// share of the fees, never the part the savings yield earned.
 contract SuretyHandler is Test {
     using MarketParamsLib for MarketParams;
 
@@ -35,6 +40,9 @@ contract SuretyHandler is Test {
         IMorpho morpho;
         MarketParams btcMarket;
         StressedPriceSource stressed;
+        /// @dev Zero when the system runs without savings.
+        SavingsAdapter savings;
+        MockSavingsRate smusd;
     }
 
     /// @notice Pool share flows, from SuretyPool events.
@@ -67,6 +75,8 @@ contract SuretyHandler is Test {
     VeBTCCreditLine public immutable line;
     IMorpho public immutable morpho;
     StressedPriceSource public immutable stressed;
+    SavingsAdapter public immutable savings;
+    MockSavingsRate public immutable smusd;
     uint256 public immutable epochLength;
     /// @notice First epoch the handler can have touched; ghost iteration starts here.
     uint256 public immutable firstEpoch;
@@ -86,6 +96,13 @@ contract SuretyHandler is Test {
     uint256 public currentBlock;
     Ledger internal ledger;
     mapping(bytes32 action => uint256) public calls;
+    /// @notice Fee attributions checked against the reported interest, and those that credited line cohorts more
+    /// than the lines' share of the fees (savings fees leaking to voters).
+    uint256 public feeChecks;
+    uint256 public savingsFeeLeaks;
+    /// @notice Steps after which the savings adapter's yield counter had gone down.
+    uint256 public yieldCounterDrops;
+    uint256 internal lastYieldEarned;
 
     constructor(System memory s, address[] memory voters_, uint256[] memory voterTokens_) {
         vault = s.vault;
@@ -98,6 +115,8 @@ contract SuretyHandler is Test {
         line = s.line;
         morpho = s.morpho;
         stressed = s.stressed;
+        savings = s.savings;
+        smusd = s.smusd;
         btcMarket = s.btcMarket;
         btcMarketId = s.btcMarket.id();
         epochLength = s.voter.EPOCH_LENGTH();
@@ -126,6 +145,7 @@ contract SuretyHandler is Test {
         vm.recordLogs();
         _;
         _ingest(vm.getRecordedLogs());
+        _checkYieldCounter();
         ++calls[action];
     }
 
@@ -143,12 +163,14 @@ contract SuretyHandler is Test {
         vm.stopPrank();
     }
 
-    /// @dev Withdraws up to what the vault holds idle (no liquidity adapter).
+    /// @dev Withdraws up to what the vault can pay now: idle MUSD plus what its liquidity adapter (savings) holds.
     function withdraw(uint256 who, uint256 assets) external step("withdraw") {
         address lender = lenders[who % lenders.length];
         uint256 owned = vault.previewRedeem(vault.balanceOf(lender));
-        uint256 idle = musd.balanceOf(address(vault));
-        uint256 max = owned < idle ? owned : idle;
+        uint256 liquid = musd.balanceOf(address(vault));
+        address liquidity = vault.liquidityAdapter();
+        if (liquidity != address(0)) liquid += SavingsAdapter(liquidity).realAssets();
+        uint256 max = owned < liquid ? owned : liquid;
         if (max == 0) return;
         assets = bound(assets, 1, max);
         vm.prank(lender);
@@ -381,6 +403,38 @@ contract SuretyHandler is Test {
         pool.cover(lineSeed % LINES);
     }
 
+    /* Savings */
+
+    /// @dev Mezo's PCV pays sMUSD yield, shared with every sMUSD holder.
+    function savingsYield(uint256 amount) external step("savingsYield") {
+        if (address(smusd) == address(0)) return;
+        amount = bound(amount, 1e18, 2_000e18);
+        musd.mint(address(this), amount);
+        musd.approve(address(smusd), amount);
+        smusd.receiveProtocolYield(amount);
+    }
+
+    /// @dev Anyone harvests the savings adapter.
+    function harvest() external step("harvest") {
+        if (address(savings) == address(0)) return;
+        vm.prank(keeper);
+        savings.harvest();
+    }
+
+    /// @dev A lender forces cash out of savings into the vault (paying the penalty); the next rebalance parks it.
+    function forceDeallocateSavings(uint256 who, uint256 assets) external step("forceDeallocateSavings") {
+        if (address(savings) == address(0)) return;
+        address lender = lenders[who % lenders.length];
+        uint256 parked = savings.realAssets();
+        uint256 owned = vault.previewRedeem(vault.balanceOf(lender));
+        // The penalty (1%) is withdrawn from the lender's shares.
+        uint256 max = parked < owned * 50 ? parked : owned * 50;
+        if (max == 0) return;
+        assets = bound(assets, 1, max);
+        vm.prank(lender);
+        vault.forceDeallocate(address(savings), "", assets, lender);
+    }
+
     /* Time */
 
     /// @dev Moves time forward by one minute to three hours, never onto an epoch's first second.
@@ -507,8 +561,58 @@ contract SuretyHandler is Test {
         borrowed = morpho.market(btcMarketId).totalBorrowAssets;
     }
 
+    /// @dev The savings adapter's yield counter never goes down.
+    function _checkYieldCounter() internal {
+        if (address(savings) == address(0)) return;
+        uint256 earned = savings.interestEarnedTotal();
+        if (earned < lastYieldEarned) ++yieldCounterDrops;
+        lastYieldEarned = earned;
+    }
+
+    /// @dev Checks a fee attribution in `logs` (one step makes at most one): of the fee shares not credited back to
+    /// covers, line cohorts get at most the lines' share of the reported interest, `left * lineInterest / total`.
+    function _checkFeeSplit(Vm.Log[] memory logs) internal {
+        uint256 lineInterest;
+        uint256 savingsInterest;
+        uint256 shares;
+        uint256 toReserve;
+        uint256 coverToCohorts;
+        uint256 coverToReserve;
+        bool distributed;
+        for (uint256 i; i < logs.length; ++i) {
+            bytes32 sig = logs[i].topics[0];
+            if (logs[i].emitter == address(allocator)) {
+                if (sig == VoteAllocator.InterestAttributed.selector) {
+                    (, uint256[] memory interest) = abi.decode(logs[i].data, (uint256[], uint256[]));
+                    for (uint256 j; j < interest.length; ++j) {
+                        lineInterest += interest[j];
+                    }
+                } else if (sig == VoteAllocator.SavingsInterestAttributed.selector) {
+                    savingsInterest = abi.decode(logs[i].data, (uint256));
+                }
+            } else if (logs[i].emitter == address(pool)) {
+                if (sig == SuretyPool.FeesDistributed.selector) {
+                    (shares, toReserve) = abi.decode(logs[i].data, (uint256, uint256));
+                    distributed = true;
+                } else if (sig == SuretyPool.CoverFeeCredited.selector) {
+                    (uint256 c, uint256 r) = abi.decode(logs[i].data, (uint256, uint256));
+                    coverToCohorts += c;
+                    coverToReserve += r;
+                }
+            }
+        }
+        if (!distributed) return;
+        ++feeChecks;
+        uint256 toCohorts = shares - toReserve - coverToCohorts;
+        uint256 left = shares - coverToCohorts - coverToReserve;
+        uint256 total = lineInterest + savingsInterest;
+        uint256 bound_ = total == 0 ? 0 : left * lineInterest / total;
+        if (toCohorts > bound_) ++savingsFeeLeaks;
+    }
+
     /// @dev Folds the SuretyPool's share-moving events into the ledger.
     function _ingest(Vm.Log[] memory logs) internal {
+        _checkFeeSplit(logs);
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(pool)) continue;
             bytes32 sig = logs[i].topics[0];
