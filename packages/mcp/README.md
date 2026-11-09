@@ -11,11 +11,14 @@ An MCP server that lets agents read Surety on Mezo and prepare transactions for 
 | `surety_quote_vebtc_borrow` | `tokenId`, optional `amount` (MUSD) | eligibility and reasons, collateral value, max LTV, max borrow, LTV and BTC liquidation price, maturity, borrow APR before and after |
 | `surety_loan_health` | `loanId`, or `borrower`, or nothing (all auctions) | debt, LTV against max and liquidation LTV, liquidation price, maturity, whether it can be auctioned, live auction price |
 | `surety_cohorts` | `tokenId` | the NFT's reward cohorts (claimable, maturing, at risk) and its current ballot |
+| `surety_peg` | none | v2: each MUSD/USD source's reading, the median, spread and distance from $1 against their limits, whether the line lends and the allocator funds lines, BTC/USD and BTC in MUSD |
+| `surety_fees` | none | origination fee, liquidation fee and its lenders / treasury / auction-starter split, voter performance fee, yearly management fee, share market fee; on v2 also MUSD idle in the vault and parked in sMUSD |
+| `surety_share_market` | optional `listingId` + `shares` | v2: open srMUSD listings priced at the live share price, the best offer, and a fill quote |
 | `surety_build_tx` | `action`, `params` | unsigned transactions to send in order, with token approvals first |
 
 Inputs are validated with zod; amounts are decimal strings in token units (MUSD, BTC and srMUSD use 18 decimals), ids are decimal strings. Outputs are compact JSON with amounts in MUSD and rates in percent.
 
-`surety_build_tx` actions: `vote`, `poke`, `deposit`, `withdraw`, `redeem`, `approve`, `open_loan`, `borrow_more`, `repay`, `extend`, `add_collateral`, `post_incentive`, `start_auction`, `bid`, `rebalance`, `checkpoint`, `cover`, `claim`, `supply_collateral`, `borrow_morpho`, `repay_morpho`. Example:
+`surety_build_tx` actions: `vote`, `poke`, `deposit`, `withdraw`, `redeem`, `approve`, `open_loan`, `borrow_more`, `repay`, `extend`, `add_collateral`, `post_incentive`, `start_auction`, `bid`, `rebalance`, `checkpoint`, `cover`, `claim`, `supply_collateral`, `borrow_morpho`, `repay_morpho`, and on v2 `set_auto_repay`, `list_shares`, `fill_listing`, `cancel_listing`. Example:
 
 ```json
 { "action": "repay", "params": { "loanId": "3", "amount": "250" } }

@@ -1,11 +1,16 @@
 import type {
+  AuctionView,
   Ballot,
   Board,
   BorrowQuote,
   Cohorts,
   EpochInfo,
+  FeeSchedule,
   LoanView,
-  AuctionView,
+  PegView,
+  SavingsView,
+  ShareFillQuote,
+  ShareMarketView,
 } from "@surety/sdk";
 import { formatUnits } from "viem";
 
@@ -69,6 +74,7 @@ export function presentBoard(b: Board) {
       tvlMusd: units(b.vault.totalAssets, 2),
       sharePrice: units(b.vault.sharePrice, 6),
       idleMusd: units(b.vault.idle, 2),
+      parkedInSavingsMusd: units(b.vault.parked, 2),
       idleBufferPct: bpsPercent(b.vault.idleBufferBps),
       performanceFeePct: wadPercent(b.vault.performanceFee),
       estSupplyApyPct: percent(b.vault.supplyApy),
@@ -114,6 +120,8 @@ export function presentQuote(q: BorrowQuote) {
     lineCashMusd: units(q.lineCash, 2),
     borrowAprNowPct: percent(q.borrowAprNow),
     borrowAprAfterPct: percent(q.borrowAprAfter),
+    originationFeeMusd: units(q.originationFee, 4),
+    receivesMusd: units(q.receives, 4),
   };
 }
 
@@ -133,6 +141,7 @@ export function presentLoan(l: LoanView | AuctionView) {
     expired: l.expired,
     liquidatable: l.liquidatable,
     liquidationReason: l.liquidationReason,
+    autoRepay: l.autoRepay,
     ...(l.state === "Auction"
       ? {
           auctionStarted: iso(l.auctionStart),
@@ -173,5 +182,104 @@ export function presentBallot(b: Ballot) {
     castThisEpoch: b.castThisEpoch,
     pokeable: b.pokeable,
     powerAtEpochStart: units(b.powerAtEpochStart, 8),
+  };
+}
+
+/** MUSD/USD WAD as dollars with six decimals. */
+function musdUsd(value: bigint | null | undefined): string | null {
+  return units(value, 6);
+}
+
+export function presentPeg(p: PegView) {
+  return {
+    address: p.address,
+    healthy: p.healthyOnChain,
+    allocatorFundsLines: p.allocatorGateOpen,
+    issues: p.issues,
+    musdUsdMedian: musdUsd(p.medianWad),
+    usableSources: p.count,
+    minSources: p.minSources,
+    spreadPct: bpsPercent(p.spreadBps),
+    maxSpreadPct: p.maxSpreadBps / 100,
+    offPegPct: bpsPercent(p.offPegBps),
+    bandPct: p.bandBps / 100,
+    btcPriceUsd: usd(p.btcUsdWad),
+    btcPriceMusd: usd(p.btcMusdWad),
+    sources: p.sources.map((s) => ({
+      kind: s.kind,
+      address: s.address,
+      pool: s.pool,
+      ok: s.ok,
+      musdUsd: musdUsd(s.musdUsdWad),
+    })),
+    ...(p.stress
+      ? { testnetStress: { active: p.stress.active, musdUsd: musdUsd(p.stress.musdUsdWad), endsAt: iso(p.stress.endsAt) } }
+      : {}),
+  };
+}
+
+export function presentFees(f: FeeSchedule, savings: SavingsView | null) {
+  return {
+    treasury: f.treasury,
+    originationFeePct: f.line.originationFeeBps / 100,
+    liquidationFeePct: f.line.liqFeeBps / 100,
+    liquidationFeeSplit: {
+      lendersPct: (10_000 - f.line.protocolShareBps) / 100,
+      treasuryPct: (f.line.protocolShareBps * (10_000 - f.line.keeperShareBps)) / 1_000_000,
+      auctionStarterPct: (f.line.protocolShareBps * f.line.keeperShareBps) / 1_000_000,
+    },
+    voterPerformanceFeePct: wadPercent(f.performanceFee),
+    voterFeeRecipient: f.performanceFeeRecipient,
+    // Rounded: VaultV2 takes the fee per second, so 0.20%/yr is stored as 0.1999999969%.
+    managementFeePctPerYear: percent(Number(f.managementFeeAprWad) / 1e18),
+    managementFeeRecipient: f.managementFeeRecipient,
+    shareMarketFeePct: f.shareMarketFeeBps === null ? null : f.shareMarketFeeBps / 100,
+    ...(savings
+      ? {
+          savings: {
+            idleInVaultMusd: units(savings.vaultIdle, 2),
+            parkedInSmusdMusd: units(savings.parked, 2),
+            claimableYieldMusd: units(savings.claimableYield, 6),
+            yieldClaimedMusd: units(savings.yieldClaimed, 6),
+          },
+        }
+      : {}),
+  };
+}
+
+export function presentShareMarket(m: ShareMarketView, quote: ShareFillQuote | null) {
+  return {
+    address: m.address,
+    open: m.isOpen,
+    feePct: m.feeBps / 100,
+    sharePriceMusd: units(m.sharePrice, 6),
+    openListings: Number(m.openCount),
+    best: m.best
+      ? {
+          listingId: m.best.id.toString(),
+          discountPct: m.best.discountBps / 100,
+          shares: units(m.best.shares, 6),
+          pricePerShareMusd: units(m.best.pricePerShare, 6),
+        }
+      : null,
+    listings: m.listings.map((l) => ({
+      listingId: l.id.toString(),
+      seller: l.seller,
+      discountPct: l.discountBps / 100,
+      shares: units(l.shares, 6),
+      valueMusd: units(l.value, 4),
+      priceMusd: units(l.price, 4),
+    })),
+    ...(quote
+      ? {
+          quote: {
+            listingId: quote.id.toString(),
+            shares: units(quote.filled, 6),
+            payMusd: units(quote.assets, 6),
+            feeMusd: units(quote.fee, 6),
+            sellerReceivesMusd: units(quote.sellerReceives, 6),
+          },
+        }
+      : {}),
   };
 }

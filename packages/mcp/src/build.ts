@@ -58,6 +58,10 @@ export const actionSchemas = {
       includeApproval,
     })
     .refine((v) => (v.assets === undefined) !== (v.shares === undefined), "set exactly one of assets or shares"),
+  set_auto_repay: z.object({ loanId: integer, enabled: z.boolean() }),
+  list_shares: z.object({ shares: amount, discountBps: z.number().int().min(0).max(2_000), includeApproval }),
+  fill_listing: z.object({ listingId: integer, shares: amount, maxAssets: amount, includeApproval }),
+  cancel_listing: z.object({ listingId: integer }),
 } as const;
 
 export type BuildAction = keyof typeof actionSchemas;
@@ -93,6 +97,10 @@ export const ACTION_HELP = [
   "supply_collateral {lineId, assets, onBehalf}",
   "borrow_morpho {lineId, assets, onBehalf, receiver}",
   "repay_morpho {lineId, assets | shares, onBehalf}",
+  "set_auto_repay {loanId, enabled} (v2)",
+  "list_shares {shares, discountBps <= 2000} (v2 ShareMarket)",
+  "fill_listing {listingId, shares, maxAssets} (v2 ShareMarket)",
+  "cancel_listing {listingId} (v2 ShareMarket)",
 ].join("; ");
 
 /** Validates `params` for `action` and returns the unsigned transactions. Throws a readable error otherwise. */
@@ -255,6 +263,33 @@ export function buildTx(client: SuretyClient, action: BuildAction, params: unkno
         }),
         description: `repay MUSD on line ${v.lineId}${v.shares !== undefined ? " (approve enough MUSD to Morpho first)" : ""}`,
       });
+      break;
+    }
+    case "set_auto_repay": {
+      const v = p as z.output<typeof actionSchemas.set_auto_repay>;
+      out.push({
+        tx: client.buildSetAutoRepay(v),
+        description: `turn auto-repay ${v.enabled ? "on" : "off"} for loan #${v.loanId}`,
+      });
+      break;
+    }
+    case "list_shares": {
+      const v = p as z.output<typeof actionSchemas.list_shares>;
+      const [approveShares, list] = client.buildListShares(v);
+      if (v.includeApproval) out.push({ tx: approveShares!, description: "approve srMUSD to the share market" });
+      out.push({ tx: list!, description: `list srMUSD at a ${v.discountBps / 100}% discount` });
+      break;
+    }
+    case "fill_listing": {
+      const v = p as z.output<typeof actionSchemas.fill_listing>;
+      const [approveMusd, fill] = client.buildFillListing({ id: v.listingId, shares: v.shares, maxAssets: v.maxAssets });
+      if (v.includeApproval) out.push({ tx: approveMusd!, description: "approve MUSD to the share market" });
+      out.push({ tx: fill!, description: `buy srMUSD from listing #${v.listingId}` });
+      break;
+    }
+    case "cancel_listing": {
+      const v = p as z.output<typeof actionSchemas.cancel_listing>;
+      out.push({ tx: client.buildCancelListing({ id: v.listingId }), description: `cancel listing #${v.listingId}` });
       break;
     }
   }

@@ -1,11 +1,21 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { SuretyClient } from "@surety/sdk";
+import { isV2Deployment, type SuretyClient } from "@surety/sdk";
 import { getAddress, parseUnits } from "viem";
 import { z } from "zod";
 
 import { ACTION_HELP, BUILD_ACTIONS, buildTx } from "./build.js";
-import { presentBallot, presentBoard, presentCohorts, presentEpoch, presentLoan, presentQuote } from "./format.js";
+import {
+  presentBallot,
+  presentBoard,
+  presentCohorts,
+  presentEpoch,
+  presentFees,
+  presentLoan,
+  presentPeg,
+  presentQuote,
+  presentShareMarket,
+} from "./format.js";
 
 export const TOOL_NAMES = [
   "surety_board",
@@ -13,6 +23,9 @@ export const TOOL_NAMES = [
   "surety_quote_vebtc_borrow",
   "surety_loan_health",
   "surety_cohorts",
+  "surety_peg",
+  "surety_fees",
+  "surety_share_market",
   "surety_build_tx",
 ] as const;
 
@@ -147,6 +160,68 @@ export function createSuretyMcpServer(options: SuretyMcpOptions): McpServer {
       run(async () => {
         const [cohorts, ballot] = await Promise.all([client.getCohorts(id), client.getBallot(id)]);
         return { ...presentCohorts(cohorts), ballot: presentBallot(ballot) };
+      }),
+  );
+
+  server.registerTool(
+    "surety_peg",
+    {
+      title: "MUSD peg",
+      description:
+        "The MUSD/USD peg Surety reads from Mezo's own pools: each source's reading, the median, the spread between " +
+        "sources and the distance from $1 against their limits, whether the veBTC line lends now (it stops while the " +
+        "peg is unhealthy) and whether a rebalance funds lines, plus BTC/USD and the BTC price in MUSD the line " +
+        "values collateral at (MUSD is never taken below $1).",
+      annotations: readOnly,
+    },
+    () => run(async () => presentPeg(await client.getPeg())),
+  );
+
+  server.registerTool(
+    "surety_fees",
+    {
+      title: "Surety fees",
+      description:
+        "Who pays whom: the veBTC line's origination fee, the liquidation fee and its split between lenders, the " +
+        "treasury and the address that started the auction, the voters' performance fee, the vault's yearly " +
+        "management fee, the share market's fee, and the vault's idle MUSD parked in sMUSD with its yield.",
+      annotations: readOnly,
+    },
+    () =>
+      run(async () => {
+        const [fees, savings] = await Promise.all([
+          client.getFees(),
+          isV2Deployment(client.deployment) ? client.getSavings() : Promise.resolve(null),
+        ]);
+        return presentFees(fees, savings);
+      }),
+  );
+
+  server.registerTool(
+    "surety_share_market",
+    {
+      title: "Lender share market",
+      description:
+        "Open listings of Surety vault shares (srMUSD) sold at a discount to the live share price, the best offer, " +
+        "and whether listing and filling are open. Pass listingId and shares (decimal srMUSD) for a fill quote.",
+      inputSchema: {
+        listingId: z.string().regex(/^\d+$/).optional().describe("listing id, decimal string"),
+        shares: z
+          .string()
+          .regex(/^\d+(\.\d{1,18})?$/)
+          .optional()
+          .describe("srMUSD to buy, decimal string (needs listingId)"),
+      },
+      annotations: readOnly,
+    },
+    ({ listingId, shares }) =>
+      run(async () => {
+        if ((listingId === undefined) !== (shares === undefined)) throw new Error("pass listingId and shares together");
+        const [market, quote] = await Promise.all([
+          client.getShareMarket(),
+          listingId === undefined ? Promise.resolve(null) : client.quoteShareFill(listingId, parseUnits(shares!, 18)),
+        ]);
+        return presentShareMarket(market, quote);
       }),
   );
 

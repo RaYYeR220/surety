@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { creditVoterAbi, erc20Abi, vaultV2Abi } from "@surety/sdk";
+import { creditVoterAbi, erc20Abi, shareMarketAbi, vaultV2Abi, veBTCCreditLineAbi } from "@surety/sdk";
 import { ALICE, FIXTURE_EPOCH, createSuretyFixture } from "@surety/sdk/testing";
 import { decodeFunctionData } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,8 +13,8 @@ import { TOOL_NAMES, createSuretyMcpServer } from "../src/server.js";
 
 type TextResult = { content: { type: string; text: string }[]; isError?: boolean };
 
-async function connect() {
-  const fixture = createSuretyFixture();
+async function connect(version: 1 | 2 = 1) {
+  const fixture = createSuretyFixture({ version });
   const server = createSuretyMcpServer({ client: fixture.client });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test", version: "1.0.0" });
@@ -27,7 +27,7 @@ async function connect() {
 }
 
 describe("MCP server", () => {
-  it("lists the six Surety tools with input schemas", async () => {
+  it("lists the Surety tools with input schemas", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
@@ -133,6 +133,80 @@ describe("MCP server", () => {
   });
 });
 
+describe("MCP server on a v2 deployment", () => {
+  it("reports the MUSD peg and its sources", async () => {
+    const { call } = await connect(2);
+    const peg = (await call("surety_peg")).json as Record<string, unknown> & { sources: Record<string, unknown>[] };
+    expect(peg).toMatchObject({
+      healthy: true,
+      allocatorFundsLines: true,
+      issues: [],
+      musdUsdMedian: "0.99144",
+      usableSources: 3,
+      minSources: 2,
+      maxSpreadPct: 5,
+      bandPct: 3,
+      btcPriceUsd: "80000",
+      btcPriceMusd: "80000",
+    });
+    expect(peg.sources.map((x) => x.kind)).toEqual(["ClTwap", "StableTwap", "Stressed"]);
+    expect(peg.testnetStress).toMatchObject({ active: false });
+  });
+
+  it("reports the fee schedule and parked MUSD", async () => {
+    const { call } = await connect(2);
+    const fees = (await call("surety_fees")).json!;
+    expect(fees).toMatchObject({
+      originationFeePct: 0.25,
+      liquidationFeePct: 3,
+      liquidationFeeSplit: { lendersPct: 80, treasuryPct: 10, auctionStarterPct: 10 },
+      voterPerformanceFeePct: 10,
+      shareMarketFeePct: 0.1,
+      savings: { idleInVaultMusd: "1000", parkedInSmusdMusd: "400" },
+    });
+    expect(fees.managementFeePctPerYear).toBe(0.2);
+  });
+
+  it("lists share market offers and quotes a fill", async () => {
+    const { call } = await connect(2);
+    const market = (await call("surety_share_market", { listingId: "1", shares: "10" })).json as {
+      listings: unknown[];
+      best: { listingId: string; discountPct: number };
+      quote: { shares: string; payMusd: string };
+    };
+    expect(market.listings).toHaveLength(2);
+    expect(market.best).toMatchObject({ listingId: "1", discountPct: 2 });
+    expect(market.quote.shares).toBe("10");
+    expect(Number(market.quote.payMusd)).toBeCloseTo((10 * 10_000 * 0.98) / 9_900, 4);
+
+    const half = await call("surety_share_market", { listingId: "1" });
+    expect(half.result.isError).toBe(true);
+  });
+
+  it("builds auto-repay and share market transactions", async () => {
+    const { call, fixture } = await connect(2);
+    const d = fixture.deployment;
+    const auto = (await call("surety_build_tx", { action: "set_auto_repay", params: { loanId: "1", enabled: true } }))
+      .json as { transactions: { to: string; data: `0x${string}` }[] };
+    expect(auto.transactions[0]!.to).toBe(d.contracts.veBTCLine);
+    expect(decodeFunctionData({ abi: veBTCCreditLineAbi, data: auto.transactions[0]!.data }).args).toEqual([1n, true]);
+
+    const fill = (await call("surety_build_tx", {
+      action: "fill_listing",
+      params: { listingId: "1", shares: "10", maxAssets: "10" },
+    })).json as { transactions: { to: string; data: `0x${string}` }[] };
+    expect(fill.transactions.map((t) => t.to)).toEqual([d.external.musd, d.contracts.shareMarket]);
+    expect(decodeFunctionData({ abi: shareMarketAbi, data: fill.transactions[1]!.data }).functionName).toBe("fill");
+  });
+
+  it("explains that the v2 reads need a v2 deployment", async () => {
+    const { call } = await connect(1);
+    const peg = await call("surety_peg");
+    expect(peg.result.isError).toBe(true);
+    expect(peg.result.content[0]!.text).toMatch(/v2 deployment/);
+  });
+});
+
 describe("streamable HTTP", () => {
   let close: (() => Promise<void>) | undefined;
   afterEach(async () => {
@@ -152,7 +226,7 @@ describe("streamable HTTP", () => {
     const client = new Client({ name: "http-test", version: "1.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(TOOL_NAMES.length);
     const result = (await client.callTool({ name: "surety_epoch", arguments: {} })) as TextResult;
     expect(JSON.parse(result.content[0]!.text)).toMatchObject({ currentEpoch: FIXTURE_EPOCH.toString() });
     await client.close();
