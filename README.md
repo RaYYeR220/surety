@@ -160,23 +160,31 @@ pnpm --filter web dev           # http://localhost:3000
 
 ```sh
 cd contracts
-STRESS=true forge script script/Deploy.s.sol --rpc-url mezo_testnet --broadcast --verify   # testnet stress deployment
-forge script script/Deploy.s.sol --rpc-url mezo_mainnet --broadcast --verify               # mainnet
+STRESS=true RELAYER_ADDRESS=0x… forge script script/Deploy.s.sol --rpc-url mezo_testnet --broadcast --verify   # testnet stress deployment
+forge script script/Deploy.s.sol --rpc-url mezo_mainnet --broadcast --verify                                 # mainnet
 ```
 
-One run deploys and wires everything, ends the line-listing bootstrap, raises the timelocks and writes `deployments/<chainId>.json`. Without `--broadcast` it is a dry run that writes `deployments/dry-run/<chainId>.json`. Every variable is optional:
+One run deploys and wires everything on Mezo's own Morpho Blue: the MUSD peg and the BTC/MUSD price over it, a new BTC/MUSD Morpho market, the vault with its Morpho, veBTC-line and sMUSD savings adapters (savings is the liquidity adapter), the voter, allocator, pool, deposit gate, ShareMarket and, on testnet, the starter-kit Sponsor. It sets the fees (10% performance fee to the SuretyPool, 0.20%/yr management fee to the treasury), ends the line-listing bootstrap, raises the timelocks and writes `deployments/<chainId>.json` (schema version 2). Without `--broadcast` it is a dry run that writes `deployments/dry-run/<chainId>.json`. The v1 deployments are kept in `deployments/v1/`. Every variable is optional unless marked:
 
 | Variable | Testnet default | Mainnet default | Meaning |
 | --- | --- | --- | --- |
 | `DEPLOYER_KEY` | | | Key to broadcast with; otherwise `--sender` / `--account` |
-| `STRESS` | `false` | refused | Price the lines through `StressedPriceSource`, which anyone can shock |
+| `STRESS` | `false` | refused | Price BTC through `StressedPriceSource`, which anyone can shock |
 | `EPOCH_LENGTH` | 3600 | 604800 | Epoch length in seconds |
-| `MUSD`, `BTC`, `VEBTC`, `POOLS_VOTER`, `REWARDS_DISTRIBUTOR`, `SKIP_AGGREGATOR` | Mezo testnet | Mezo mainnet | Mezo contract addresses |
-| `MORPHO`, `MORPHO_IRM` | unset: deploy the pinned stack | Mezo's | Morpho Blue and AdaptiveCurveIrm; set both or neither |
+| `MUSD`, `BTC`, `VEBTC`, `POOLS_VOTER`, `REWARDS_DISTRIBUTOR`, `SKIP_AGGREGATOR`, `SMUSD` | Mezo testnet | Mezo mainnet | Mezo contract addresses |
+| `MORPHO`, `MORPHO_IRM` | Mezo's testnet Morpho `0xCe1d…5a73` and its IRM | Mezo's `0x5658…A311` and AdaptiveCurveIrm | Morpho Blue and the IRM it enables |
+| `MORPHO_LLTV` | 0.77e18 | 0.86e18 | LLTV of the new market (the one Mezo enables on each chain) |
 | `MORPHO_CAP`, `LINE_CAP` | 10,000,000 MUSD | 2,000 MUSD | Absolute caps on the Morpho ids and the veBTC line ids, in MUSD wei; relative caps are 100% |
+| `SAVINGS_CAP` | 1e27 | 1e27 | Absolute cap on the savings adapter (at least 1e27); its relative cap is exactly 100% |
 | `AUCTION_DURATION` | 600 | 21600 | Seconds for the auction price to decay to its floor |
 | `MIN_TERM` | 3600 | 259200 | Lock time a timed lock must have left to borrow |
 | `VAULT_TIMELOCK` | 0 | 86400 | Timelock on every curator function of the vault and the Morpho adapter, and the CreditVoter's line timelock (0 is refused on mainnet) |
+| `TREASURY` | deployer | deployer | Fee recipient (origination, liquidation, management and ShareMarket fees); the deployer until a multisig takes over |
+| `PEG_MIN_SOURCES`, `PEG_MAX_SPREAD_BPS`, `PEG_BAND_BPS` | 1 / 500 / 300 | 2 / 500 / 300 | MusdPeg thresholds |
+| `PEG_WINDOW`, `PEG_GRANULARITY` | | 1800 / 2 | TWAP window of the CL sources, quote periods of the basic-pool sources |
+| `PEG_CL_POOL`, `PEG_USDC_POOL`, `PEG_USDT_POOL`, `PEG_BTC_POOL` | | Mezo's pools | CL mUSDC/MUSD, basic mUSDC/MUSD, basic MUSD/mUSDT, CL BTC/MUSD |
+| `RELAYER_ADDRESS` | required | | Relayer allowed to hand out starter kits |
+| `SPONSOR_BTC`, `SPONSOR_MUSD` | 0.006 BTC / 300 MUSD | | What the deployer funds the Sponsor with |
 | `SIMULATE_PRECOMPILES`, `SKIP_PRICE` | `false` | `false` | Dry runs on a local fork only: replace the Skip precompile with a settable mock |
 | `DEPLOYMENT_OUT` | | | Output path override |
 
