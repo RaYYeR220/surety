@@ -41,6 +41,9 @@ export function Nav() {
       </div>
       <div className={styles.right}>
         <ThemeToggle />
+        <Link className={styles.try} href="/app/try">
+          Try it<span className={styles.long}> on testnet</span>
+        </Link>
         <Link className={styles.cta} href="/app">
           Launch app
         </Link>
