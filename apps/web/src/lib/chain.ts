@@ -1,23 +1,20 @@
 "use client";
 
-// The network picked in the app header, kept in localStorage (testnet when nothing is saved). Shared by the
-// app (env.tsx) and the landing page, which reads the same network without the wallet providers.
-import {
-  createMezoPublicClient,
-  createSuretyClient,
-  isMezoChainId,
-  MEZO_TESTNET_ID,
-  type SuretyClient,
-  type SuretyDeployment,
-} from "@surety/sdk";
+// The network the visitor picked, kept in localStorage. Mainnet is the default view (on the server, in the static
+// pages and before anything is saved); testnet is one click away. Shared by the app (env.tsx) and the landing
+// page, which reads the same network without the wallet providers.
+import { isMezoChainId, MEZO_MAINNET_ID } from "@surety/sdk";
 import { useSyncExternalStore } from "react";
 
 export { CHAIN_NAMES } from "./networks";
 
+/** The network shown before the visitor picks one. */
+export const DEFAULT_CHAIN_ID = MEZO_MAINNET_ID;
+
 const CHAIN_KEY = "surety-chain";
 
 const chainListeners = new Set<() => void>();
-let memoryChain: number = MEZO_TESTNET_ID;
+let memoryChain: number = DEFAULT_CHAIN_ID;
 
 export function readSavedChain(): number {
   try {
@@ -47,19 +44,7 @@ function subscribeChain(onChange: () => void) {
   };
 }
 
-/** The selected network (testnet on the server and before anything is saved). */
+/** The selected network (mainnet on the server and before anything is saved). */
 export function useSelectedChain(): number {
-  return useSyncExternalStore(subscribeChain, readSavedChain, () => MEZO_TESTNET_ID);
-}
-
-const liveClients = new Map<number, SuretyClient>();
-
-/** One SDK client per chain over the public Mezo RPCs, shared by the app and the landing. */
-export function liveClient(chainId: number, deployment: SuretyDeployment): SuretyClient {
-  let client = liveClients.get(chainId);
-  if (!client) {
-    client = createSuretyClient({ chainId, deployment, publicClient: createMezoPublicClient(chainId) });
-    liveClients.set(chainId, client);
-  }
-  return client;
+  return useSyncExternalStore(subscribeChain, readSavedChain, () => DEFAULT_CHAIN_ID);
 }

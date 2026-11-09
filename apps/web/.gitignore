@@ -2,3 +2,8 @@
 /.next/
 /out/
 next-env.d.ts
+
+# Build-time snapshot, the starter-kit function bundle and the deploy staging folder
+/.snapshot/
+/dist-api/
+/.deploy/

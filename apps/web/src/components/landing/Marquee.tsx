@@ -25,7 +25,7 @@ export function Marquee() {
   return (
     <div className={styles.marquee}>
       <p className={s.srOnly}>
-        Vote shares, {live ? `live on ${d.chainName}` : "illustrative"}: {summary}.
+        Vote shares, {live ? `on chain, ${d.chainName}` : "illustrative"}: {summary}.
       </p>
       <div className={styles.track} aria-hidden="true">
         {Array.from({ length: COPIES }, (_, c) =>
@@ -45,7 +45,7 @@ export function Marquee() {
         )}
       </div>
       <div className={styles.note} aria-hidden="true">
-        Vote shares · {live ? `live, ${d.chainName}` : "illustrative"}
+        Vote shares · {live ? `on chain, ${d.chainName}` : "illustrative"}
       </div>
     </div>
   );

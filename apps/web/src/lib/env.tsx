@@ -13,8 +13,9 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import type { Address } from "viem";
 import { useAccount } from "wagmi";
 
-import { CHAIN_NAMES, liveClient, saveChain, useSelectedChain } from "./chain";
+import { CHAIN_NAMES, saveChain, useSelectedChain } from "./chain";
 import type { Demo, DemoScenario } from "./demo";
+import { liveClient } from "./live";
 
 export { CHAIN_NAMES };
 
@@ -26,7 +27,7 @@ interface Common {
   chainName: string;
   /** Pick the network to read (live mode). Also asks a connected wallet to switch. */
   selectChain: (chainId: number) => void;
-  /** Example data from the SDK fixture, or null in live mode; undefined while the URL is being read. */
+  /** Example data from the SDK fixture, or null in live mode (the static pages render live mode). */
   demo: DemoScenario | null | undefined;
 }
 
@@ -52,6 +53,11 @@ export type SuretyEnv =
 export type ReadyEnv = Extract<SuretyEnv, { status: "ready" }>;
 
 const SuretyContext = createContext<SuretyEnv | null>(null);
+
+/** Query-key prefix of live reads on `chainId` (the build snapshot seeds `[...liveScope(id), "board"]`). */
+export function liveScope(chainId: number): readonly unknown[] {
+  return ["surety", "live", chainId];
+}
 
 export function SuretyProvider({ demo, children }: { demo: DemoScenario | null | undefined; children: ReactNode }) {
   const { address, chainId: walletChainId, isConnected } = useAccount();
@@ -110,7 +116,7 @@ export function SuretyProvider({ demo, children }: { demo: DemoScenario | null |
       account: isConnected ? address : undefined,
       canSend: isConnected,
       explorer: (kind, v) => explorerUrl(chainId, kind, v),
-      scope: ["surety", "live", chainId],
+      scope: liveScope(chainId),
     };
   }, [address, chainId, demo, demoQuery.data, demoQuery.error, isConnected, selectChain]);
 

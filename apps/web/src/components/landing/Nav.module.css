@@ -78,6 +78,22 @@
   box-shadow: 0 0 0 var(--color-ink);
 }
 
+/* No wallet needed: a key in the browser and a starter kit, on testnet. */
+.try {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: 15px;
+  color: var(--color-accent-text);
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-thickness: var(--border-width-strong);
+  text-underline-offset: 4px;
+}
+
+.try:hover {
+  color: var(--color-ink);
+}
+
 @media (max-width: 1180px) {
   .links {
     gap: 20px;
@@ -107,5 +123,13 @@
   .cta {
     padding: 7px 13px;
     font-size: 14px;
+  }
+
+  .try {
+    font-size: 14px;
+  }
+
+  .long {
+    display: none;
   }
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 
 import { formatMusd, formatPct } from "@/lib/format";
+import { formatAsOf } from "@/lib/asOf";
 
 import styles from "./BoardPreview.module.css";
 import s from "./Landing.module.css";
@@ -38,7 +39,9 @@ export function BoardPreview() {
           </div>
           <div className={`${styles.meta} ${s.io}`} style={{ "--d": ".1s" } as CSSProperties}>
             <span className={`${s.tag} ${live ? s.tagLive : ""}`}>
-              {live ? `Live · ${d.chainName}` : `Illustrative · ${d.read === "undeployed" ? "not deployed here yet" : "no votes yet"}`}
+              {live
+                ? `On chain · ${d.chainName}${d.asOf === null ? "" : ` · as of ${formatAsOf(d.asOf)}`}`
+                : `Illustrative · ${d.read === "undeployed" ? "not deployed here yet" : "no votes yet"}`}
             </span>
             <div className={styles.row}>
               Next split in <strong>{flip ? formatFlip(flip.secondsLeft) : "—"}</strong>
@@ -47,7 +50,7 @@ export function BoardPreview() {
         </div>
         <table className={`${styles.bd} ${s.io}`} style={{ "--d": ".15s" } as CSSProperties}>
           <caption className={s.srOnly}>
-            {live ? `Live credit board on ${d.chainName}` : "Illustrative credit board"}: vote share, MUSD lent, borrow
+            {live ? `Credit board on ${d.chainName}` : "Illustrative credit board"}: vote share, MUSD lent, borrow
             rate, voters&apos; first-loss cover and utilisation per credit line
           </caption>
           <thead>
