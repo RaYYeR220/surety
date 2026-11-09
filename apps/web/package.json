@@ -7,11 +7,15 @@
   "type": "module",
   "scripts": {
     "sdk": "pnpm --filter @surety/sdk build",
-    "dev": "pnpm run sdk && next dev",
-    "build": "pnpm run sdk && next build",
+    "snapshot": "node scripts/snapshot.ts",
+    "dev": "pnpm run sdk && node scripts/snapshot.ts --if-missing && next dev",
+    "build": "pnpm run sdk && node scripts/snapshot.ts && next build && node scripts/fix-export.ts && node scripts/build-api.ts",
     "start": "npx serve@14.2.5 out",
     "lint": "eslint .",
-    "typecheck": "pnpm run sdk && next typegen && tsc --noEmit"
+    "typecheck": "pnpm run sdk && next typegen && tsc --noEmit",
+    "test": "node --test api/starter.test.ts",
+    "check:load": "node scripts/check-load.ts",
+    "stage": "node scripts/stage-deploy.ts"
   },
   "dependencies": {
     "@mezo-org/passport": "0.17.2",
