@@ -145,3 +145,113 @@
   padding: var(--space-2) 0;
   border-bottom: var(--border-width) solid var(--color-line);
 }
+
+/* ---------- Quote: what you receive and owe, and where the loan sits ---------- */
+.receive {
+  font-size: var(--text-md);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-line);
+}
+
+.quoteBar {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--color-line);
+}
+
+/* ---------- Auto-repay (v2) ---------- */
+.autoRepay {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  border: var(--border-width) solid var(--color-line);
+  background: var(--color-surface-sunk);
+}
+
+/* ---------- Harvest (v2) ---------- */
+.rewardAmount {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.harvestSum {
+  font-size: var(--text-sm);
+}
+
+/* ---------- Mezo vote weights ---------- */
+.weights {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.weightsLegend {
+  padding: 0 var(--space-1);
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: var(--text-sm);
+}
+
+.weightRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.weightName {
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+
+.weightInput {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+}
+
+.weightInput input {
+  width: 72px;
+  min-height: 40px;
+  padding: 6px 10px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  border: var(--border-width-strong) solid var(--color-line-strong);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface);
+}
+
+.weightInput input:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.weightFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--border-width) solid var(--color-line);
+  font-size: var(--text-xs);
+}
+
+.weightOk {
+  color: var(--color-positive);
+}
+
+.weightBad {
+  color: var(--color-danger);
+  font-weight: var(--weight-strong);
+}
