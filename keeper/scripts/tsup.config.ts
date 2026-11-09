@@ -8,6 +8,7 @@ export default defineConfig({
     "testnet-cycle-v2": "scripts/testnet-cycle-v2.ts",
     "testnet-escrow-vote": "scripts/testnet-escrow-vote.ts",
     "testnet-escrow-claims": "scripts/testnet-escrow-claims.ts",
+    "testnet-sponsor-refill": "scripts/testnet-sponsor-refill.ts",
   },
   outDir: "dist/scripts",
   format: ["esm"],
