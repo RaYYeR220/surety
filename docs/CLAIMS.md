@@ -118,7 +118,7 @@ A claim can carry two tiers when both kinds of evidence exist. Claims 1 to 39 da
 | 61 | All 18 Surety contracts of the v2 testnet deployment are an exact match on Sourcify. | VERIFIED-LIVE | [PROOF.md](PROOF.md#mezo-testnet-31611-v2) |
 | 62 | The v2 testnet deployment is configured as documented: fees and recipients, liquidity adapter, gate and treasury, line parameters, peg thresholds, premium cap. | VERIFIED-LIVE | [Configuration on chain, v2](PROOF.md#configuration-on-chain-v2) |
 | 63 | The whole v2 lifecycle ran live on testnet, each role from its own team account: a deposit parked in sMUSD, a vote, incentives, a rebalance, two veBTC loans with origination fees, auto-repay, an escrow vote and bribe, a Morpho borrow on Mezo's Morpho Blue, a `PegUnhealthy` revert, an auction with no shortfall, a ShareMarket fill, a starter kit and the next epoch's attribution. | VERIFIED-LIVE | [v2 lifecycle table](PROOF.md#live-lifecycle-on-testnet-v2): 51 transactions recorded, 1 step pending |
-| 64 | The app renders its pages from a build snapshot with every Mezo RPC blocked, reaches network idle within 5 s with the RPCs up, and makes no RPC request from a hidden tab. | REPRODUCIBLE | `pnpm --filter web build && pnpm --filter web check:load`; the numbers of 2026-11-09 in [FEEDBACK-RESPONSE.md](../FEEDBACK-RESPONSE.md#7-the-live-app-loads-quickly). The live site is N19 |
+| 64 | The app renders its pages from a build snapshot with every Mezo RPC blocked, reaches network idle within 5 s with the RPCs up, and makes no RPC request from a hidden tab. | REPRODUCIBLE | `pnpm --filter web build && pnpm --filter web check:load`; the numbers of 2026-11-09 in [FEEDBACK-RESPONSE.md](../FEEDBACK-RESPONSE.md#7-the-live-app-loads-quickly). The live site passes the same check: [FEEDBACK-RESPONSE.md](../FEEDBACK-RESPONSE.md#7-the-live-app-loads-quickly) |
 
 ## Not claimed
 
@@ -142,6 +142,5 @@ A claim can carry two tiers when both kinds of evidence exist. Claims 1 to 39 da
 | N16 | Surety v2 on Mezo mainnet | Deployed on testnet only; the mainnet run so far is a dry run (`contracts/deployments/dry-run/31612.json`). Pending — v2 mainnet deployment, before 2026-11-15. |
 | N17 | A meaningful yield from sMUSD | sMUSD's yield has been about 0.05% a year lately, and testnet sMUSD paid none during the v2 run. |
 | N18 | That the testnet peg reads a market | Testnet has no usable MUSD pool; its peg is one StressedPegSource that reads $1 unless someone overrides it. |
-| N19 | That surety-credit.vercel.app runs v2 | Pending — production deploy of the v2 app; the live site serves the v1 build until then, before 2026-11-15. |
 | N20 | Contracts verified on Mezo's Blockscout explorer | Its verifier currently lists no Solidity compiler versions; the contracts are verified on Sourcify ([PROOF.md](PROOF.md#mezo-testnet-31611-v2)). |
 | N21 | A Slither run on v2 | The Slither triage covers v1's contracts at `09f1a49`. |

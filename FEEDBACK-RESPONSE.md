@@ -8,7 +8,7 @@ Surety v2 is a redeployment built around the Wave 1 review. This page takes the 
 
 The v2 deployment on Mezo testnet is [`contracts/deployments/31611.json`](contracts/deployments/31611.json) (block 16,667,109, 2026-11-09); v1 is kept in [`contracts/deployments/v1/`](contracts/deployments/v1/). Every transaction below is also listed in [docs/PROOF.md](docs/PROOF.md), and every claim is graded in [docs/CLAIMS.md](docs/CLAIMS.md). App pages are on [surety-credit.vercel.app](https://surety-credit.vercel.app).
 
-Pending — production deploy of the v2 app. surety-credit.vercel.app still serves the Wave 1 build, so the v2 pages named below (`/app/try`, `/app/peg`, `/app/ledger`, `/app/business`, `/app/market`, `/app/review`) return 404 there until it lands, before 2026-11-15. Until then `pnpm install && pnpm --filter web dev` serves them locally against the live chains.
+The v2 app is live at [surety-credit.vercel.app](https://surety-credit.vercel.app) since 2026-11-09, with the pages named below (`/app/try`, `/app/peg`, `/app/ledger`, `/app/business`, `/app/market`, `/app/review`).
 
 ## At a glance
 
@@ -20,7 +20,7 @@ Pending — production deploy of the v2 app. surety-credit.vercel.app still serv
 | [MUSD/USD price or depeg check](#4-a-musdusd-price-instead-of-1) | Done: MusdPeg, BtcMusdPriceSource, borrow breaker; a `PegUnhealthy` revert on chain |
 | [Gap between auction trigger and floor](#5-the-gap-between-the-auction-trigger-and-the-floor) | Done: trigger 65% LTV, floor 85% (was 70% and 70%); an auction with no shortfall on chain |
 | [Who pays the team, how the protocol sustains itself](#6-who-pays-the-team-and-how-the-protocol-sustains-itself) | Done: four protocol fees to a treasury, each exercised on chain; [docs/BUSINESS.md](docs/BUSINESS.md) |
-| [The live app loads quickly](#7-the-live-app-loads-quickly) | Done in the build and measured in headless Chrome; production deploy pending |
+| [The live app loads quickly](#7-the-live-app-loads-quickly) | Done: live since 2026-11-09, measured in headless Chrome with the RPCs up and blocked |
 
 ## 1. Escrow vote, fee/bribe and rebase claims
 
@@ -235,7 +235,18 @@ What it adds up to ([docs/BUSINESS.md](docs/BUSINESS.md), `3999ac0`; assumptions
 
 Every page showed its content with the RPCs blocked, with no 404 and no console error. A hidden `/app` tab made no RPC request in 20 s.
 
-Pending — production deploy of the v2 app (the live site still serves the Wave 1 build), before 2026-11-15; this table then gets a row set for the live URL.
+The live site, measured on 2026-11-09 against surety-credit.vercel.app from a headless Chrome in Europe:
+
+| Page | Mezo RPCs | DOMContentLoaded | load | network idle |
+| --- | --- | ---: | ---: | ---: |
+| `/` | blocked | 432 ms | 789 ms | 2,313 ms |
+| `/app` | blocked | 236 ms | 458 ms | 2,076 ms |
+| `/app/try` | blocked | 227 ms | 456 ms | 1,453 ms |
+| `/` | up | 215 ms | 544 ms | 2,136 ms |
+| `/app` | up | 552 ms | 998 ms | 2,263 ms |
+| `/app/try` | up | 851 ms | 995 ms | 1,830 ms |
+
+A hidden tab on the live site made no RPC request in 20 s.
 
 **Check it yourself**
 
