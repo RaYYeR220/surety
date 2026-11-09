@@ -189,6 +189,41 @@
         "label": "cover by the keeper: new fees in the reserve pay down the lenders' share of the Morpho loss",
         "hash": "0x8a3ff37c8d20140804aa5b9d09ff5b62cf9bfb4ec5e250164915cc571c74c541",
         "block": 16327820
+      },
+      {
+        "label": "approve 0.005 BTC to veBTC",
+        "hash": "0xeac64333b00d3e22be580b23bf6e220529d1b2a38ab5b9969e9a74deb2983464",
+        "block": 16664788
+      },
+      {
+        "label": "veBTC lock #1731 created (0.005 BTC, 28 days)",
+        "hash": "0xb17fbd2cfe5fd41b4c6590ab2665fbb6b217ec57706872188d8d4d2f9b5e7952",
+        "block": 16664789
+      },
+      {
+        "label": "approve veBTC #1731 to credit line",
+        "hash": "0x89311fa91f6b00a6209d7d0137d858402f836b49c17c2091f7153b59780b7751",
+        "block": 16664792
+      },
+      {
+        "label": "veBTC loan opened #1731 (10 MUSD)",
+        "hash": "0x8252f377de96122cbbe1a4a37e840d03a9690e86fda156a8da13a0575675cd22",
+        "block": 16664793
+      },
+      {
+        "label": "escrow vote loan #2 (veBTC #1731) 100% on MUSD/mUSDC stable pool",
+        "hash": "0x1b78236ede57063dedf03347ee23c1c4ccc3920f081495332b5d997f17c99612",
+        "block": 16664795
+      },
+      {
+        "label": "approve 20 MUSD to MUSD/mUSDC bribe",
+        "hash": "0x7d89d72590cd317b968d1191849b6bb83c14521de704355b3c7c0ddba0e9f97a",
+        "block": 16664798
+      },
+      {
+        "label": "bribe 20 MUSD on MUSD/mUSDC gauge (Mezo epoch 2026-11-05)",
+        "hash": "0xef7ab6f4f99ef53b81d568de533ddd140711f8d86685113e787bb0a220a7919b",
+        "block": 16664799
       }
     ]
   }
