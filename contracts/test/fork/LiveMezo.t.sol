@@ -12,11 +12,13 @@ import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 import {MorphoMarketV1AdapterV2} from "vault-v2/adapters/MorphoMarketV1AdapterV2.sol";
 
 import {CreditVoter} from "../../src/CreditVoter.sol";
+import {SavingsAdapter} from "../../src/SavingsAdapter.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "../../src/interfaces/IEscrowRegistry.sol";
+import {IMusdSavingsRate} from "../../src/interfaces/IMusdSavingsRate.sol";
 import {IPoolsVoter} from "../../src/interfaces/IPoolsVoter.sol";
 import {IRewardsDistributor} from "../../src/interfaces/IRewardsDistributor.sol";
 import {IVeBTC} from "../../src/interfaces/IVeBTC.sol";
@@ -47,6 +49,8 @@ contract LiveMezoTest is Test {
     address internal constant REWARDS_DISTRIBUTOR = 0xb58477e074265BdC7F7ca6100eD0f7De264F74A2;
     address internal constant MORPHO = 0x565834cE7E40b8987BC20EbF83E2159467bDA311;
     address internal constant ADAPTIVE_CURVE_IRM = 0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7;
+    /// @dev Mezo's MUSD Savings Rate vault (sMUSD).
+    address internal constant SMUSD = 0xb4D498029af77680cD1eF828b967f010d06C51CC;
     uint256 internal constant LLTV = 0.86e18;
     uint256 internal constant EPOCH_LENGTH = 1 weeks;
     uint256 internal constant SEASON = 4;
@@ -183,6 +187,48 @@ contract LiveMezoTest is Test {
         vm.stopPrank();
         assertEq(ve.ownerOf(tokenId), tokenOwner, "NFT back with its owner");
         assertEq(pool.checkpoint(0) + pool.checkpoint(1), 0, "no losses");
+    }
+
+    /// @dev The v2 wiring with idle cash in live sMUSD: a deposit of real MUSD parks in sMUSD, the rebalance funds
+    /// Mezo's Morpho and the veBTC line out of it and leaves the buffer there, and a lender exit is paid from it.
+    function test_fork_savingsCycle() public {
+        SavingsAdapter savings = new SavingsAdapter(address(vault), IMusdSavingsRate(SMUSD));
+        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(savings))));
+        _caps(LineIds.adapterIdData(address(savings)));
+        _curate(abi.encodeCall(IVaultV2.setForceDeallocatePenalty, (address(savings), 0.01e18)));
+        vm.prank(admin);
+        allocator.setSavings(address(savings));
+        assertEq(vault.liquidityAdapter(), address(savings));
+
+        deal(MUSD, lender, DEPOSIT);
+        vm.startPrank(lender);
+        musd.approve(address(vault), DEPOSIT);
+        vault.deposit(DEPOSIT, lender);
+        vm.stopPrank();
+        assertEq(IERC20(SMUSD).balanceOf(address(savings)), DEPOSIT, "parked in live sMUSD");
+        assertEq(musd.balanceOf(address(vault)), 0);
+
+        uint256[] memory lineIds = new uint256[](2);
+        uint256[] memory weights = new uint256[](2);
+        lineIds[1] = 1;
+        weights[0] = 5000;
+        weights[1] = 5000;
+        vm.prank(tokenOwner);
+        voter.vote(tokenId, lineIds, weights);
+        vm.prank(keeper);
+        allocator.rebalance();
+
+        // The NFT's power splits 50/50 up to a wei of votes, which moves each half by up to deployable / power.
+        uint256 deployable = DEPOSIT * (BPS - IDLE_BUFFER_BPS) / BPS;
+        assertApproxEqRel(allocator.lineAssets(0), deployable / 2, 1e12, "half to Mezo's Morpho, out of sMUSD");
+        assertApproxEqRel(allocator.lineAssets(1), deployable / 2, 1e12, "half to the veBTC line, out of sMUSD");
+        assertApproxEqAbs(allocator.lineAssets(0) + allocator.lineAssets(1), deployable, 4, "all of it deployed");
+        assertEq(musd.balanceOf(address(vault)), 0, "nothing idle");
+        assertApproxEqAbs(savings.realAssets(), DEPOSIT * IDLE_BUFFER_BPS / BPS, 1e18, "the buffer stays in sMUSD");
+
+        vm.prank(lender);
+        vault.withdraw(500e18, lender, lender);
+        assertEq(musd.balanceOf(lender), 500e18, "paid from sMUSD");
     }
 
     /* Setup */
