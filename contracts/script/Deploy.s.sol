@@ -136,7 +136,7 @@ contract Deploy is Script {
     /// @notice Voter fee: VaultV2's performance fee, paid to the SuretyPool.
     uint256 public constant VOTER_FEE = 0.1e18;
     /// @notice Vault management fee to the treasury, 0.20% a year, in the unit VaultV2 takes: WAD of total assets
-    /// per second. 0.002e18 / 31,536,000 s = 63,419,583 (rounded down from 63,419,583.97), i.e. 0.19999999987% a
+    /// per second. 0.002e18 / 31,536,000 s = 63,419,583 (rounded down from 63,419,583.97), i.e. 0.1999999969% a
     /// year.
     uint256 public constant MANAGEMENT_FEE = 0.002e18 / uint256(365 days);
     uint256 public constant FORCE_DEALLOCATE_PENALTY = 0.01e18;
