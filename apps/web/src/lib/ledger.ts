@@ -122,6 +122,8 @@ interface ExplorerTx {
   block_number: number;
   result: string;
   raw_input?: string;
+  transaction_types?: string[];
+  created_contract?: { hash: string } | null;
 }
 
 interface ExplorerPage {
@@ -139,11 +141,12 @@ for (const abi of [vaultV2Abi, veBTCCreditLineAbi, veBTCCreditLineV1Abi, creditV
 }
 
 function methodName(tx: ExplorerTx): string {
+  if (tx.created_contract || tx.transaction_types?.includes("contract_creation")) return "deployment";
   const selector = (tx.raw_input ?? "").slice(0, 10).toLowerCase();
   if (selector.length === 10 && selectorNames.has(selector)) return selectorNames.get(selector)!;
   const m = tx.method ?? "";
   if (/^0x[0-9a-f]{8}$/i.test(m)) return selectorNames.get(m.toLowerCase()) ?? m;
-  return m || "transfer";
+  return m || ((tx.raw_input ?? "0x") === "0x" ? "transfer" : "call");
 }
 
 async function readTransactions(
