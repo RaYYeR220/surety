@@ -40,15 +40,42 @@ export interface RpcOptions {
   batch?: boolean;
 }
 
+/** JSON-RPC "internal error" (-32603): rpc.test.mezo.org answers some calls with "method handler crashed". */
+function isNodeCrash(error: unknown): boolean {
+  for (let e = error as { code?: unknown; cause?: unknown } | undefined, i = 0; e && i < 6; e = e.cause as typeof e, i++) {
+    if (e.code === -32603) return true;
+  }
+  return false;
+}
+
+/** Retries an endpoint's crashed calls (they succeed a moment later) but never its timeouts. */
+export function retryCrashes(transport: Transport, attempts = 2, delayMs = 250): Transport {
+  return (opts) => {
+    const inner = transport(opts);
+    const request = (async (args: Parameters<typeof inner.request>[0]) => {
+      for (let i = 0; ; i++) {
+        try {
+          return await inner.request(args);
+        } catch (e) {
+          if (i >= attempts || !isNodeCrash(e)) throw e;
+          await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+        }
+      }
+    }) as typeof inner.request;
+    return { ...inner, request };
+  };
+}
+
 /**
- * HTTP transports over every endpoint of `chainId`, falling back in order. No per-endpoint retries: a slow
- * endpoint costs one timeout, then the next one answers. The whole chain is retried once.
+ * HTTP transports over every endpoint of `chainId`, falling back in order. A slow endpoint costs one timeout
+ * (no per-endpoint retry), then the next one answers; a crashed call is retried on the same endpoint first.
+ * The whole chain is retried once.
  */
 export function rpcTransport(chainId: number, options: RpcOptions = {}): Transport {
   const timeout = options.timeout ?? READ_TIMEOUT_MS;
   const batch = options.batch === false ? false : { batchSize: 32, wait: 16 };
   return fallback(
-    rpcUrls(chainId).map((url) => http(url, { timeout, retryCount: 0, batch })),
+    rpcUrls(chainId).map((url) => retryCrashes(http(url, { timeout, retryCount: 0, batch }))),
     { rank: false, retryCount: 1, retryDelay: 250 },
   );
 }

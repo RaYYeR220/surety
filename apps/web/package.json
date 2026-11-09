@@ -13,7 +13,7 @@
     "start": "npx serve@14.2.5 out",
     "lint": "eslint .",
     "typecheck": "pnpm run sdk && next typegen && tsc --noEmit",
-    "test": "node --test api/starter.test.ts",
+    "test": "node --test api/starter.test.ts src/lib/rpc.test.ts",
     "check:load": "node scripts/check-load.ts",
     "stage": "node scripts/stage-deploy.ts"
   },
