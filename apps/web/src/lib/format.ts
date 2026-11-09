@@ -40,6 +40,31 @@ export function formatUsdWad(value: bigint | null | undefined): string {
   return grouped(Number(formatUnits(value, 18)), 2, 2);
 }
 
+/** USD price in WAD with a dollar sign, e.g. "$80,000.00"; "—" when unknown. */
+export function formatUsd(value: bigint | null | undefined, digits = 2): string {
+  if (value === null || value === undefined) return "—";
+  return `$${grouped(Number(formatUnits(value, 18)), digits, digits)}`;
+}
+
+/** MUSD/USD in WAD to four decimals, e.g. "$0.9914", where a basis point shows. */
+export function formatPegUsd(value: bigint | null | undefined): string {
+  return formatUsd(value, 4);
+}
+
+/** MUSD per share (WAD) to exactly four decimals, so a column of prices lines up: "0.9980". */
+export function formatPerShare(value: bigint | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return formatAmount(value, { min: 4, max: 4 });
+}
+
+/** A plain number of MUSD (not WAD), e.g. for modelled figures: "5,120", "20.5" or "0.07". */
+export function formatMusdNumber(value: number, max = 0): string {
+  if (!Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  const digits = max > 0 ? max : abs < 1 ? 2 : abs < 100 ? 1 : 0;
+  return grouped(value, 0, digits);
+}
+
 /** Fraction 0..1 as a percentage string. */
 export function formatPct(value: number | null | undefined, digits = 1): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";

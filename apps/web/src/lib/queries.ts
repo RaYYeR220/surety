@@ -2,14 +2,16 @@
 
 // React Query hooks over the SDK client of the current environment. Query keys never hold bigints
 // (they are hashed with JSON.stringify), so ids are passed as strings.
-import type { BoardLine } from "@surety/sdk";
-import { useQuery } from "@tanstack/react-query";
+import { isV2Deployment, type BoardLine } from "@surety/sdk";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import type { Address } from "viem";
 
 import { useReady, type ReadyEnv } from "./env";
 import {
   readCaps,
   readEscrowVoting,
+  readHarvest,
   readIncentives,
   readLineListing,
   readLineParams,
@@ -19,6 +21,7 @@ import {
   readReserve,
   readSlashes,
   readStress,
+  readTreasury,
   readWallet,
   type MezoPool,
 } from "./reads";
@@ -34,6 +37,109 @@ function opts(env: ReadyEnv | null) {
 
 function scope(env: ReadyEnv | null): readonly unknown[] {
   return env?.scope ?? ["surety", "none"];
+}
+
+/** Whether the environment runs the v2 contracts (peg, savings, ShareMarket, fees, harvest). */
+export function isV2(env: ReadyEnv | null): boolean {
+  return !!env && isV2Deployment(env.deployment);
+}
+
+/** Options for a read that exists only on v2 deployments. */
+function v2opts(env: ReadyEnv | null) {
+  return { ...opts(env), enabled: isV2(env) };
+}
+
+/* v2 reads */
+
+/** The MUSD peg: every source, the median, spread and band, and whether new borrowing is open. */
+export function usePeg() {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "peg"],
+    queryFn: () => env!.client.getPeg(),
+    ...v2opts(env),
+  });
+}
+
+/** Fee schedule: origination, liquidation split, management, performance and ShareMarket fees, the treasury. */
+export function useFees() {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "fees"],
+    queryFn: () => env!.client.getFees(),
+    ...v2opts(env),
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+}
+
+/** Idle MUSD: the vault's own and what is parked in sMUSD, and the savings yield. */
+export function useSavings() {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "savings"],
+    queryFn: () => env!.client.getSavings(),
+    ...v2opts(env),
+  });
+}
+
+/** One page of open ShareMarket listings, priced at the live share price. */
+export function useShareMarket(start: number, count: number) {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "share-market", start, count],
+    queryFn: () => env!.client.getShareMarket({ start, count }),
+    ...v2opts(env),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The connected wallet's open listings. */
+export function useMyListings() {
+  const env = useReady();
+  const account = env?.account;
+  return useQuery({
+    queryKey: [...scope(env), "my-listings", account ?? "-"],
+    queryFn: () => env!.client.getShareListingsOf(account!),
+    ...v2opts(env),
+    enabled: isV2(env) && !!account,
+  });
+}
+
+/** What filling `shares` of listing `id` would cost now. */
+export function useShareQuote(id: bigint | null, shares: bigint | null) {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "share-quote", id?.toString() ?? "-", shares?.toString() ?? "-"],
+    queryFn: () => env!.client.quoteShareFill(id!, shares!),
+    ...v2opts(env),
+    enabled: isV2(env) && id !== null && shares !== null && shares > 0n,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** What a harvest of the loan's veBTC rewards would claim now (fees, bribes, rebase), labelled. */
+export function useHarvest(loanId: bigint | null, pools: MezoPool[] | undefined) {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "harvest", loanId?.toString() ?? "-", pools?.length ?? 0],
+    queryFn: () => readHarvest(env!.client, loanId!, pools),
+    ...v2opts(env),
+    enabled: isV2(env) && loanId !== null,
+    refetchInterval: env?.mode === "live" ? 60_000 : false,
+  });
+}
+
+/** The treasury's balances: fee MUSD, management-fee srMUSD, gas BTC. */
+export function useTreasury(address: Address | null | undefined) {
+  const env = useReady();
+  return useQuery({
+    queryKey: [...scope(env), "treasury", address ?? "-"],
+    queryFn: () => readTreasury(env!.client, address!),
+    ...opts(env),
+    enabled: !!env && !!address,
+    refetchInterval: env?.mode === "live" ? 60_000 : false,
+  });
 }
 
 export function useBoard() {

@@ -1,0 +1,131 @@
+.checks {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .checks {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.check {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border-radius: var(--radius-card);
+  border: var(--border-width) solid var(--color-line);
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.n {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-chip);
+  background: var(--color-ink);
+  color: var(--color-ground);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  align-self: center;
+}
+
+.title {
+  font-family: var(--heading-font);
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+}
+
+.time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-ink-3);
+  white-space: nowrap;
+}
+
+.what {
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.ext {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.small {
+  font-size: var(--text-xs);
+}
+
+.contracts,
+.steps {
+  list-style: none;
+  display: grid;
+  font-size: var(--text-sm);
+  border-top: var(--border-width) solid var(--color-line);
+}
+
+.contracts li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--color-line);
+}
+
+.steps li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--color-line);
+}
+
+.stepLabel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stepLinks {
+  display: inline-flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}

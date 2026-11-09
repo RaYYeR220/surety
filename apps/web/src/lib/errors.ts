@@ -4,6 +4,10 @@ import {
   erc20Abi,
   loanEscrowAbi,
   morphoAbi,
+  musdPegAbi,
+  savingsAdapterAbi,
+  shareMarketAbi,
+  stressedPegSourceAbi,
   stressedPriceSourceAbi,
   suretyPoolAbi,
   vaultV2Abi,
@@ -29,6 +33,10 @@ const errorAbi: Abi = (() => {
     loanEscrowAbi,
     erc20Abi,
     veBTCAbi,
+    musdPegAbi,
+    stressedPegSourceAbi,
+    shareMarketAbi,
+    savingsAdapterAbi,
   ] as readonly Abi[];
   for (const abi of all) {
     for (const item of abi) {
@@ -91,6 +99,23 @@ const MESSAGES: Record<string, string> = {
   // Stress oracle
   HaircutTooHigh: "The price shock can be at most 90%.",
   ShockTooLong: "A price shock can last at most 2 hours.",
+  // MUSD peg
+  PegUnhealthy:
+    "MUSD is off its peg (or its sources disagree), so the line takes no new loans until it recovers. Repaying, auctions and withdrawals still work.",
+  PegUnavailable: "Too few MUSD price sources answer right now, so the peg has no reading.",
+  PriceOutOfRange: "The simulated MUSD price must be between $0.50 and $2.00, or zero for an outage.",
+  StressTooLong: "A simulated depeg can last at most 2 hours.",
+  // ShareMarket
+  ShareReceiptPaused:
+    "The share market is paused while a loss is being covered, so no one can receive srMUSD right now. You can still cancel a listing and redeem it for MUSD.",
+  ListingClosed: "This listing is closed: it sold out or its seller cancelled it.",
+  NotSeller: "Only the seller of this listing can cancel it.",
+  TooFewShares: "That is below the smallest listing or fill (0.000001 srMUSD), or it would leave less than that behind.",
+  DiscountTooHigh: "A listing's discount can be at most 20%.",
+  ZeroPrice: "That fill is too small to cost anything. Buy more shares.",
+  RedeemedBelowMin: "The redemption would pay less than the minimum you set. The share price moved; review it again.",
+  // Savings
+  InsufficientLiquidity: "sMUSD cannot pay that much back right now. Try a smaller amount.",
   // Tokens
   ERC20InsufficientAllowance: "The approval is too small for this amount. Approve again and retry.",
   ERC20InsufficientBalance: "Your wallet does not hold enough for this amount.",
@@ -137,14 +162,25 @@ function revertData(links: Record<string, unknown>[]): Hex | null {
   return null;
 }
 
+/** ShareMarket's PriceAboveMax carries the price and the max; the line's carries nothing. */
+const SHARE_PRICE_ABOVE_MAX =
+  "The fill would cost more than the max you set: the share price moved since the quote. Review it again.";
+
+function messageFor(name: string, args: unknown): string | undefined {
+  if (name === "PriceAboveMax" && Array.isArray(args) && args.length === 2) return SHARE_PRICE_ABOVE_MAX;
+  return MESSAGES[name];
+}
+
 export function explainError(e: unknown): ExplainedError {
   const links = chain(e);
   if (links.some((l) => l.name === "UserRejectedRequestError" || l.code === 4001)) {
     return { title: "You declined in your wallet. Nothing was sent.", rejected: true };
   }
   for (const l of links) {
-    const name = l.errorName ?? (l.data as { errorName?: unknown } | undefined)?.errorName;
-    if (typeof name === "string" && MESSAGES[name]) return { title: MESSAGES[name]!, name };
+    const inner = l.data as { errorName?: unknown; args?: unknown } | undefined;
+    const name = l.errorName ?? inner?.errorName;
+    const message = typeof name === "string" ? messageFor(name, l.args ?? inner?.args) : undefined;
+    if (typeof name === "string" && message) return { title: message, name };
   }
   const data = revertData(links);
   if (data) {
@@ -156,7 +192,7 @@ export function explainError(e: unknown): ExplainedError {
         return { title: hit ? hit[1] : `The contract refused: ${reason}`, name: reason };
       }
       return {
-        title: MESSAGES[decoded.errorName] ?? `The contract refused this (${decoded.errorName}).`,
+        title: messageFor(decoded.errorName, decoded.args) ?? `The contract refused this (${decoded.errorName}).`,
         name: decoded.errorName,
       };
     } catch {

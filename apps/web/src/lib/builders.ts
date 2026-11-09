@@ -51,10 +51,13 @@ export function buildEscrowClaim(
   );
 }
 
-/** Testnet only: discounts the BTC price the lines use by `bps` for `duration` seconds. Permissionless. */
+/**
+ * Testnet only: discounts the BTC price the lines use by `bps` for `duration` seconds. Permissionless. On v2 the
+ * StressedPriceSource is the BTC/USD source under BtcMusdPriceSource; on v1 it is the price source itself.
+ */
 export function buildShock(d: SuretyDeployment, args: { bps: number; duration: number }): TxRequest {
   return tx(
-    d.contracts.priceSource,
+    d.contracts.btcUsdSource ?? d.contracts.priceSource,
     encodeFunctionData({ abi: stressedPriceSourceAbi, functionName: "shock", args: [args.bps, args.duration] }),
   );
 }

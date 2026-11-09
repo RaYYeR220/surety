@@ -1,6 +1,6 @@
 // Reads the SDK's high-level views do not cover (wallet balances and allowances, a Morpho position,
-// incentives per sponsor, the stress oracle, simulated checkpoints). All of them go through the SDK
-// client's batched Reader with the SDK's ABIs, at one block per call.
+// incentives per sponsor, the stress oracle, simulated checkpoints, the treasury, token metadata for a
+// harvest). All of them go through the SDK client's batched Reader with the SDK's ABIs, at one block per call.
 import {
   call,
   erc20Abi,
@@ -10,15 +10,19 @@ import {
   morphoMaxBorrow,
   morphoPriceOracleAbi,
   morphoToAssetsUp,
+  normalizeLineParams,
   orNull,
   skipPriceSourceAbi,
   stressedPriceSourceAbi,
   suretyPoolAbi,
   vaultV2Abi,
+  veBTCCreditLineAbiFor,
   veBTCCreditLineAbi,
   creditVoterAbi,
   type BoardLine,
+  type HarvestPlan,
   type LineKind,
+  type LineParams as SdkLineParams,
   type MarketParams,
   type SuretyClient,
 } from "@surety/sdk";
@@ -313,9 +317,18 @@ export interface StressState {
   basePriceWad: bigint | null;
 }
 
-/** The stress controls when the deployment's price source is a StressedPriceSource; null otherwise. */
+/**
+ * The StressedPriceSource the lines read BTC through: the price source itself on v1, the BTC/USD source under
+ * BtcMusdPriceSource on v2.
+ */
+export function stressSourceOf(client: SuretyClient): Address {
+  const c = client.deployment.contracts;
+  return c.btcUsdSource ?? c.priceSource;
+}
+
+/** The stress controls when the deployment's BTC price goes through a StressedPriceSource; null otherwise. */
 export async function readStress(client: SuretyClient): Promise<StressState | null> {
-  const src = client.deployment.contracts.priceSource;
+  const src = stressSourceOf(client);
   const r = await client.reader.settle(
     [
       call(src, stressedPriceSourceAbi, "haircutBps"),
@@ -323,7 +336,8 @@ export async function readStress(client: SuretyClient): Promise<StressState | nu
       call(src, stressedPriceSourceAbi, "MAX_HAIRCUT_BPS"),
       call(src, stressedPriceSourceAbi, "MAX_SHOCK_DURATION"),
       call(src, stressedPriceSourceAbi, "base"),
-      call(src, skipPriceSourceAbi, "priceWad"),
+      // What the lines value BTC at (on v2, BTC in MUSD after the peg).
+      call(client.deployment.contracts.priceSource, skipPriceSourceAbi, "priceWad"),
     ] as const,
   );
   const haircut = orNull(r[0]);
@@ -446,19 +460,114 @@ export async function readLineListing(client: SuretyClient): Promise<LineListing
 
 /* veBTC line parameters (LTV limits, liquidation fee, auction shape) */
 
-export interface LineParams {
-  maxLtvTimedBps: number;
-  maxLtvPermanentBps: number;
-  liqLtvBps: number;
-  liqFeeBps: number;
-  floorBps: number;
-  auctionDuration: number;
-  minTerm: number;
-}
+/** The veBTC line's parameters; the v2 fee fields read zero on a v1 line. */
+export type LineParams = SdkLineParams;
 
 export async function readLineParams(client: SuretyClient): Promise<LineParams | null> {
-  const [p] = await client.reader.settle([call(client.deployment.contracts.veBTCLine, veBTCCreditLineAbi, "params")] as const);
-  return orNull(p);
+  const abi = veBTCCreditLineAbiFor(client.deployment);
+  const [p] = await client.reader.settle([call(client.deployment.contracts.veBTCLine, abi, "params")] as const);
+  const raw = orNull(p);
+  return raw === null ? null : normalizeLineParams(raw);
+}
+
+/* Treasury (v2): where origination, liquidation, management and ShareMarket fees go */
+
+export interface TreasuryBalance {
+  address: Address;
+  /** MUSD held: origination, liquidation and ShareMarket fees. */
+  musd: bigint;
+  /** srMUSD held (the vault mints the management fee as shares) and what it is worth now. */
+  shares: bigint;
+  sharesValue: bigint;
+  /** BTC held for gas. */
+  btc: bigint;
+}
+
+export async function readTreasury(client: SuretyClient, treasury: Address): Promise<TreasuryBalance> {
+  const d = client.deployment;
+  const [musd, shares, btc] = await client.reader.values(
+    [
+      call(d.external.musd, erc20Abi, "balanceOf", [treasury]),
+      call(d.contracts.vault, vaultV2Abi, "balanceOf", [treasury]),
+      call(d.external.btc, erc20Abi, "balanceOf", [treasury]),
+    ] as const,
+  );
+  const [value] = await client.reader.settle([call(d.contracts.vault, vaultV2Abi, "convertToAssets", [shares])] as const);
+  return { address: treasury, musd, shares, sharesValue: orNull(value) ?? 0n, btc };
+}
+
+/* Token metadata */
+
+export interface TokenMeta {
+  symbol: string;
+  decimals: number;
+}
+
+/** Symbol and decimals of each token, keyed by lower-case address (MUSD and BTC known without a read). */
+export async function readTokenMeta(client: SuretyClient, tokens: readonly Address[]): Promise<Map<string, TokenMeta>> {
+  const d = client.deployment;
+  const out = new Map<string, TokenMeta>([
+    [d.external.musd.toLowerCase(), { symbol: "MUSD", decimals: 18 }],
+    [d.external.btc.toLowerCase(), { symbol: "BTC", decimals: 18 }],
+  ]);
+  const unknown = [...new Set(tokens.map((t) => t.toLowerCase()))].filter((t) => !out.has(t)) as Address[];
+  const r = await client.reader.settle(unknown.flatMap((t) => [call(t, erc20Abi, "symbol"), call(t, erc20Abi, "decimals")]));
+  unknown.forEach((t, k) => {
+    out.set(t, {
+      symbol: (orNull(r[k * 2]!) as string | null) ?? `${t.slice(0, 6)}…`,
+      decimals: Number((orNull(r[k * 2 + 1]!) as number | bigint | null) ?? 18),
+    });
+  });
+  return out;
+}
+
+/* Harvest (v2): what a harvest of a loan's veBTC rewards would claim now, labelled for display */
+
+export interface HarvestItem {
+  reward: Address;
+  /** Trading fees or a bribe; null when the reward contract is not one of the PoolsVoter's. */
+  kind: "fees" | "bribe" | null;
+  /** The pool it pays for. */
+  pool: string | null;
+  token: Address;
+  symbol: string;
+  decimals: number;
+  amount: bigint;
+  /** MUSD repays the loan; every other token goes to the borrower. */
+  repays: boolean;
+}
+
+export interface HarvestView {
+  plan: HarvestPlan;
+  items: HarvestItem[];
+  /** MUSD the harvest would put toward the debt. */
+  musd: bigint;
+}
+
+export async function readHarvest(client: SuretyClient, loanId: bigint, pools: MezoPool[] | undefined): Promise<HarvestView> {
+  const plan = await client.getHarvestPlan(loanId);
+  const meta = await readTokenMeta(client, plan.earned.map((e) => e.token));
+  const musdAddr = client.deployment.external.musd.toLowerCase();
+  const byReward = new Map<string, { kind: "fees" | "bribe"; pool: string }>();
+  for (const p of pools ?? []) {
+    if (p.fees) byReward.set(p.fees.toLowerCase(), { kind: "fees", pool: p.label });
+    if (p.bribe) byReward.set(p.bribe.toLowerCase(), { kind: "bribe", pool: p.label });
+  }
+  const items = plan.earned.map((e) => {
+    const m = meta.get(e.token.toLowerCase()) ?? { symbol: "?", decimals: 18 };
+    const where = byReward.get(e.reward.toLowerCase());
+    return {
+      reward: e.reward,
+      kind: where?.kind ?? null,
+      pool: where?.pool ?? null,
+      token: e.token,
+      symbol: m.symbol,
+      decimals: m.decimals,
+      amount: e.amount,
+      repays: e.token.toLowerCase() === musdAddr,
+    };
+  });
+  return { plan, items, musd: items.filter((i) => i.repays).reduce((a, i) => a + i.amount, 0n) };
 }
 
 /* Mezo pools (PoolsVoter), for voting an escrowed veBTC and claiming its fees and bribes */

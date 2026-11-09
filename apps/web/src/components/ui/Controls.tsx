@@ -318,6 +318,89 @@ export function CheckList<T extends string>({
   );
 }
 
+/* ---------- Switch ---------- */
+
+/**
+ * An on/off control. `onChange` receives the state asked for; for settings stored on chain it opens a review rather
+ * than flipping the switch, which follows the chain once the transaction lands.
+ */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled,
+  description,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: ReactNode;
+  disabled?: boolean;
+  description?: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <div className={styles.switchRow}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-labelledby={`${id}-label`}
+        aria-describedby={description ? `${id}-desc` : undefined}
+        className={styles.switch}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+      >
+        <span className={styles.switchThumb} aria-hidden="true" />
+      </button>
+      <div className={styles.switchText}>
+        <span id={`${id}-label`} className={styles.switchLabel}>
+          {label}
+        </span>
+        {description ? (
+          <span id={`${id}-desc`} className={styles.help}>
+            {description}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pager ---------- */
+
+export function Pager({
+  label,
+  status,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+}: {
+  label: string;
+  /** "Listings 11–14 of 14". */
+  status: ReactNode;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <nav className={styles.pager} aria-label={label}>
+      <span className={styles.pagerStatus} role="status">
+        {status}
+      </span>
+      <span className={styles.pagerButtons}>
+        <button type="button" className={styles.pagerButton} onClick={onPrev} disabled={!hasPrev}>
+          <span aria-hidden="true">←</span> Previous
+        </button>
+        <button type="button" className={styles.pagerButton} onClick={onNext} disabled={!hasNext}>
+          Next <span aria-hidden="true">→</span>
+        </button>
+      </span>
+    </nav>
+  );
+}
+
 /* ---------- Dialog ---------- */
 
 export function Dialog({

@@ -20,6 +20,22 @@ export function sourcifyUrl(chainId: number, address: string): string {
   return `https://repo.sourcify.dev/${chainId}/${address}`;
 }
 
+/** The public repository. */
+export const REPO_URL = "https://github.com/RaYYeR220/surety";
+
+/** A file in the repository's main branch. */
+export function repoFile(path: string): string {
+  return `${REPO_URL}/blob/main/${path}`;
+}
+
+/** Where the written answers live in the repository. */
+export const REPO_DOCS = {
+  security: "docs/SECURITY.md",
+  business: "docs/BUSINESS.md",
+  feedback: "FEEDBACK-RESPONSE.md",
+  proof: "docs/PROOF.md",
+} as const;
+
 /** Short names for the deployment's contracts, in reading order. */
 export const CONTRACT_NAMES: [keyof SuretyContracts, string][] = [
   ["vault", "Surety vault (VaultV2)"],
@@ -34,27 +50,47 @@ export const CONTRACT_NAMES: [keyof SuretyContracts, string][] = [
   ["morpho", "Morpho Blue"],
   ["irm", "AdaptiveCurveIrm"],
   ["morphoOracle", "MorphoPriceOracle"],
+  ["btcMusdSource", "BtcMusdPriceSource"],
   ["priceSource", "Price source"],
+  ["btcUsdSource", "BTC/USD source"],
   ["skipSource", "SkipPriceSource"],
+  ["musdPeg", "MusdPeg"],
+  ["stressedPegSource", "StressedPegSource (testnet)"],
+  ["savingsAdapter", "SavingsAdapter"],
+  ["shareMarket", "ShareMarket"],
+  ["sponsor", "Sponsor (testnet)"],
 ];
 
-/** Mainnet uses Mezo's own Morpho Blue and IRM, which are Mezo's deployments rather than ours. */
-const MEZO_OWNED_ON_MAINNET = new Set<keyof SuretyContracts>(["morpho", "irm"]);
+/**
+ * Mezo's own Morpho Blue and IRM: the mainnet deployments and every v2 deployment use them, so they are Mezo's
+ * contracts rather than ours. (The v1 testnet ran its own Morpho.)
+ */
+const MEZO_OWNED_MORPHO = new Set<keyof SuretyContracts>(["morpho", "irm"]);
 
 /**
  * The contracts this deployment created, in reading order: skips any an older deployment does not have (the gate),
- * Mezo's own Morpho stack on mainnet, and a second name for the same address (the plain price source is also the
- * Skip source).
+ * Mezo's own Morpho stack where it is used, and a second name for the same address (the plain price source is also
+ * the Skip source; on v2 the price source is BtcMusdPriceSource).
  */
 export function deployedContracts(d: SuretyDeployment): { key: keyof SuretyContracts; name: string; address: Address }[] {
   const seen = new Set<string>();
   return CONTRACT_NAMES.flatMap(([key, name]) => {
     const address = d.contracts[key];
     if (!address || seen.has(address.toLowerCase())) return [];
-    if (d.chainId === 31612 && MEZO_OWNED_ON_MAINNET.has(key)) return [];
+    if ((d.chainId === 31612 || d.version === 2) && MEZO_OWNED_MORPHO.has(key)) return [];
     seen.add(address.toLowerCase());
     return [{ key, name, address }];
   });
+}
+
+/** Proof steps that exercise the loan escrow on Mezo: its vote, the bribe it earns, claims, rebase, harvest. */
+export function isEscrowProof(label: string): boolean {
+  return /escrow|bribe|harvest|rebase|auto-repay/i.test(label);
+}
+
+/** Anchor of a proof row on the proof page, e.g. "proof-v1-33" for step 33 of the v1 deployment. */
+export function proofAnchor(version: number, step: number): string {
+  return `proof-v${version}-${step}`;
 }
 
 export interface ReviewFinding {

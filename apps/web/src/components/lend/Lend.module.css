@@ -138,3 +138,16 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
 }
+
+/* ---------- Idle cash (v2) ---------- */
+.idle {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+@media (max-width: 560px) {
+  .idle {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

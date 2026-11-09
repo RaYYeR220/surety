@@ -1,20 +1,18 @@
 "use client";
 
-import type { Board, LoanView } from "@surety/sdk";
+import { originationFee, type Board, type LoanView } from "@surety/sdk";
 import { useState } from "react";
-import type { Address } from "viem";
 
 import { Stack } from "@/components/layout/Layout";
+import { AppLink } from "@/components/shell/AppLink";
 import { ReadError } from "@/components/shell/EnvGate";
 import { useTx, type TxPlan, type TxStep } from "@/components/tx/TxProvider";
-import { Empty, Meter, Muted, Notice, Pill, SectionTitle, Skeleton, Stat } from "@/components/ui/Bits";
+import { Empty, Muted, Notice, Pill, SectionTitle, Skeleton, Stat } from "@/components/ui/Bits";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { AmountField, CheckList, SelectField } from "@/components/ui/Controls";
-import { buildEscrowClaim, buildEscrowClaimRebase, buildEscrowReset, buildEscrowVote } from "@/lib/builders";
+import { AmountField, SelectField, Switch } from "@/components/ui/Controls";
 import type { ReadyEnv } from "@/lib/env";
 import {
-  formatAmount,
   formatBps,
   formatBtc,
   formatCountdown,
@@ -24,13 +22,14 @@ import {
   formatMusd,
   formatUsdWad,
   parseAmount,
-  shortAddress,
   toInput,
 } from "@/lib/format";
-import { useChainNow, useEscrowVoting, useLoans, useMezoPools, useWallet } from "@/lib/queries";
+import { isV2, useChainNow, useLineParams, useLoans, usePeg, useWallet } from "@/lib/queries";
 import { readAllowance } from "@/lib/reads";
 
 import styles from "./Borrow.module.css";
+import { EscrowPanel } from "./EscrowPanel";
+import { HealthBar } from "./HealthBar";
 
 const BPS = 10_000n;
 const WEEK = 604_800;
@@ -63,20 +62,14 @@ export function Loans({ env, board }: { env: ReadyEnv; board: Board | undefined 
 
 type Action = "repay" | "more" | "extend" | "collateral" | "escrow";
 
-function ltvTone(loan: LoanView): string {
-  if (loan.ltvBps === null) return "var(--color-ink-3)";
-  if (loan.ltvBps >= loan.liqLtvBps) return "var(--color-danger)";
-  if (loan.ltvBps > loan.maxLtvBps) return "var(--color-warning)";
-  return "var(--color-positive)";
-}
-
 function LoanCard({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: Board | undefined }) {
   const now = useChainNow();
+  const params = useLineParams().data;
   const [action, setAction] = useState<Action | null>(null);
   const inAuction = loan.state === "Auction";
   const left = loan.maturity === null || now === null ? null : Number(loan.maturity) - now;
-  const ltv = loan.ltvBps === null ? null : Number(loan.ltvBps) / 10_000;
-  const scale = 1; // gauge spans 0-100% LTV
+  // v2 lines value BTC in MUSD (BTC/USD over the MUSD peg); v1 lines took MUSD as $1.
+  const money = (wad: bigint) => (isV2(env) ? `${formatUsdWad(wad)} MUSD` : `$${formatUsdWad(wad)}`);
 
   return (
     <Card tone={inAuction || loan.liquidatable ? "danger" : "default"} label={`Loan ${loan.loanId}`}>
@@ -117,11 +110,11 @@ function LoanCard({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: 
             label="Collateral"
             value={formatBtc(loan.lock.amount)}
             unit="BTC"
-            hint={loan.collateralValue === null ? "Price feed stale" : `$${formatUsdWad(loan.collateralValue)}`}
+            hint={loan.collateralValue === null ? "Price feed stale" : money(loan.collateralValue)}
           />
           <Stat
             label="Auction if BTC falls to"
-            value={loan.liquidationPriceWad === null ? "—" : `$${formatUsdWad(loan.liquidationPriceWad)}`}
+            value={loan.liquidationPriceWad === null ? "—" : money(loan.liquidationPriceWad)}
           />
           <Stat
             label="Matures"
@@ -141,25 +134,17 @@ function LoanCard({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: 
           />
         </div>
 
-        <div className={styles.gauge}>
-          <div className={styles.gaugeHead}>
-            <span>Loan-to-value</span>
-            <span className={styles.gaugeValue} style={{ color: ltvTone(loan) }}>
-              {formatBps(loan.ltvBps)}
-            </span>
-          </div>
-          <Meter
-            value={ltv === null ? 0 : ltv / scale}
-            color={ltvTone(loan)}
-            label="Loan-to-value"
-            valueText={`${formatBps(loan.ltvBps)}; auction at ${formatBps(loan.liqLtvBps, 0)}`}
-            size="lg"
-            markers={[
-              { at: Number(loan.maxLtvBps) / 10_000, label: `max ${formatBps(loan.maxLtvBps, 0)}` },
-              { at: Number(loan.liqLtvBps) / 10_000, label: `auction ${formatBps(loan.liqLtvBps, 0)}`, color: "var(--color-danger)" },
-            ]}
-          />
-        </div>
+        <HealthBar
+          ltvBps={loan.ltvBps === null ? null : Number(loan.ltvBps)}
+          lines={{
+            maxLtvBps: Number(loan.maxLtvBps),
+            liqLtvBps: Number(loan.liqLtvBps),
+            // The floor is a line parameter; until it is read, draw it at the trigger.
+            floorBps: params?.floorBps ?? Number(loan.liqLtvBps),
+          }}
+        />
+
+        {isV2(env) ? <AutoRepay env={env} loan={loan} /> : null}
 
         <div className={styles.actionBar} role="group" aria-label="Loan actions">
           {(
@@ -172,7 +157,7 @@ function LoanCard({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: 
                     ["extend", "Extend lock"],
                     ["collateral", "Add collateral"],
                   ] as const)),
-              ["escrow", inAuction ? "Rewards" : "Vote and rewards"],
+              ["escrow", inAuction ? "Rewards" : isV2(env) ? "Vote, rewards, harvest" : "Vote and rewards"],
             ] as [Action, string][]
           ).map(([id, label]) => (
             <Button
@@ -193,11 +178,50 @@ function LoanCard({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: 
             {action === "more" ? <BorrowMoreForm env={env} loan={loan} board={board} /> : null}
             {action === "extend" ? <ExtendForm env={env} loan={loan} /> : null}
             {action === "collateral" ? <AddCollateralForm env={env} loan={loan} /> : null}
-            {action === "escrow" ? <EscrowForm env={env} loan={loan} /> : null}
+            {action === "escrow" ? <EscrowPanel env={env} loan={loan} /> : null}
           </div>
         ) : null}
       </Stack>
     </Card>
+  );
+}
+
+/** v2: let anyone harvest the escrowed NFT's fees and bribes into repayment. The switch follows the chain. */
+function AutoRepay({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
+  const tx = useTx();
+  const mine = !!env.account && env.account.toLowerCase() === loan.borrower.toLowerCase();
+  const plan = (enabled: boolean): TxPlan => ({
+    title: enabled ? `Turn on auto-repay for loan #${loan.loanId}` : `Turn off auto-repay for loan #${loan.loanId}`,
+    summary: enabled
+      ? `From now on anyone may harvest veBTC #${loan.tokenId}'s Mezo fees and bribes into this loan: MUSD repays the debt, other tokens go to your wallet, and the rebase compounds into the lock. The keeper harvests after each Mezo epoch flip.`
+      : "Only you will be able to harvest; fees and bribes wait until you claim or harvest them yourself.",
+    notes: [
+      "Harvesting never reads the price feed or the peg, and works while the loan is in auction.",
+      "Repaying the whole debt through a harvest closes the loan and returns the NFT to you.",
+    ],
+    steps: [
+      {
+        label: enabled ? "Turn on auto-repay" : "Turn off auto-repay",
+        detail: "VeBTCCreditLine.setAutoRepay(loanId, enabled)",
+        tx: env.client.buildSetAutoRepay({ loanId: loan.loanId, enabled }),
+      },
+    ],
+    confirmLabel: enabled ? "Turn on" : "Turn off",
+  });
+  return (
+    <div className={styles.autoRepay}>
+      <Switch
+        checked={loan.autoRepay}
+        onChange={(next) => tx.review(plan(next))}
+        disabled={!mine}
+        label={`Auto-repay ${loan.autoRepay ? "on" : "off"}`}
+        description={
+          loan.autoRepay
+            ? "Anyone may harvest this loan's Mezo fees and bribes into repayment; the keeper does after each Mezo epoch."
+            : "Turn it on and the NFT's Mezo fees and bribes pay the loan down, harvested by anyone."
+        }
+      />
+    </div>
   );
 }
 
@@ -271,9 +295,14 @@ function RepayForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
 
 function BorrowMoreForm({ env, loan, board }: { env: ReadyEnv; loan: LoanView; board: Board | undefined }) {
   const tx = useTx();
+  const params = useLineParams().data;
+  const peg = usePeg();
   const [input, setInput] = useState("");
   const amount = parseAmount(input);
   const line = board?.lines.find((l) => l.kind === "VeBTC");
+  const feeBps = params?.originationFeeBps ?? 0;
+  const fee = amount === null ? 0n : originationFee(amount, feeBps);
+  const offPeg = peg.data ? !peg.data.healthyOnChain : false;
   const limit = loan.collateralValue === null ? null : (loan.collateralValue * loan.maxLtvBps) / BPS;
   const room = limit === null ? null : limit > loan.debt ? limit - loan.debt : 0n;
   const error =
@@ -285,12 +314,22 @@ function BorrowMoreForm({ env, loan, board }: { env: ReadyEnv; loan: LoanView; b
   const after = amount !== null && loan.collateralValue ? ((loan.debt + amount) * BPS) / loan.collateralValue : null;
   const plan = (): TxPlan => ({
     title: `Borrow more on loan #${loan.loanId}`,
-    summary: `Adds ${formatMusd(amount!)} MUSD to the debt; the NFT stays in its escrow.`,
+    summary:
+      fee > 0n
+        ? `You receive ${formatMusd(amount! - fee)} MUSD and your debt grows by ${formatMusd(amount!)} MUSD; the NFT stays in its escrow.`
+        : `Adds ${formatMusd(amount!)} MUSD to the debt; the NFT stays in its escrow.`,
     rows: [
+      { label: "You receive", value: `${formatMusd(amount! - fee)} MUSD` },
+      fee > 0n && { label: `Origination fee (${formatBps(feeBps, 2)})`, value: `${formatMusd(fee)} MUSD to the treasury` },
       { label: "Debt after", value: `${formatMusd(loan.debt + amount!)} MUSD` },
       { label: "Loan-to-value after", value: formatBps(after) },
     ],
-    blocked: loan.collateralValue === null ? "The BTC price feed is stale, so new borrowing is refused until it updates." : undefined,
+    blocked:
+      loan.collateralValue === null
+        ? "The BTC price feed is stale, so new borrowing is refused until it updates."
+        : offPeg
+          ? "MUSD is off its peg, so the line refuses new borrowing until it recovers. Repaying still works."
+          : undefined,
     steps: [{ label: `Borrow ${formatMusd(amount!)} MUSD`, detail: "VeBTCCreditLine.borrowMore(loanId, amount)", tx: env.client.buildBorrowMore({ loanId: loan.loanId, amount: amount! }) }],
     confirmLabel: "Borrow",
   });
@@ -304,9 +343,22 @@ function BorrowMoreForm({ env, loan, board }: { env: ReadyEnv; loan: LoanView; b
         aside={room === null ? "Price feed stale" : `Room ${formatMusd(room)} MUSD`}
         onMax={room ? () => setInput(toInput(room, 18, 2)) : undefined}
         error={error}
-        help={line?.paused ? "The line is paused for new borrowing." : `Same limits as opening: ${formatBps(loan.maxLtvBps, 0)} max LTV, line cash permitting.`}
+        help={
+          line?.paused
+            ? "The line is paused for new borrowing."
+            : offPeg
+              ? "MUSD is off its peg, so the line takes no new borrowing until it recovers."
+              : fee > 0n
+                ? `You receive ${formatMusd(amount! - fee)} MUSD after the ${formatBps(feeBps, 2)} origination fee; your debt grows by the full amount.`
+                : `Same limits as opening: ${formatBps(loan.maxLtvBps, 0)} max LTV, line cash permitting.`
+        }
       />
-      <Button disabled={!amount || !!error || line?.paused === true} onClick={() => tx.review(plan())}>
+      {offPeg ? (
+        <Notice tone="danger" title="New borrowing is paused">
+          MUSD is off its peg. Repaying, adding collateral and harvesting still work. <AppLink href="/app/peg">See the peg</AppLink>
+        </Notice>
+      ) : null}
+      <Button disabled={!amount || !!error || line?.paused === true || offPeg} onClick={() => tx.review(plan())}>
         Review
       </Button>
     </Stack>
@@ -404,214 +456,6 @@ function AddCollateralForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
       <Button disabled={!amount || !!error} onClick={() => tx.review(plan)}>
         Review
       </Button>
-    </Stack>
-  );
-}
-
-function EscrowForm({ env, loan }: { env: ReadyEnv; loan: LoanView }) {
-  const tx = useTx();
-  const pools = useMezoPools();
-  const voting = useEscrowVoting(loan.tokenId, pools.data);
-  const [picked, setPicked] = useState<Address[] | null>(null);
-
-  const all = pools.data ?? [];
-  const byPool = new Map(all.map((p) => [p.pool, p]));
-  const current = voting.data?.votes.map((v) => v.pool) ?? [];
-  // Start from the NFT's current Mezo vote until the borrower changes the selection.
-  const selected = picked ?? current;
-  const listed = all.filter((p) => p.alive || current.includes(p.pool));
-  const max = voting.data?.maxVotingNum ?? 30;
-  const rewards = voting.data?.rewards ?? [];
-  // The line refuses escrowVote / escrowReset once the loan is in auction (claims stay open): Mezo allows one vote
-  // or reset per NFT per Mezo epoch, and a vote just before a bid would hand the bidder an NFT it cannot reset.
-  const inAuction = loan.state === "Auction";
-  const blocked = inAuction
-    ? "No Mezo vote or reset while the loan is in auction: the buyer must get an NFT that can still act this Mezo epoch. Claims still work."
-    : !voting.data
-      ? undefined
-      : voting.data.votedThisEpoch
-        ? "Mezo takes one vote or reset per NFT per Mezo epoch, and this veBTC has used it. It can vote again after Mezo's weekly flip (Thursday 00:00 UTC)."
-        : !voting.data.inVoteWindow
-          ? `Mezo's voting window is closed right now (it opens ${formatDateTime(voting.data.voteStart)} and closes ${formatDateTime(voting.data.voteEnd)}).`
-          : undefined;
-
-  const vote = (): TxPlan => ({
-    title: `Vote veBTC #${loan.tokenId} on Mezo`,
-    summary: `Votes the escrowed NFT's full boosted power on Mezo's PoolsVoter, split evenly across ${selected.length === 1 ? "this pool" : `these ${selected.length} pools`}. It replaces the NFT's current Mezo vote. Only you, the borrower, can do this.`,
-    rows: selected.map((a) => ({ label: byPool.get(a)?.label ?? a, value: `${Math.round(100 / selected.length)}% of the power` })),
-    notes: ["Fees and bribes from this vote become claimable after the Mezo epoch ends, and are forwarded to your wallet when claimed."],
-    blocked,
-    steps: [
-      {
-        label: "Vote through the escrow",
-        detail: "VeBTCCreditLine.escrowVote(loanId, pools, weights)",
-        tx: buildEscrowVote(env.deployment, {
-          loanId: loan.loanId,
-          pools: selected,
-          weights: selected.map(() => 10_000n),
-        }),
-      },
-    ],
-    confirmLabel: "Vote",
-  });
-
-  const claim = (): TxPlan => {
-    const grouped = new Map<Address, Address[]>();
-    for (const r of rewards) grouped.set(r.reward, [...(grouped.get(r.reward) ?? []), r.token]);
-    return {
-      title: `Claim Mezo fees and bribes of veBTC #${loan.tokenId}`,
-      summary:
-        "Claims what the escrowed NFT earned from its Mezo votes. The escrow forwards exactly what the claim paid to your wallet.",
-      rows: rewards.map((r) => ({
-        label: `${r.label} · ${r.kind === "fees" ? "fees" : "bribe"}`,
-        value: `${formatAmount(r.earned, { decimals: r.decimals, max: 6 })} ${r.symbol}`,
-      })),
-      steps: [
-        {
-          label: `Claim from ${grouped.size} reward contract${grouped.size === 1 ? "" : "s"}`,
-          detail: "VeBTCCreditLine.escrowClaim(loanId, rewards, tokens)",
-          tx: buildEscrowClaim(env.deployment, {
-            loanId: loan.loanId,
-            rewards: [...grouped.keys()],
-            tokens: [...grouped.values()],
-          }),
-        },
-      ],
-      confirmLabel: "Claim",
-    };
-  };
-
-  const reset = (): TxPlan => ({
-    title: "Clear the escrow's Mezo votes",
-    summary: "Removes the NFT's current PoolsVoter votes. Mezo counts a reset as the NFT's one action this epoch.",
-    blocked,
-    steps: [
-      { label: "Reset votes", detail: "VeBTCCreditLine.escrowReset(loanId)", tx: buildEscrowReset(env.deployment, { loanId: loan.loanId }) },
-    ],
-    confirmLabel: "Reset",
-  });
-  const rebase = (): TxPlan => ({
-    title: "Claim the veBTC rebase",
-    summary: "Claims the NFT's rebase: it compounds into the lock while the lock is live (raising your collateral).",
-    steps: [
-      {
-        label: "Claim rebase",
-        detail: "VeBTCCreditLine.escrowClaimRebase(loanId)",
-        tx: buildEscrowClaimRebase(env.deployment, { loanId: loan.loanId }),
-      },
-    ],
-    confirmLabel: "Claim",
-  });
-
-  const err = pools.error ?? voting.error;
-  return (
-    <Stack gap={5}>
-      <Muted small>
-        The escrow can only vote, reset, claim, extend and add BTC for this one NFT, and only on your instruction. Fees
-        and bribes it claims are forwarded to you.
-      </Muted>
-      {inAuction ? (
-        <Notice tone="warning" title="Mezo voting is off during the auction">
-          Mezo allows one vote or reset per NFT per Mezo epoch, so a vote now would leave the buyer an NFT it cannot
-          reset, withdraw or merge for up to a week. The line refuses both until the loan is repaid. Fees, bribes and
-          the rebase the NFT already earned stay yours to claim.
-        </Notice>
-      ) : null}
-      {err ? (
-        <ReadError
-          what="Mezo's pools"
-          error={err}
-          onRetry={() => {
-            void pools.refetch();
-            void voting.refetch();
-          }}
-        />
-      ) : null}
-
-      <Stack gap={3}>
-        <div className={styles.escrowHead}>
-          <span className={styles.escrowTitle}>Vote on Mezo</span>
-          <Muted small>
-            {voting.data
-              ? current.length
-                ? `Votes now: ${current.map((a) => byPool.get(a)?.label ?? a).join(", ")}`
-                : "No Mezo vote right now"
-              : "Reading the NFT's vote…"}
-          </Muted>
-        </div>
-        {blocked && !inAuction ? <Notice tone="warning">{blocked}</Notice> : null}
-        {pools.isPending ? (
-          <Skeleton height={180} label="Loading Mezo's pools" />
-        ) : (
-          <div className={styles.poolList}>
-            <CheckList
-              label="Mezo pools to vote for"
-              values={selected}
-              onChange={(next) => setPicked(next as Address[])}
-              options={listed.map((p) => ({
-                value: p.pool,
-                content: (
-                  <span className={styles.poolRow}>
-                    <span className={styles.poolName}>{p.label}</span>
-                    <span className={`num ${styles.poolAddr}`}>{shortAddress(p.pool)}</span>
-                    {current.includes(p.pool) ? <Pill tone="accent">Voted</Pill> : null}
-                    {!p.alive ? <Pill tone="warning">Gauge killed</Pill> : null}
-                  </span>
-                ),
-              }))}
-            />
-          </div>
-        )}
-        <div className={styles.escrowActions}>
-          <Button
-            disabled={selected.length === 0 || selected.length > max || !!blocked || !voting.data}
-            onClick={() => tx.review(vote())}
-          >
-            Review Mezo vote
-          </Button>
-          <Muted small>
-            {selected.length > max
-              ? `Mezo allows at most ${max} pools per vote.`
-              : `${selected.length} picked · the power is split evenly across them.`}
-          </Muted>
-        </div>
-      </Stack>
-
-      <Stack gap={3}>
-        <div className={styles.escrowHead}>
-          <span className={styles.escrowTitle}>Fees and bribes</span>
-          <Muted small>Earned by this NFT&apos;s Mezo votes, claimable now</Muted>
-        </div>
-        {voting.isPending && !err ? (
-          <Skeleton height={64} label="Reading claimable rewards" />
-        ) : rewards.length === 0 ? (
-          <Muted small>Nothing to claim yet. A Mezo vote earns its pools&apos; fees and bribes once that Mezo epoch ends.</Muted>
-        ) : (
-          <ul className={styles.rewardList}>
-            {rewards.map((r) => (
-              <li key={`${r.reward}:${r.token}`}>
-                <span>
-                  {r.label} <Muted small>· {r.kind === "fees" ? "trading fees" : "bribe"}</Muted>
-                </span>
-                <span className="num">
-                  {formatAmount(r.earned, { decimals: r.decimals, max: 6 })} {r.symbol}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className={styles.escrowActions}>
-          <Button disabled={rewards.length === 0} onClick={() => tx.review(claim())}>
-            Claim to your wallet{rewards.length ? ` (${rewards.length})` : ""}
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => tx.review(rebase())}>
-            Claim rebase
-          </Button>
-          <Button size="sm" variant="secondary" disabled={current.length === 0 || !!blocked} onClick={() => tx.review(reset())}>
-            Reset Mezo votes
-          </Button>
-        </div>
-      </Stack>
     </Stack>
   );
 }

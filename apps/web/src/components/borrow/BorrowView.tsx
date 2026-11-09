@@ -5,6 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { Split, Stack } from "@/components/layout/Layout";
+import { PegBadge } from "@/components/peg/PegBadge";
+import { AppLink } from "@/components/shell/AppLink";
 import { EnvGate, ReadError } from "@/components/shell/EnvGate";
 import { useWalletDialog } from "@/components/shell/WalletDialog";
 import { useTx, type TxPlan } from "@/components/tx/TxProvider";
@@ -24,9 +26,10 @@ import {
   parseAmount,
   toInput,
 } from "@/lib/format";
-import { useBoard, useChainNow, useLineParams, usePositions, useQuote } from "@/lib/queries";
+import { isV2, useBoard, useChainNow, useLineParams, usePeg, usePositions, useQuote } from "@/lib/queries";
 
 import styles from "./Borrow.module.css";
+import { HealthBar } from "./HealthBar";
 import { Loans } from "./Loans";
 import { MorphoPanel } from "./MorphoPanel";
 
@@ -55,6 +58,7 @@ function BorrowView({ env }: { env: ReadyEnv }) {
       <PageHead
         title="Borrow"
         lead="Borrow MUSD against your veBTC without unlocking it, or against BTC in a Morpho market. No redemptions: your position only changes when you change it, or if it crosses its liquidation line."
+        actions={<PegBadge />}
       />
       <Tabs
         idPrefix="borrow"
@@ -72,7 +76,7 @@ function BorrowView({ env }: { env: ReadyEnv }) {
           <Stack gap={6}>
             <Split main="3fr" side="2fr" gap={5}>
               {board.data ? <OpenLoan env={env} /> : <Skeleton height={420} label="Loading" />}
-              <HowItWorks board={board.data} />
+              <HowItWorks env={env} board={board.data} />
             </Split>
             <Loans env={env} board={board.data} />
           </Stack>
@@ -96,7 +100,8 @@ const REASONS: Record<BorrowIneligibility, string> = {
   "no-liquidity": "The line has no MUSD free to lend right now. It refills at the next rebalance if votes send it more.",
   "line-paused": "The line is paused for new loans. Repaying existing loans still works.",
   "above-max": "That is more than this veBTC can borrow now. Lower the amount.",
-  "peg-unhealthy": "MUSD is off its peg, so the line takes no new loans until it recovers. Repaying still works.",
+  "peg-unhealthy":
+    "MUSD is off its peg (or its price sources disagree), so the line takes no new loans until it recovers. Repaying, auctions and withdrawals still work.",
 };
 
 function OpenLoan({ env }: { env: ReadyEnv }) {
@@ -114,6 +119,11 @@ function OpenLoan({ env }: { env: ReadyEnv }) {
   const amount = parseAmount(input);
   const quote = useQuote(position?.tokenId ?? null, amount !== null && amount > 0n ? amount : null);
   const q = quote.data && position && quote.data.tokenId === position.tokenId ? quote.data : null;
+  const params = useLineParams().data;
+  const v2 = isV2(env);
+  const feeLabel = formatBps(params?.originationFeeBps ?? 0, 2);
+  // On v2 the line values BTC in MUSD (BTC/USD over the MUSD peg); v1 took MUSD as $1.
+  const priceIn = (wad: bigint | null) => (wad === null ? "—" : v2 ? `${formatUsdWad(wad)} MUSD` : `$${formatUsdWad(wad)}`);
 
   if (!env.account) {
     return (
@@ -127,14 +137,20 @@ function OpenLoan({ env }: { env: ReadyEnv }) {
   const plan = (): TxPlan => {
     const a = amount!;
     const [approve, open] = env.client.buildOpenLoan({ tokenId: position!.tokenId, amount: a });
+    const fee = q!.originationFee;
     return {
       title: `Borrow against veBTC #${position!.tokenId}`,
-      summary: `You borrow ${formatMusd(a)} MUSD. veBTC #${position!.tokenId} moves into its own loan escrow, where it keeps voting and earning until you repay.`,
+      summary:
+        fee > 0n
+          ? `You receive ${formatMusd(q!.receives)} MUSD and your debt is ${formatMusd(a)} MUSD. veBTC #${position!.tokenId} moves into its own loan escrow, where it keeps voting and earning until you repay.`
+          : `You borrow ${formatMusd(a)} MUSD. veBTC #${position!.tokenId} moves into its own loan escrow, where it keeps voting and earning until you repay.`,
       rows: [
-        { label: "You receive", value: `${formatMusd(a)} MUSD` },
-        { label: "Collateral", value: `${formatBtc(q!.lock.amount)} BTC · $${formatUsdWad(q!.collateralValue)}` },
+        { label: "You receive", value: `${formatMusd(q!.receives)} MUSD` },
+        fee > 0n && { label: `Origination fee (${feeLabel})`, value: `${formatMusd(fee)} MUSD to the treasury` },
+        { label: "Your debt", value: `${formatMusd(a)} MUSD, plus interest` },
+        { label: "Collateral", value: `${formatBtc(q!.lock.amount)} BTC · ${formatMusd(q!.collateralValue)} MUSD` },
         { label: "Loan-to-value", value: `${formatBps(q!.ltvBps)} (max ${formatBps(q!.maxLtvBps, 0)})` },
-        { label: "Auction starts at", value: `${formatBps(q!.liqLtvBps, 0)} LTV · BTC at $${formatUsdWad(q!.liquidationPriceWad)}` },
+        { label: "Auction starts at", value: `${formatBps(q!.liqLtvBps, 0)} LTV · BTC at ${priceIn(q!.liquidationPriceWad)}` },
         { label: "Borrow rate", value: `${formatPct(q!.borrowAprAfter, 2)} APR (${formatPct(q!.borrowApyAfter, 2)} APY)` },
         {
           label: "Repay by",
@@ -144,7 +160,9 @@ function OpenLoan({ env }: { env: ReadyEnv }) {
       notes: [
         "Repay any time, in part or in full. Full repayment returns the NFT to you.",
         `Repay or extend the lock before it ends; after the lock end, or at ${formatBps(q!.liqLtvBps, 0)} LTV, anyone can start a Dutch auction of the NFT.`,
-        "The price feed must be fresh to open a loan; repaying never needs it.",
+        v2
+          ? "The price feed must be fresh and MUSD on its peg to open a loan; repaying never needs either."
+          : "The price feed must be fresh to open a loan; repaying never needs it.",
       ],
       steps: [
         { label: `Approve veBTC #${position!.tokenId} for the line`, detail: "veBTC.approve(line, tokenId): this one NFT only", tx: approve! },
@@ -191,20 +209,39 @@ function OpenLoan({ env }: { env: ReadyEnv }) {
             {quote.error ? <ReadError what="the quote" error={quote.error} onRetry={() => void quote.refetch()} /> : null}
             {q ? (
               <div className={styles.quote}>
+                {q.amount > 0n ? (
+                  <p className={styles.receive}>
+                    You receive <strong className="num">{formatMusd(q.receives)} MUSD</strong>, your debt is{" "}
+                    <strong className="num">{formatMusd(q.amount)} MUSD</strong>
+                    {q.originationFee > 0n ? (
+                      <Muted small>
+                        {" "}
+                        · {feeLabel} origination fee, {formatMusd(q.originationFee)} MUSD, goes to the treasury
+                      </Muted>
+                    ) : null}
+                  </p>
+                ) : null}
                 <KeyValues
                   label="Quote"
                   items={[
                     { label: "Collateral", value: `${formatBtc(q.lock.amount)} BTC` },
-                    { label: "BTC price (oracle)", value: q.priceWad === null ? "stale" : `$${formatUsdWad(q.priceWad)}` },
-                    { label: "Collateral value", value: `$${formatUsdWad(q.collateralValue)}` },
+                    {
+                      label: v2 ? "BTC price in MUSD (oracle)" : "BTC price (oracle)",
+                      value: q.priceWad === null ? "stale" : priceIn(q.priceWad),
+                    },
+                    { label: "Collateral value", value: `${formatMusd(q.collateralValue)} MUSD` },
                     { label: "Max loan-to-value", value: formatBps(q.maxLtvBps, 0) },
                     { label: "Most you can borrow now", value: `${formatMusd(q.maxBorrow)} MUSD` },
                     { rule: true, label: "", value: "" },
-                    { label: "This loan", value: `${formatMusd(q.amount)} MUSD` },
-                    { label: "Its loan-to-value", value: formatBps(q.ltvBps) },
+                    { label: "This loan (your debt)", value: `${formatMusd(q.amount)} MUSD` },
+                    q.originationFee > 0n && {
+                      label: `Origination fee (${feeLabel})`,
+                      value: `${formatMusd(q.originationFee)} MUSD`,
+                    },
+                    { label: "You receive", value: `${formatMusd(q.receives)} MUSD` },
                     {
                       label: `Auction line (${formatBps(q.liqLtvBps, 0)} LTV)`,
-                      value: q.liquidationPriceWad === null ? "—" : `BTC at $${formatUsdWad(q.liquidationPriceWad)}`,
+                      value: q.liquidationPriceWad === null ? "—" : `BTC at ${priceIn(q.liquidationPriceWad)}`,
                     },
                     {
                       label: "Rate",
@@ -217,6 +254,16 @@ function OpenLoan({ env }: { env: ReadyEnv }) {
                     { label: "Line has free", value: `${formatMusd(q.lineCash)} MUSD` },
                   ]}
                 />
+                {params && q.ltvBps !== null && q.amount > 0n ? (
+                  <div className={styles.quoteBar}>
+                    <HealthBar
+                      label="This loan's loan-to-value"
+                      ltvBps={Number(q.ltvBps)}
+                      lines={{ maxLtvBps: Number(q.maxLtvBps), liqLtvBps: params.liqLtvBps, floorBps: params.floorBps }}
+                      compact
+                    />
+                  </div>
+                ) : null}
               </div>
             ) : quote.isPending ? (
               <Skeleton height={220} label="Quoting" />
@@ -225,7 +272,15 @@ function OpenLoan({ env }: { env: ReadyEnv }) {
               <Notice tone="danger" title="This loan would be refused now" role="alert">
                 <ul className={styles.reasons}>
                   {q.reasons.map((r) => (
-                    <li key={r}>{REASONS[r]}</li>
+                    <li key={r}>
+                      {REASONS[r]}
+                      {r === "peg-unhealthy" ? (
+                        <>
+                          {" "}
+                          <AppLink href="/app/peg">See the peg</AppLink>
+                        </>
+                      ) : null}
+                    </li>
                   ))}
                   {q.reasons.length === 0 && q.amount === 0n ? <li>Enter an amount above zero.</li> : null}
                 </ul>
@@ -272,22 +327,34 @@ function NftLine({ p }: { p: VeBTCPosition }) {
   );
 }
 
-function HowItWorks({ board }: { board: Board | undefined }) {
+function HowItWorks({ env, board }: { env: ReadyEnv; board: Board | undefined }) {
   const line = board?.lines.find((l) => l.kind === "VeBTC");
   const p = useLineParams().data;
+  const v2 = isV2(env);
+  const peg = usePeg();
+  const musd = v2 ? (
+    <>
+      MUSD is priced from Mezo&apos;s pools, never above $1 for your collateral; <AppLink href="/app/peg">see the peg</AppLink>.
+    </>
+  ) : (
+    <>MUSD is valued at $1.</>
+  );
   return (
     <Card tone="accent" eyebrow="While it is borrowed" title="Your veBTC keeps working">
       <FactList
         items={[
           <>It moves into its own escrow contract, one per loan. No pooled custody, no generic calls.</>,
           <>It keeps its boost, keeps voting on Mezo (you steer it from here) and keeps earning fees, bribes and rebase.</>,
+          ...(v2
+            ? [<>Turn on auto-repay and those fees and bribes pay the loan down: anyone can harvest them into repayment.</>]
+            : []),
           p ? (
             <>
               Max loan-to-value {formatBps(p.maxLtvTimedBps, 0)} for timed locks, {formatBps(p.maxLtvPermanentBps, 0)} for
-              permanent ones. MUSD is valued at $1.
+              permanent ones. {musd}
             </>
           ) : (
-            <>Loan-to-value is capped lower for permanent locks than for timed ones. MUSD is valued at $1.</>
+            <>Loan-to-value is capped lower for permanent locks than for timed ones. {musd}</>
           ),
           p ? (
             <>
@@ -298,12 +365,21 @@ function HowItWorks({ board }: { board: Board | undefined }) {
           ) : (
             <>The loan matures at the lock end: repay or extend before it, or the NFT can be auctioned.</>
           ),
+          ...(p && p.originationFeeBps > 0
+            ? [
+                <>
+                  A one-off {formatBps(p.originationFeeBps, 2)} origination fee comes out of what you borrow and goes to the
+                  treasury. <AppLink href="/app/business">Where fees go</AppLink>
+                </>,
+              ]
+            : []),
           <>No redemptions: nobody can repay your loan with your collateral while it is healthy.</>,
         ]}
       />
       {line ? (
         <div style={{ marginTop: "var(--space-4)", display: "flex", gap: "6px", flexWrap: "wrap" }}>
           {line.oracleLive === false ? <Pill tone="danger" dot>Price feed stale: new loans refused</Pill> : null}
+          {peg.data && !peg.data.healthyOnChain ? <Pill tone="danger" dot>MUSD off peg: new loans refused</Pill> : null}
           {line.paused ? <Pill tone="danger" dot>Line paused</Pill> : null}
           <Pill tone="outline">Borrow APY {formatPct(line.borrowApy, 2)} est.</Pill>
         </div>
