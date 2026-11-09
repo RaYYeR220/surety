@@ -19,7 +19,7 @@ contract SuretyInvariants is SuretyFixture {
 
     SuretyHandler internal handler;
 
-    function setUp() public override {
+    function setUp() public virtual override {
         EPOCH_LENGTH = 1 hours;
         super.setUp();
 
@@ -54,7 +54,9 @@ contract SuretyInvariants is SuretyFixture {
                 line: line,
                 morpho: morpho,
                 btcMarket: btcMarket,
-                stressed: stressedSource
+                stressed: stressedSource,
+                savings: savings,
+                smusd: smusd
             }),
             voterAddrs,
             tokens
@@ -70,6 +72,14 @@ contract SuretyInvariants is SuretyFixture {
         assertEq(line.loanCount(), 1);
 
         targetContract(address(handler));
+        if (!withSavings) {
+            // Savings actions are no-ops without savings; keep the calls for the actions that do something.
+            bytes4[] memory idle = new bytes4[](3);
+            idle[0] = SuretyHandler.savingsYield.selector;
+            idle[1] = SuretyHandler.harvest.selector;
+            idle[2] = SuretyHandler.forceDeallocateSavings.selector;
+            excludeSelector(FuzzSelector({addr: address(handler), selectors: idle}));
+        }
     }
 
     /// @dev Invariants read time-dependent views (interest accrual); evaluate them at the handler's clock.
@@ -79,10 +89,13 @@ contract SuretyInvariants is SuretyFixture {
         _;
     }
 
-    /// @notice VaultV2 never reports more assets than it holds idle plus what its adapters hold, and the allocator and
-    /// pool never keep MUSD or (allocator) vault shares.
+    /// @notice VaultV2 never reports more assets than it holds idle plus what its adapters hold (the Morpho adapter,
+    /// the veBTC line and, with savings, the savings adapter: every adapter it has), and the allocator and pool never
+    /// keep MUSD or (allocator) vault shares.
     function invariant_vaultAssetsBacked() public synced {
         uint256 backing = musd.balanceOf(address(vault)) + morphoAdapter.realAssets() + line.realAssets();
+        if (withSavings) backing += savings.realAssets();
+        assertEq(vault.adaptersLength(), withSavings ? 3 : 2, "every adapter is counted");
         assertLe(vault.totalAssets(), backing, "vault assets backed");
         assertEq(musd.balanceOf(address(allocator)), 0, "allocator holds no MUSD");
         assertEq(vault.balanceOf(address(allocator)), 0, "allocator holds no shares");
@@ -189,6 +202,19 @@ contract SuretyInvariants is SuretyFixture {
         }
     }
 
+    /// @notice Savings: the adapter reports exactly MUSD held + sMUSD + claimable yield, its yield counter never goes
+    /// down, and no fee attribution credits line cohorts with the fee share of the savings yield.
+    function invariant_savingsAccounting() public synced {
+        assertEq(handler.savingsFeeLeaks(), 0, "savings fees never reach line cohorts");
+        if (!withSavings) return;
+        uint256 position =
+            musd.balanceOf(address(savings)) + smusd.balanceOf(address(savings)) + savings.claimableYield();
+        uint256 reported = vault.allocation(savings.adapterId()) == 0 ? 0 : position;
+        assertEq(savings.realAssets(), reported, "realAssets == held + sMUSD + claimable");
+        assertEq(handler.yieldCounterDrops(), 0, "yield counter is monotone");
+        assertEq(musd.balanceOf(address(allocator)), 0);
+    }
+
     /// @dev What a run reached, for `-vv` runs: loans opened and liquidated, losses recorded and covered, claims.
     function afterInvariant() public view {
         uint256 liquidated = 0;
@@ -213,8 +239,27 @@ contract SuretyInvariants is SuretyFixture {
                 " slashed=",
                 vm.toString(led.slashed / 1e18),
                 " epochs=",
-                vm.toString((handler.currentEpoch() - handler.firstEpoch()) / EPOCH_LENGTH)
+                vm.toString((handler.currentEpoch() - handler.firstEpoch()) / EPOCH_LENGTH),
+                " feeChecks=",
+                vm.toString(handler.feeChecks())
             )
         );
+    }
+}
+
+/// @notice The same invariants on the v2 wiring: idle cash parked in sMUSD (the vault's liquidity adapter), with
+/// other sMUSD holders, sMUSD yield, harvests and forced exits from savings in the action mix.
+/// forge-config: default.invariant.fail-on-revert = true
+contract SuretyInvariantsWithSavings is SuretyInvariants {
+    function setUp() public override {
+        withSavings = true;
+        super.setUp();
+        address others = makeAddr("otherSavers");
+        musd.mint(others, 500_000e18);
+        vm.startPrank(others);
+        musd.approve(address(smusd), 500_000e18);
+        smusd.deposit(500_000e18);
+        vm.stopPrank();
+        assertEq(vault.liquidityAdapter(), address(savings));
     }
 }
