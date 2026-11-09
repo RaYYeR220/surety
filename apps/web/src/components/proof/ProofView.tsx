@@ -374,7 +374,7 @@ function Tests() {
               value: TEST_COUNTS.invariants.toString(),
             },
             { label: "Of those, security review regressions", value: TEST_COUNTS.regression.toString() },
-            { label: "SDK, keeper and MCP (TypeScript)", value: TEST_COUNTS.typescript.toString() },
+            { label: "SDK, keeper, MCP and web (TypeScript)", value: TEST_COUNTS.typescript.toString() },
           ]}
         />
         <Muted small>
