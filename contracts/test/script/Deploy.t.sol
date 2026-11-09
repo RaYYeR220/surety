@@ -98,7 +98,7 @@ contract DeployScriptTest is Test {
         assertEq(sources.length, 1);
         assertEq(address(sources[0]), address(d.stressedPeg));
         assertEq(d.peg.minSources(), 1);
-        assertEq(d.peg.maxSpreadBps(), 500);
+        assertEq(d.peg.maxSpreadBps(), 1000);
         assertEq(d.peg.bandBps(), 300);
         assertEq(MorphoPriceOracle(d.market.oracle).price(), uint256(BTC_USD) * 1e18, "BTC in MUSD at $1");
 
@@ -187,14 +187,20 @@ contract DeployScriptTest is Test {
         assertEq(sources.length, 4);
         assertEq(address(ClTwapPegSource(address(sources[0])).pool()), c.pegClPool);
         assertEq(ClTwapPegSource(address(sources[0])).window(), 1800);
+        assertEq(ClTwapPegSource(address(sources[0])).minLiquidity(), 1e19);
         assertEq(address(StableTwapPegSource(address(sources[1])).pool()), c.pegUsdcPool);
         assertEq(StableTwapPegSource(address(sources[1])).granularity(), 2);
+        assertEq(StableTwapPegSource(address(sources[1])).maxAge(), 6 hours);
+        assertEq(StableTwapPegSource(address(sources[2])).granularity(), 2);
+        assertEq(StableTwapPegSource(address(sources[2])).maxAge(), 6 hours);
         assertEq(address(StableTwapPegSource(address(sources[2])).pool()), c.pegUsdtPool);
         assertEq(address(BtcCrossPegSource(address(sources[3])).pool()), c.pegBtcPool);
         assertEq(address(BtcCrossPegSource(address(sources[3])).btcUsd()), address(d.skipSource));
         assertEq(BtcCrossPegSource(address(sources[3])).btcDecimals(), 18);
+        assertEq(BtcCrossPegSource(address(sources[3])).window(), 1800);
+        assertEq(BtcCrossPegSource(address(sources[3])).minLiquidity(), 2e20);
         assertEq(d.peg.minSources(), 2);
-        assertEq(d.peg.maxSpreadBps(), 500);
+        assertEq(d.peg.maxSpreadBps(), 1000);
         assertEq(d.peg.bandBps(), 300);
 
         // Caps of the capped launch, and the timelocks raised last.
@@ -219,8 +225,13 @@ contract DeployScriptTest is Test {
         assertFalse(vm.keyExistsJson(json, ".sponsorKit"));
         assertEq(vm.parseJsonString(json, ".pegSources[0].kind"), "ClTwap");
         assertEq(vm.parseJsonUint(json, ".pegSources[0].window"), 1800);
+        assertEq(vm.parseJsonUint(json, ".pegSources[0].minLiquidity"), 1e19);
         assertEq(vm.parseJsonString(json, ".pegSources[1].kind"), "StableTwap");
         assertEq(vm.parseJsonUint(json, ".pegSources[1].granularity"), 2);
+        assertEq(vm.parseJsonUint(json, ".pegSources[1].maxAge"), 6 hours);
+        assertEq(vm.parseJsonUint(json, ".pegSources[3].minLiquidity"), 2e20);
+        assertEq(vm.parseJsonUint(json, ".peg.maxSpreadBps"), 1000);
+        assertEq(vm.parseJsonUint(json, ".peg.maxPremiumBps"), 300);
         assertEq(vm.parseJsonAddress(json, ".pegSources[2].pool"), c.pegUsdtPool);
         assertEq(vm.parseJsonString(json, ".pegSources[3].kind"), "BtcCross");
         assertEq(vm.parseJsonAddress(json, ".pegSources[3].btcUsd"), address(d.skipSource));
@@ -298,6 +309,9 @@ contract DeployScriptTest is Test {
         assertEq(vault.managementFee(), script.MANAGEMENT_FEE());
         assertEq(vault.managementFeeRecipient(), d.treasury);
         assertEq(vault.receiveSharesGate(), address(d.gate));
+        assertEq(address(d.gate.pool()), address(d.pool));
+        assertEq(d.gate.treasury(), d.treasury, "the gate lets the management-fee recipient through");
+        assertEq(vault.managementFeeRecipient(), d.gate.treasury());
         assertEq(vault.maxRate(), 200e16 / uint256(365 days));
 
         // ShareMarket sells srMUSD for MUSD with 10 bps to the treasury.
@@ -349,6 +363,7 @@ contract DeployScriptTest is Test {
         assertEq(p.keeperShareBps, 5000);
         assertEq(d.line.treasury(), d.treasury);
         assertEq(address(d.line.peg()), address(d.peg));
+        assertTrue(d.line.pegCheck(), "peg check on");
         assertEq(address(d.line.oracle()), address(d.btcMusd));
         assertEq(d.line.suretyPool(), address(d.pool));
         assertEq(d.line.owner(), d.deployer);
@@ -365,6 +380,7 @@ contract DeployScriptTest is Test {
         assertEq(m.lltv, lltv);
         assertEq(address(MorphoPriceOracle(m.oracle).source()), address(d.btcMusd));
         assertEq(address(d.btcMusd.peg()), address(d.peg));
+        assertEq(d.btcMusd.maxPremiumBps(), 300);
         assertGt(morpho.market(d.market.id()).lastUpdate, 0, "market created");
         assertEq(d.morphoAdapter.morpho(), c.morpho);
         assertEq(d.morphoAdapter.adaptiveCurveIrm(), irm);
