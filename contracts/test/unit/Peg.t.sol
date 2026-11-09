@@ -420,10 +420,10 @@ contract PegTest is Test {
         assertTrue(ok);
         assertEq(price, 1e18);
 
-        address judge = makeAddr("judge");
+        address visitor = makeAddr("visitor");
         vm.expectEmit(address(source));
-        emit StressedPegSource.Stressed(judge, 0.9e18, block.timestamp + 1 hours);
-        vm.prank(judge);
+        emit StressedPegSource.Stressed(visitor, 0.9e18, block.timestamp + 1 hours);
+        vm.prank(visitor);
         source.stress(0.9e18, 1 hours);
         (ok, price) = source.read();
         assertTrue(ok);
