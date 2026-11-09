@@ -4,23 +4,31 @@
 // from the testnet Sponsor pays for everything, and a short path walks through the product pages (borrow, see the
 // escrow, auto-repay, vote the escrowed veBTC, repay). The pages themselves do the work; this one only tracks
 // where the visitor is.
-import { erc20Abi, MEZO_TESTNET_ID, type LoanView, type VeBTCPosition } from "@surety/sdk";
+import {
+  erc20Abi,
+  getDeployment,
+  MEZO_TESTNET_ID,
+  type LoanView,
+  type SuretyClient,
+  type SuretyDeployment,
+  type VeBTCPosition,
+} from "@surety/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Address, Hex } from "viem";
 import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
 
 import { Cluster, Stack } from "@/components/layout/Layout";
-import { EnvGate } from "@/components/shell/EnvGate";
 import { useWalletDialog } from "@/components/shell/WalletDialog";
 import { KeyValues, Muted, Notice, PageHead, Pill, SectionTitle } from "@/components/ui/Bits";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Dialog, ExplorerLink } from "@/components/ui/Controls";
 import { BURNER_ID, createBurnerKey, resetBurnerKey, useBurnerKey, type BurnerKey } from "@/lib/burner";
-import { useSurety, type ReadyEnv } from "@/lib/env";
+import { liveScope, useSurety } from "@/lib/env";
 import { explainError } from "@/lib/errors";
 import { formatBtc, formatMusd } from "@/lib/format";
+import { liveClient } from "@/lib/live";
 
 import styles from "./Try.module.css";
 
@@ -36,16 +44,49 @@ type Flow =
   | { s: "sent"; hash: Hex; tokenId: string | null; confirmed: boolean }
   | { s: "error"; message: string };
 
+/** The try-out always runs on testnet, whatever network the rest of the app shows. */
+interface Testnet {
+  deployment: SuretyDeployment;
+  client: SuretyClient;
+  scope: readonly unknown[];
+}
+
+function testnet(): Testnet | null {
+  let deployment: SuretyDeployment | undefined;
+  try {
+    deployment = getDeployment(MEZO_TESTNET_ID);
+  } catch {
+    deployment = undefined;
+  }
+  if (!deployment) return null;
+  return { deployment, client: liveClient(MEZO_TESTNET_ID, deployment), scope: liveScope(MEZO_TESTNET_ID) };
+}
+
 export function TryPage() {
   const env = useSurety();
   const chosen = useRef(false);
-  // The try-out runs on testnet: arriving here selects it (and the choice is remembered).
+  // Arriving here selects testnet for the rest of the app too (and the choice is remembered).
   useEffect(() => {
     if (chosen.current || env.demo) return;
     chosen.current = true;
     if (env.chainId !== MEZO_TESTNET_ID) env.selectChain(MEZO_TESTNET_ID);
   }, [env]);
-  return <EnvGate>{(ready) => <TryView env={ready} />}</EnvGate>;
+  const [t] = useState(testnet);
+  if (env.demo) {
+    return (
+      <Notice tone="info" title="The try-out runs on the live testnet">
+        Leave example mode to create a key and get a starter kit.
+      </Notice>
+    );
+  }
+  if (!t) {
+    return (
+      <Notice tone="warning" title="Surety is not deployed on Mezo Testnet in this build">
+        The try-out opens once the testnet deployment is published.
+      </Notice>
+    );
+  }
+  return <TryView t={t} />;
 }
 
 interface KitState {
@@ -67,22 +108,22 @@ const SPONSOR_CLAIMED_ABI = [
 ] as const;
 
 /** What the key holds and has done: balances, veBTC, loans, and whether it claimed its kit. */
-function useKitState(env: ReadyEnv, address: Address | null) {
-  const sponsor = env.deployment.contracts.sponsor ?? null;
+function useKitState(t: Testnet, address: Address | null) {
+  const sponsor = t.deployment.contracts.sponsor ?? null;
   return useQuery({
-    queryKey: [...env.scope, "try", address ?? "-"],
-    enabled: !!address && env.mode === "live",
+    queryKey: [...t.scope, "try", address ?? "-"],
+    enabled: !!address,
     refetchInterval: 20_000,
     queryFn: async (): Promise<KitState> => {
       const a = address!;
-      const pc = env.client.publicClient;
+      const pc = t.client.publicClient;
       const [btc, musd, positions, loans, claimed] = await Promise.all([
         pc.getBalance({ address: a }).catch(() => null),
         pc
-          .readContract({ address: env.deployment.external.musd, abi: erc20Abi, functionName: "balanceOf", args: [a] })
+          .readContract({ address: t.deployment.external.musd, abi: erc20Abi, functionName: "balanceOf", args: [a] })
           .catch(() => null),
-        env.client.getVeBTCPositions(a).catch(() => [] as VeBTCPosition[]),
-        env.client.getLoans(a).catch(() => [] as LoanView[]),
+        t.client.getVeBTCPositions(a).catch(() => [] as VeBTCPosition[]),
+        t.client.getLoans(a).catch(() => [] as LoanView[]),
         sponsor
           ? pc.readContract({ address: sponsor, abi: SPONSOR_CLAIMED_ABI, functionName: "claimed", args: [a] }).catch(() => null)
           : Promise.resolve(null),
@@ -92,9 +133,9 @@ function useKitState(env: ReadyEnv, address: Address | null) {
   });
 }
 
-function TryView({ env }: { env: ReadyEnv }) {
+function TryView({ t }: { t: Testnet }) {
   const key = useBurnerKey();
-  const { isConnected, connector } = useAccount();
+  const { isConnected, connector, chainId: walletChain } = useAccount();
   const connectors = useConnectors();
   const burner = connectors.find((c) => c.id === BURNER_ID);
   const { connectAsync } = useConnect();
@@ -106,9 +147,10 @@ function TryView({ env }: { env: ReadyEnv }) {
 
   const usingKey = isConnected && connector?.id === BURNER_ID;
   const otherWallet = isConnected && !usingKey;
-  const sponsor = env.deployment.contracts.sponsor ?? null;
-  const kit = useKitState(env, key?.address ?? null);
-  const onTestnet = env.chainId === MEZO_TESTNET_ID;
+  const sponsor = t.deployment.contracts.sponsor ?? null;
+  const kit = useKitState(t, key?.address ?? null);
+  // Only a wallet of the visitor's own can hold the app on mainnet; the key always runs on testnet.
+  const onTestnet = !(isConnected && !usingKeyOf(connector?.id) && walletChain !== MEZO_TESTNET_ID);
 
   const connectKey = async (k: BurnerKey | null = key) => {
     if (!burner || !k) return;
@@ -143,15 +185,15 @@ function TryView({ env }: { env: ReadyEnv }) {
     }
     if (!reply.ok) {
       setFlow({ s: "error", message: reply.error });
-      if (reply.code === "AlreadyClaimed") void queryClient.invalidateQueries({ queryKey: env.scope });
+      if (reply.code === "AlreadyClaimed") void queryClient.invalidateQueries({ queryKey: t.scope });
       return;
     }
     setFlow({ s: "sent", hash: reply.hash, tokenId: reply.tokenId, confirmed: reply.confirmed });
     if (!reply.confirmed) {
-      await env.client.publicClient.waitForTransactionReceipt({ hash: reply.hash, timeout: 90_000 }).catch(() => null);
+      await t.client.publicClient.waitForTransactionReceipt({ hash: reply.hash, timeout: 90_000 }).catch(() => null);
       setFlow({ s: "sent", hash: reply.hash, tokenId: reply.tokenId, confirmed: true });
     }
-    void queryClient.invalidateQueries({ queryKey: env.scope });
+    void queryClient.invalidateQueries({ queryKey: t.scope });
   };
 
   /** One click from nothing: a key, connected, with its kit on the way. */
@@ -179,9 +221,9 @@ function TryView({ env }: { env: ReadyEnv }) {
       />
 
       {!onTestnet ? (
-        <Notice tone="warning" title="Your wallet is on Mezo Mainnet">
-          The try-out runs on Mezo Testnet. Switch your wallet to testnet, or disconnect it to use a key kept in this
-          browser.
+        <Notice tone="warning" title="Your wallet is on another network">
+          The try-out runs on Mezo Testnet. Switch your wallet to testnet, or use a key kept in this browser: creating
+          one disconnects your wallet.
         </Notice>
       ) : null}
 
@@ -231,7 +273,7 @@ function TryView({ env }: { env: ReadyEnv }) {
             </Stack>
           ) : (
             <Stack gap={4}>
-              <Button size="lg" loading={working} disabled={!onTestnet || otherWallet} onClick={() => void start()}>
+              <Button size="lg" loading={working} onClick={() => void start()}>
                 {sponsor ? "Create a key and get a starter kit" : "Create a testnet key"}
               </Button>
               <Muted small>
@@ -284,7 +326,7 @@ function TryView({ env }: { env: ReadyEnv }) {
       <section aria-labelledby="try-path">
         <Stack gap={4}>
           <SectionTitle id="try-path">Then, in about a minute</SectionTitle>
-          <GuidedPath env={env} kit={data ?? null} ready={hasKit && usingKey} />
+          <GuidedPath t={t} kit={data ?? null} ready={hasKit && usingKey} />
         </Stack>
       </section>
 
@@ -319,6 +361,8 @@ function TryView({ env }: { env: ReadyEnv }) {
     </Stack>
   );
 }
+
+const usingKeyOf = (id: string | undefined) => id === BURNER_ID;
 
 function FlowStatus({ flow }: { flow: Flow }) {
   return (
@@ -385,11 +429,11 @@ interface PathStep {
 
 type PathDraft = Omit<PathStep, "status"> & { done: boolean; blocked?: boolean };
 
-function GuidedPath({ env, kit, ready }: { env: ReadyEnv; kit: KitState | null; ready: boolean }) {
+function GuidedPath({ t, kit, ready }: { t: Testnet; kit: KitState | null; ready: boolean }) {
   const loans = kit?.loans ?? [];
   const open = loans.find((l) => l.state === "Active" || l.state === "Auction") ?? null;
   const loan = open ?? loans[0] ?? null;
-  const v2 = env.deployment.version === 2;
+  const v2 = t.deployment.version === 2;
   const borrowed = loans.length > 0;
   const repaid = loans.some((l) => l.state === "Closed");
 
