@@ -144,12 +144,16 @@ describe("MCP server on a v2 deployment", () => {
       musdUsdMedian: "0.99144",
       usableSources: 3,
       minSources: 2,
-      maxSpreadPct: 5,
+      maxSpreadPct: 10,
       bandPct: 3,
       btcPriceUsd: "80000",
       btcPriceMusd: "80000",
     });
     expect(peg.sources.map((x) => x.kind)).toEqual(["ClTwap", "StableTwap", "Stressed"]);
+    expect(peg.sources[0]).toMatchObject({ windowLiquidity: "267000000000000000000", minLiquidity: "10000000000000000000" });
+    expect(peg.sources[1]).toMatchObject({ lastObservationAgeSeconds: 1200, maxAgeSeconds: 21600 });
+    expect(peg.sources[2]).not.toHaveProperty("windowLiquidity");
+    expect(peg).toMatchObject({ linePegCheck: true, maxPremiumPct: 3, btcDividedByMusdUsd: "1" });
     expect(peg.testnetStress).toMatchObject({ active: false });
   });
 
