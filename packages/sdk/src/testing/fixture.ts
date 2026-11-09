@@ -1,23 +1,36 @@
 import { encodeAbiParameters, getAddress, type Address, type Hex } from "viem";
 
+import type { Abi } from "viem";
+
 import {
   adaptiveCurveIrmAbi,
+  btcMusdPriceSourceAbi,
   creditVoterAbi,
   erc20Abi,
   linearKinkIrmAbi,
+  mezoPoolsVoterAbi,
   morphoAbi,
   morphoPriceOracleAbi,
+  musdPegAbi,
+  musdSavingsRateAbi,
+  rewardsDistributorAbi,
+  savingsAdapterAbi,
+  shareMarketAbi,
   skipPriceSourceAbi,
+  sponsorAbi,
+  stressedPegSourceAbi,
   suretyPoolAbi,
   vaultV2Abi,
   veBTCAbi,
   veBTCCreditLineAbi,
+  veBTCCreditLineV1Abi,
   voteAllocatorAbi,
+  votingRewardAbi,
 } from "../abis/index.js";
 import { mezoTestnet } from "../chains.js";
 import { createSuretyClient, type SuretyClient } from "../client.js";
-import type { MarketParams, SuretyDeployment } from "../deployments/types.js";
-import { auctionPrice, BPS, collateralValue, WAD } from "../math.js";
+import type { MarketParams, SuretyDeployment, SuretyDeploymentV2 } from "../deployments/types.js";
+import { auctionPrice, BPS, btcInMusdWad, collateralValue, pegHealth, shareFillPrice, WAD } from "../math.js";
 import { marketIdOf } from "../reads.js";
 import { createMockChain, mockLog, MockRevert, type MockChain, type RpcLog } from "./mock.js";
 
@@ -42,6 +55,7 @@ export const fixtureMarketParams: MarketParams = {
 
 /** A testnet deployment with distinct fake addresses, for mocked chains. */
 export const fixtureDeployment: SuretyDeployment = {
+  version: 1,
   chainId: 31611,
   epochLength: Number(FIXTURE_EPOCH_LENGTH),
   deployedAt: 16_300_000n,
@@ -82,6 +96,72 @@ export const fixtureDeployment: SuretyDeployment = {
   proof: { txs: [] },
 };
 
+/** Fake addresses of the v2 fixture's Mezo vote-reward contracts and a stablecoin. */
+export const FIXTURE_POOL = fakeAddress(0x201);
+export const FIXTURE_GAUGE = fakeAddress(0x202);
+export const FIXTURE_FEES = fakeAddress(0x203);
+export const FIXTURE_BRIBE = fakeAddress(0x204);
+export const FIXTURE_USDC = fakeAddress(0x205);
+
+/** The fixture deployment in the v2 schema: the same core plus the peg, savings, ShareMarket and Sponsor. */
+export const fixtureDeploymentV2: SuretyDeploymentV2 = {
+  ...fixtureDeployment,
+  version: 2,
+  contracts: {
+    ...fixtureDeployment.contracts,
+    depositGate: fakeAddress(0x0e),
+    btcMusdSource: fakeAddress(0x0b),
+    btcUsdSource: fakeAddress(0x10),
+    musdPeg: fakeAddress(0x11),
+    stressedPegSource: fakeAddress(0x12),
+    savingsAdapter: fakeAddress(0x13),
+    shareMarket: fakeAddress(0x14),
+    sponsor: fakeAddress(0x15),
+    treasury: fakeAddress(0x16),
+  },
+  external: { ...fixtureDeployment.external, smusd: fakeAddress(0x107) },
+  stress: true,
+  timelock: 0,
+  morphoMarketId: marketIdOf(fixtureMarketParams),
+  lineParams: {
+    maxLtvTimedBps: 5000,
+    maxLtvPermanentBps: 4000,
+    liqLtvBps: 6500,
+    liqFeeBps: 300,
+    floorBps: 8500,
+    auctionDuration: 600,
+    minTerm: 3600,
+    originationFeeBps: 25,
+    protocolShareBps: 2000,
+    keeperShareBps: 5000,
+  },
+  peg: { minSources: 2, maxSpreadBps: 500, bandBps: 300 },
+  pegSources: [
+    { kind: "ClTwap", address: fakeAddress(0x20), pool: fakeAddress(0x30), window: 1800 },
+    { kind: "StableTwap", address: fakeAddress(0x21), pool: fakeAddress(0x31), granularity: 2 },
+    { kind: "Stressed", address: fakeAddress(0x12), base: "0x0000000000000000000000000000000000000000" },
+  ],
+  fees: {
+    performanceFee: 10n ** 17n,
+    performanceFeeRecipient: fakeAddress(0x07),
+    managementFee: 63_419_583n,
+    managementFeeRecipient: fakeAddress(0x16),
+    forceDeallocatePenalty: 10n ** 16n,
+    shareMarketFeeBps: 10,
+  },
+  caps: { morpho: 10n ** 25n, line: 10n ** 25n, savings: 10n ** 27n },
+  sponsorKit: {
+    relayer: fakeAddress(0x17),
+    btcGas: 5n * 10n ** 13n,
+    lockAmount: 10n ** 15n,
+    musd: 50n * WAD,
+    lockDuration: 2_419_200,
+    dailyLimit: 100,
+    fundedBtc: 6n * 10n ** 15n,
+    fundedMusd: 300n * WAD,
+  },
+};
+
 export interface FixtureLock {
   amount: bigint;
   end: bigint;
@@ -99,6 +179,10 @@ export interface FixtureLoan {
   auctionStart: bigint;
   openedAtBlock: bigint;
   amount: bigint;
+  /** v2 only. */
+  autoRepay?: boolean;
+  /** v2 only: who started the auction. */
+  keeper?: Address;
 }
 
 /** Mutable state behind the mocked contracts; handlers read it on every call. */
@@ -148,6 +232,10 @@ export interface FixtureState {
     floorBps: number;
     auctionDuration: number;
     minTerm: number;
+    /** v2 fields; a v1 line does not return them. */
+    originationFeeBps: number;
+    protocolShareBps: number;
+    keeperShareBps: number;
   };
   curve: { baseApr: bigint; kinkApr: bigint; maxApr: bigint; kinkUtilWad: bigint };
   pool: {
@@ -172,6 +260,37 @@ export interface FixtureState {
   extraLogs: RpcLog[];
   nfts: Record<string, { owner: Address; lock: FixtureLock; escrowType: number; grantManager: Address; voted: boolean }>;
   loans: FixtureLoan[];
+  /* v2 only */
+  peg: {
+    /** Each source's answer, in the deployment's order; null = no usable reading. */
+    readings: (bigint | null)[];
+    /** Overrides MusdPeg.pegHealthy; null = compute it from the readings. */
+    healthy: boolean | null;
+    stress: { musdUsdWad: bigint; endsAt: bigint };
+  };
+  allocator: { parking: boolean };
+  savings: { parked: bigint; claimableYield: bigint; yieldClaimed: bigint };
+  treasury: Address;
+  shareMarket: {
+    feeBps: number;
+    isOpen: boolean;
+    listings: { id: bigint; seller: Address; discountBps: number; shares: bigint }[];
+  };
+  sponsor: {
+    kitsLeft: bigint;
+    dailyLimit: bigint;
+    kits: { user: Address; tokenId: bigint; block: bigint }[];
+  };
+  /**
+   * Mezo PoolsVoter: the pools each NFT votes on, each reward contract's tokens, and what it has earned per
+   * `${token}:${tokenId}`; the distributor's claimable rebase per NFT.
+   */
+  mezo: {
+    votes: Record<string, Address[]>;
+    rewardTokens: Record<string, Address[]>;
+    earned: Record<string, Record<string, bigint>>;
+    rebase: Record<string, bigint>;
+  };
 }
 
 const ZERO: Address = "0x0000000000000000000000000000000000000000";
@@ -264,6 +383,9 @@ export function defaultFixtureState(): FixtureState {
       floorBps: 7000,
       auctionDuration: 600,
       minTerm: 3600,
+      originationFeeBps: 0,
+      protocolShareBps: 0,
+      keeperShareBps: 0,
     },
     curve: { baseApr: 2n * 10n ** 16n, kinkApr: 8n * 10n ** 16n, maxApr: 6n * 10n ** 17n, kinkUtilWad: 8n * 10n ** 17n },
     pool: {
@@ -334,6 +456,39 @@ export function defaultFixtureState(): FixtureState {
         amount: e18(1_000),
       },
     ],
+    peg: {
+      readings: [991_440_000_000_000_000n, 991_250_000_000_000_000n, WAD],
+      healthy: null,
+      stress: { musdUsdWad: 0n, endsAt: 0n },
+    },
+    allocator: { parking: true },
+    savings: { parked: e18(400), claimableYield: e18(1) / 100n, yieldClaimed: e18(2) / 100n },
+    treasury: fakeAddress(0x16),
+    shareMarket: {
+      feeBps: 10,
+      isOpen: true,
+      listings: [
+        { id: 1n, seller: ALICE, discountBps: 200, shares: e18(100) },
+        { id: 3n, seller: BOB, discountBps: 50, shares: e18(40) },
+      ],
+    },
+    sponsor: {
+      kitsLeft: 4n,
+      dailyLimit: 100n,
+      kits: [{ user: fakeAddress(0xc0de), tokenId: 2001n, block: 16_390_000n }],
+    },
+    mezo: {
+      votes: { "11": [FIXTURE_POOL] },
+      rewardTokens: {
+        [FIXTURE_FEES]: [FIXTURE_USDC, fakeAddress(0x101)],
+        [FIXTURE_BRIBE]: [fakeAddress(0x101), fakeAddress(0x103)],
+      },
+      earned: {
+        [FIXTURE_FEES]: { [`${FIXTURE_USDC}:11`]: 700_000n },
+        [FIXTURE_BRIBE]: { [`${fakeAddress(0x101)}:11`]: e18(14) / 100n, [`${fakeAddress(0x103)}:11`]: 5n },
+      },
+      rebase: { "11": 1_000n },
+    },
   };
 }
 
@@ -346,12 +501,20 @@ export interface SuretyFixture {
 
 /**
  * A mocked Mezo testnet with a two-line Surety deployment (a Morpho BTC line and the veBTC line), two veBTC
- * holders and two loans. Mutate `state` to shape what the contracts return.
+ * holders and two loans. `version: 2` uses the v2 deployment and line (fees, auto-repay) and adds the peg, savings,
+ * ShareMarket, Sponsor and Mezo's vote-reward contracts. Mutate `state` to shape what the contracts return.
  */
-export function createSuretyFixture(options: { patch?: (s: FixtureState) => void; multicall?: false } = {}): SuretyFixture {
+export function createSuretyFixture(
+  options: { patch?: (s: FixtureState) => void; multicall?: false; version?: 1 | 2 } = {},
+): SuretyFixture {
   const s = defaultFixtureState();
+  const version = options.version ?? 1;
+  if (version === 2) {
+    Object.assign(s.lineParams, fixtureDeploymentV2.lineParams);
+    s.vault.managementFee = 63_419_583n;
+  }
   options.patch?.(s);
-  const d = fixtureDeployment;
+  const d: SuretyDeployment = version === 2 ? fixtureDeploymentV2 : fixtureDeployment;
   const c = d.contracts;
   const cur = () => s.now - (s.now % s.epochLength);
   const price = () => {
@@ -374,6 +537,159 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
     const debt = totalDebt();
     const supply = s.line.cash + debt;
     return supply === 0n ? 0n : (debt * WAD) / supply;
+  };
+
+  const pegReadings = () => s.peg.readings.map((r) => ({ ok: r !== null, musdUsdWad: r }));
+  const pegIsHealthy = () => s.peg.healthy ?? pegHealth(pegReadings(), fixtureDeploymentV2.peg).healthy;
+  const pegMedian = () => {
+    const h = pegHealth(pegReadings(), fixtureDeploymentV2.peg);
+    return h.available ? h.medianWad : null;
+  };
+  const openListings = () => s.shareMarket.listings.filter((l) => l.shares > 0n);
+  const v2Contracts = () => {
+    const v = fixtureDeploymentV2;
+    const vc = v.contracts;
+    const pools = (tokenId: bigint) => s.mezo.votes[tokenId.toString()] ?? [];
+    const rewardContract = (address: Address) => ({
+      address,
+      abi: votingRewardAbi as Abi,
+      functions: {
+        rewardsListLength: () => BigInt((s.mezo.rewardTokens[address] ?? []).length),
+        rewards: (i: bigint) => {
+          const t = (s.mezo.rewardTokens[address] ?? [])[Number(i)];
+          if (!t) throw new MockRevert();
+          return t;
+        },
+        earned: (token: Address, tokenId: bigint) => s.mezo.earned[address]?.[`${token}:${tokenId}`] ?? 0n,
+      },
+    });
+    return [
+      {
+        address: vc.musdPeg,
+        abi: musdPegAbi as Abi,
+        functions: {
+          readings: () =>
+            v.pegSources.map((src, i) => ({
+              source: src.address,
+              ok: s.peg.readings[i] !== null && s.peg.readings[i] !== undefined,
+              musdUsdWad: s.peg.readings[i] ?? 0n,
+            })),
+          pegHealthy: () => pegIsHealthy(),
+          musdUsdWad: () => {
+            const m = pegMedian();
+            if (m === null) throw new MockRevert("0x", "PegUnavailable");
+            return m;
+          },
+          minSources: () => BigInt(v.peg.minSources),
+          maxSpreadBps: () => BigInt(v.peg.maxSpreadBps),
+          bandBps: () => BigInt(v.peg.bandBps),
+          sources: () => v.pegSources.map((src) => src.address),
+        },
+      },
+      { address: vc.btcUsdSource, abi: skipPriceSourceAbi as Abi, functions: { priceWad: () => price() } },
+      {
+        address: vc.stressedPegSource!,
+        abi: stressedPegSourceAbi as Abi,
+        functions: {
+          activeStress: () => {
+            const active = s.now < s.peg.stress.endsAt;
+            return [active, active ? s.peg.stress.musdUsdWad : 0n];
+          },
+          stressEndsAt: () => s.peg.stress.endsAt,
+        },
+      },
+      {
+        address: vc.savingsAdapter,
+        abi: savingsAdapterAbi as Abi,
+        functions: {
+          realAssets: () => s.savings.parked,
+          claimableYield: () => s.savings.claimableYield,
+          yieldClaimed: () => s.savings.yieldClaimed,
+          harvest: () => s.savings.claimableYield,
+        },
+      },
+      {
+        address: v.external.smusd,
+        abi: musdSavingsRateAbi as Abi,
+        functions: { balanceOf: () => s.savings.parked - s.savings.claimableYield },
+      },
+      {
+        address: vc.shareMarket,
+        abi: shareMarketAbi as Abi,
+        functions: {
+          feeBps: () => s.shareMarket.feeBps,
+          isOpen: () => s.shareMarket.isOpen,
+          openListingCount: () => BigInt(openListings().length),
+          openListings: (start: bigint, count: bigint) => {
+            const page = openListings().slice(Number(start), Number(start + count));
+            return [
+              page.map((l) => l.id),
+              page.map((l) => ({ seller: l.seller, discountBps: l.discountBps, shares: l.shares })),
+            ];
+          },
+          bestListing: () => {
+            const open = openListings();
+            if (open.length === 0) return [0n, 0, 0n, 0n];
+            const best = open.reduce((a, l) =>
+              l.discountBps > a.discountBps || (l.discountBps === a.discountBps && l.id < a.id) ? l : a,
+            );
+            const perShare = shareFillPrice(sharesToAssets(WAD), best.discountBps, s.shareMarket.feeBps).assets;
+            return [best.id, best.discountBps, best.shares, perShare];
+          },
+          listing: (id: bigint) => {
+            const l = s.shareMarket.listings.find((x) => x.id === id);
+            return l
+              ? { seller: l.seller, discountBps: l.discountBps, shares: l.shares }
+              : { seller: ZERO, discountBps: 0, shares: 0n };
+          },
+          listingsOf: (seller: Address) =>
+            openListings()
+              .filter((l) => l.seller.toLowerCase() === seller.toLowerCase())
+              .map((l) => l.id),
+          quote: (id: bigint, shares: bigint) => {
+            const l = s.shareMarket.listings.find((x) => x.id === id);
+            const filled = l ? (shares < l.shares ? shares : l.shares) : 0n;
+            if (!l || filled < 10n ** 12n) return [0n, 0n, 0n];
+            const { assets, fee } = shareFillPrice(sharesToAssets(filled), l.discountBps, s.shareMarket.feeBps);
+            return [filled, assets, fee];
+          },
+        },
+      },
+      {
+        address: vc.sponsor!,
+        abi: sponsorAbi as Abi,
+        functions: {
+          kitsIssued: () => BigInt(s.sponsor.kits.length),
+          kitsLeft: () => s.sponsor.kitsLeft,
+          dailyLimit: () => s.sponsor.dailyLimit,
+          btcGas: () => v.sponsorKit!.btcGas,
+          lockAmount: () => v.sponsorKit!.lockAmount,
+          musdAmount: () => v.sponsorKit!.musd,
+          lockDuration: () => BigInt(v.sponsorKit!.lockDuration),
+        },
+      },
+      {
+        address: v.external.poolsVoter,
+        abi: mezoPoolsVoterAbi as Abi,
+        functions: {
+          poolVote: (tokenId: bigint, i: bigint) => {
+            const p = pools(tokenId)[Number(i)];
+            if (!p) throw new MockRevert();
+            return p;
+          },
+          gauges: (pool: Address) => (pool.toLowerCase() === FIXTURE_POOL.toLowerCase() ? FIXTURE_GAUGE : ZERO),
+          gaugeToFees: () => FIXTURE_FEES,
+          gaugeToBribe: () => FIXTURE_BRIBE,
+        },
+      },
+      rewardContract(FIXTURE_FEES),
+      rewardContract(FIXTURE_BRIBE),
+      {
+        address: v.external.rewardsDistributor,
+        abi: rewardsDistributorAbi as Abi,
+        functions: { claimable: (tokenId: bigint) => s.mezo.rebase[tokenId.toString()] ?? 0n },
+      },
+    ];
   };
 
   const chain = createMockChain({
@@ -411,6 +727,23 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
           blockNumber: v.block,
         });
       }),
+      ...(version === 2
+        ? s.sponsor.kits.map((k) =>
+            mockLog({
+              abi: sponsorAbi,
+              eventName: "StarterKit",
+              args: {
+                user: k.user,
+                tokenId: k.tokenId,
+                btcGas: fixtureDeploymentV2.sponsorKit!.btcGas,
+                lockAmount: fixtureDeploymentV2.sponsorKit!.lockAmount,
+                musd: fixtureDeploymentV2.sponsorKit!.musd,
+              },
+              address: fixtureDeploymentV2.contracts.sponsor!,
+              blockNumber: k.block,
+            }),
+          )
+        : []),
       ...s.extraLogs,
     ],
     contracts: [
@@ -447,6 +780,14 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
           idleBufferBps: () => s.idleBufferBps,
           lineAssets: (i: bigint) => s.lineAssets[Number(i)] ?? 0n,
           targets: () => [s.targets.map((_, i) => BigInt(i)), s.targets],
+          ...(version === 2
+            ? {
+                parking: () => s.allocator.parking,
+                savings: () => c.savingsAdapter!,
+                peg: () => c.musdPeg!,
+                pegGateOpen: () => pegIsHealthy(),
+              }
+            : {}),
         },
       },
       {
@@ -494,7 +835,9 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
           performanceFee: () => s.vault.performanceFee,
           performanceFeeRecipient: () => c.suretyPool,
           managementFee: () => s.vault.managementFee,
+          managementFeeRecipient: () => (version === 2 ? s.treasury : ZERO),
           maxRate: () => s.vault.maxRate,
+          liquidityAdapter: () => (version === 2 && s.allocator.parking ? c.savingsAdapter! : ZERO),
         },
       },
       {
@@ -506,18 +849,28 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
       },
       {
         address: c.veBTCLine,
-        abi: veBTCCreditLineAbi,
+        abi: (version === 2 ? veBTCCreditLineAbi : veBTCCreditLineV1Abi) as Abi,
         functions: {
           utilizationWad: () => lineUtil(),
           paused: () => s.line.paused,
           cash: () => s.line.cash,
           totalDebt: () => totalDebt(),
           badDebtTotal: () => s.line.badDebtTotal,
-          params: () => s.lineParams,
+          params: () => {
+            if (version === 2) return s.lineParams;
+            const { originationFeeBps: _o, protocolShareBps: _p, keeperShareBps: _k, ...v1 } = s.lineParams;
+            return v1;
+          },
+          treasury: () => s.treasury,
+          peg: () => c.musdPeg ?? ZERO,
           loanCount: () => BigInt(s.loans.length),
           loan: (id: bigint) => {
             const l = loanAt(id);
-            if (!l) return { borrower: ZERO, escrow: ZERO, tokenId: 0n, normDebt: 0n, state: 0, auctionStart: 0n };
+            const extra = (x?: FixtureLoan) =>
+              version === 2 ? { keeper: x?.keeper ?? ZERO, autoRepay: x?.autoRepay ?? false } : {};
+            if (!l) {
+              return { borrower: ZERO, escrow: ZERO, tokenId: 0n, normDebt: 0n, state: 0, auctionStart: 0n, ...extra() };
+            }
             return {
               borrower: l.borrower,
               escrow: l.escrow,
@@ -525,6 +878,7 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
               normDebt: l.debt,
               state: l.state,
               auctionStart: l.auctionStart,
+              ...extra(l),
             };
           },
           debtOf: (id: bigint) => {
@@ -569,8 +923,24 @@ export function createSuretyFixture(options: { patch?: (s: FixtureState) => void
           kinkUtilWad: () => s.curve.kinkUtilWad,
         },
       },
-      { address: c.priceSource, abi: skipPriceSourceAbi, functions: { priceWad: () => price() } },
-      { address: c.morphoOracle, abi: morphoPriceOracleAbi, functions: { price: () => price() * WAD } },
+      version === 2
+        ? {
+            address: c.priceSource,
+            abi: btcMusdPriceSourceAbi as Abi,
+            functions: {
+              priceWad: () => btcInMusdWad(price(), pegMedian()),
+              musdUsdWad: () => pegMedian() ?? WAD,
+              btcUsd: () => c.btcUsdSource!,
+              peg: () => c.musdPeg!,
+            },
+          }
+        : { address: c.priceSource, abi: skipPriceSourceAbi as Abi, functions: { priceWad: () => price() } },
+      {
+        address: c.morphoOracle,
+        abi: morphoPriceOracleAbi,
+        functions: { price: () => (version === 2 ? btcInMusdWad(price(), pegMedian()) : price()) * WAD },
+      },
+      ...(version === 2 ? v2Contracts() : []),
       {
         address: c.morpho,
         abi: morphoAbi,

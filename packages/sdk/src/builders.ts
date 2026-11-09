@@ -4,6 +4,9 @@ import {
   creditVoterAbi,
   erc20Abi,
   morphoAbi,
+  savingsAdapterAbi,
+  shareMarketAbi,
+  stressedPegSourceAbi,
   suretyPoolAbi,
   vaultV2Abi,
   veBTCAbi,
@@ -205,6 +208,131 @@ export function buildBid(d: SuretyDeployment, args: { loanId: IntLike; maxPrice:
       abi: veBTCCreditLineAbi,
       functionName: "bid",
       args: [uint(args.loanId, "loanId"), uint(args.maxPrice, "maxPrice")],
+    }),
+  );
+}
+
+/** Turns auto-repay on or off for a loan (borrower only): while on, anyone may harvest its rewards into repayment. */
+export function buildSetAutoRepay(d: SuretyDeployment, args: { loanId: IntLike; enabled: boolean }): TxRequest {
+  return tx(
+    d.contracts.veBTCLine,
+    encodeFunctionData({
+      abi: veBTCCreditLineAbi,
+      functionName: "setAutoRepay",
+      args: [uint(args.loanId, "loanId"), args.enabled],
+    }),
+  );
+}
+
+/**
+ * Claims the escrowed NFT's fees and bribes into repayment (MUSD repays, other tokens go to the borrower) and its
+ * veBTC rebase. Anyone may send it while auto-repay is on, the borrower otherwise. `rewards` / `tokens` come from
+ * `getHarvestPlan`.
+ */
+export function buildHarvest(
+  d: SuretyDeployment,
+  args: { loanId: IntLike; rewards: readonly Address[]; tokens: readonly (readonly Address[])[] },
+): TxRequest {
+  if (args.rewards.length !== args.tokens.length) throw new Error("rewards and tokens differ in length");
+  return tx(
+    d.contracts.veBTCLine,
+    encodeFunctionData({
+      abi: veBTCCreditLineAbi,
+      functionName: "harvest",
+      args: [uint(args.loanId, "loanId"), [...args.rewards], args.tokens.map((t) => [...t])],
+    }),
+  );
+}
+
+/* Savings (v2) */
+
+function savingsAdapterOf(d: SuretyDeployment): Address {
+  const adapter = d.contracts.savingsAdapter;
+  if (!adapter) throw new Error("this deployment has no savings adapter (v2 only)");
+  return adapter;
+}
+
+/** Claims the savings adapter's sMUSD yield and parks it again. Permissionless. */
+export function buildSavingsHarvest(d: SuretyDeployment): TxRequest {
+  return tx(savingsAdapterOf(d), encodeFunctionData({ abi: savingsAdapterAbi, functionName: "harvest" }));
+}
+
+/* ShareMarket (v2) */
+
+function shareMarketOf(d: SuretyDeployment): Address {
+  const market = d.contracts.shareMarket;
+  if (!market) throw new Error("this deployment has no ShareMarket (v2 only)");
+  return market;
+}
+
+/** Lists `shares` srMUSD at `discountBps` below the share price: the srMUSD approve to the market, then `list`. */
+export function buildListShares(d: SuretyDeployment, args: { shares: IntLike; discountBps: IntLike }): TxRequest[] {
+  const market = shareMarketOf(d);
+  const shares = uint(args.shares, "shares");
+  const discount = uint(args.discountBps, "discountBps");
+  if (discount > 2_000n) throw new Error("discountBps must be at most 2000");
+  return [
+    buildApprove({ token: d.contracts.vault, spender: market, amount: shares }),
+    tx(market, encodeFunctionData({ abi: shareMarketAbi, functionName: "list", args: [shares, Number(discount)] })),
+  ];
+}
+
+/**
+ * Buys up to `shares` from listing `id`, paying at most `maxAssets` MUSD: the MUSD approve to the market, then
+ * `fill`. Quote first with `quoteShareFill`.
+ */
+export function buildFillListing(
+  d: SuretyDeployment,
+  args: { id: IntLike; shares: IntLike; maxAssets: IntLike },
+): TxRequest[] {
+  const market = shareMarketOf(d);
+  const maxAssets = uint(args.maxAssets, "maxAssets");
+  return [
+    buildApprove({ token: d.external.musd, spender: market, amount: maxAssets }),
+    tx(
+      market,
+      encodeFunctionData({
+        abi: shareMarketAbi,
+        functionName: "fill",
+        args: [uint(args.id, "id"), uint(args.shares, "shares"), maxAssets],
+      }),
+    ),
+  ];
+}
+
+/** Closes the caller's listing and takes the unsold shares back. */
+export function buildCancelListing(d: SuretyDeployment, args: { id: IntLike }): TxRequest {
+  return tx(
+    shareMarketOf(d),
+    encodeFunctionData({ abi: shareMarketAbi, functionName: "cancel", args: [uint(args.id, "id")] }),
+  );
+}
+
+/** Closes the caller's listing and redeems the unsold shares for at least `minAssets` MUSD (works while share
+ * receipt is paused). */
+export function buildCancelAndRedeem(d: SuretyDeployment, args: { id: IntLike; minAssets: IntLike }): TxRequest {
+  return tx(
+    shareMarketOf(d),
+    encodeFunctionData({
+      abi: shareMarketAbi,
+      functionName: "cancelAndRedeem",
+      args: [uint(args.id, "id"), uint(args.minAssets, "minAssets")],
+    }),
+  );
+}
+
+/* Testnet stress (v2) */
+
+/** Testnet: makes the stressed peg source read `musdUsdWad` (0 = offline) for `duration` seconds, at most 2 hours. */
+export function buildStressPeg(d: SuretyDeployment, args: { musdUsdWad: IntLike; duration: IntLike }): TxRequest {
+  const source = d.contracts.stressedPegSource;
+  if (!source) throw new Error("this deployment has no stressed peg source (v2 testnet only)");
+  return tx(
+    source,
+    encodeFunctionData({
+      abi: stressedPegSourceAbi,
+      functionName: "stress",
+      args: [uint(args.musdUsdWad, "musdUsdWad"), Number(uint(args.duration, "duration"))],
     }),
   );
 }

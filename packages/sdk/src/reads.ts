@@ -15,14 +15,17 @@ import {
   linearKinkIrmAbi,
   morphoAbi,
   morphoPriceOracleAbi,
+  musdPegAbi,
+  savingsAdapterAbi,
   skipPriceSourceAbi,
   suretyPoolAbi,
   vaultV2Abi,
   veBTCAbi,
   veBTCCreditLineAbi,
+  veBTCCreditLineV1Abi,
   voteAllocatorAbi,
 } from "./abis/index.js";
-import type { LineKind, MarketParams, SuretyDeployment } from "./deployments/types.js";
+import type { LineKind, LineParams, MarketParams, SuretyDeployment } from "./deployments/types.js";
 import { getLogsChunked } from "./logs.js";
 import {
   BPS,
@@ -35,6 +38,7 @@ import {
   lineSupplyAprWad,
   liquidationPriceWad,
   ltvBps as ltvBpsMath,
+  originationFee as originationFeeMath,
   morphoSupplyApy,
   ratePerSecondToApy,
   ratio,
@@ -108,6 +112,30 @@ export function marketIdOf(params: MarketParams): Hex {
 }
 
 export const openedEvent = getAbiItem({ abi: veBTCCreditLineAbi, name: "Opened" });
+
+/**
+ * The VeBTCCreditLine ABI of a deployment. v1 lines return shorter `Loan` and `Params` structs and emit
+ * `AuctionStarted` without the keeper; everything else they share with v2.
+ */
+export function veBTCCreditLineAbiFor(d: SuretyDeployment): typeof veBTCCreditLineAbi {
+  return (d.version === 1 ? veBTCCreditLineV1Abi : veBTCCreditLineAbi) as unknown as typeof veBTCCreditLineAbi;
+}
+
+/** `VeBTCCreditLine.params()` with the v2 fee fields, zero on v1 lines. */
+export function normalizeLineParams(raw: Partial<LineParams>): LineParams {
+  return {
+    maxLtvTimedBps: Number(raw.maxLtvTimedBps ?? 0),
+    maxLtvPermanentBps: Number(raw.maxLtvPermanentBps ?? 0),
+    liqLtvBps: Number(raw.liqLtvBps ?? 0),
+    liqFeeBps: Number(raw.liqFeeBps ?? 0),
+    floorBps: Number(raw.floorBps ?? 0),
+    auctionDuration: Number(raw.auctionDuration ?? 0),
+    minTerm: Number(raw.minTerm ?? 0),
+    originationFeeBps: Number(raw.originationFeeBps ?? 0),
+    protocolShareBps: Number(raw.protocolShareBps ?? 0),
+    keeperShareBps: Number(raw.keeperShareBps ?? 0),
+  };
+}
 export const votedEvent = getAbiItem({ abi: creditVoterAbi, name: "Voted" });
 
 function must<T>(s: Settled<T>, what: string): T {
@@ -191,6 +219,7 @@ export async function getBoard(ctx: SuretyContext): Promise<Board> {
         call(c.irmLine, linearKinkIrmAbi, "maxApr"),
         call(c.irmLine, linearKinkIrmAbi, "kinkUtilWad"),
         call(c.suretyPool, suretyPoolAbi, "depositsPaused"),
+        ...(c.savingsAdapter ? [call(c.savingsAdapter, savingsAdapterAbi, "realAssets")] : []),
       ],
       { blockNumber },
     ),
@@ -219,6 +248,7 @@ export async function getBoard(ctx: SuretyContext): Promise<Board> {
     maxAprS,
     kinkUtilS,
     depositsPausedS,
+    parkedS,
   ] = base;
 
   const lineCount = Number(must(lineCountS, "CreditVoter.lineCount"));
@@ -378,6 +408,8 @@ export async function getBoard(ctx: SuretyContext): Promise<Board> {
   });
 
   const totalAssets = must(totalAssetsS, "vault.totalAssets");
+  const idleInVault = orNull(idleS) ?? 0n;
+  const parked = c.savingsAdapter ? orNull(parkedS as Settled<bigint>) : 0n;
   const performanceFee = orNull(perfFeeS) ?? 0n;
   const managementFee = orNull(mgmtFeeS) ?? 0n;
   const gross = weightedApy(
@@ -393,7 +425,9 @@ export async function getBoard(ctx: SuretyContext): Promise<Board> {
     totalAssets,
     totalSupply: must(totalSupplyS, "vault.totalSupply"),
     sharePrice: orNull(sharePriceS) ?? 0n,
-    idle: orNull(idleS) ?? 0n,
+    idle: idleInVault + (parked ?? 0n),
+    idleInVault,
+    parked,
     idleBufferBps: orNull(idleBufferS) ?? 0n,
     performanceFee,
     performanceFeeRecipient: orNull(perfRecipientS) ?? ZERO_ADDRESS,
@@ -588,6 +622,7 @@ export async function getCohorts(
 
 /* Loans */
 
+/** `VeBTCCreditLine.loan()`; `keeper` and `autoRepay` are absent on v1 lines. */
 type RawLoan = {
   borrower: Address;
   escrow: Address;
@@ -595,16 +630,8 @@ type RawLoan = {
   normDebt: bigint;
   state: number;
   auctionStart: bigint;
-};
-
-type LineParams = {
-  maxLtvTimedBps: number;
-  maxLtvPermanentBps: number;
-  liqLtvBps: number;
-  liqFeeBps: number;
-  floorBps: number;
-  auctionDuration: number;
-  minTerm: number;
+  keeper?: Address;
+  autoRepay?: boolean;
 };
 
 /** Full views of the given loans at one block. Loans in state None are dropped. */
@@ -613,20 +640,21 @@ export async function loadLoans(ctx: SuretyContext, loanIds: bigint[], at?: At):
   const { blockNumber, timestamp } = at ?? (await head(ctx));
   const c = ctx.deployment.contracts;
   const line = c.veBTCLine;
+  const lineAbi = veBTCCreditLineAbiFor(ctx.deployment);
   const PER = 3;
   const first = await ctx.reader.settle(
     [
-      call(line, veBTCCreditLineAbi, "params"),
+      call(line, lineAbi, "params"),
       call(c.priceSource, skipPriceSourceAbi, "priceWad"),
       ...loanIds.flatMap((id) => [
-        call(line, veBTCCreditLineAbi, "loan", [id]),
-        call(line, veBTCCreditLineAbi, "debtOf", [id]),
-        call(line, veBTCCreditLineAbi, "healthOf", [id]),
+        call(line, lineAbi, "loan", [id]),
+        call(line, lineAbi, "debtOf", [id]),
+        call(line, lineAbi, "healthOf", [id]),
       ]),
     ] as ReadCall[],
     { blockNumber },
   );
-  const params = must(first[0] as Settled<LineParams>, "VeBTCCreditLine.params");
+  const params = normalizeLineParams(must(first[0] as Settled<Partial<LineParams>>, "VeBTCCreditLine.params"));
   const price = orNull(first[1] as Settled<bigint>);
   const loans = loanIds.map((id, k) => ({
     id,
@@ -681,6 +709,8 @@ export async function loadLoans(ctx: SuretyContext, loanIds: bigint[], at?: At):
       auctionEndsAt: inAuction ? l.raw.auctionStart + BigInt(params.auctionDuration) : null,
       auctionPrice: inAuction ? orNull(second[k * 2 + 1] as Settled<bigint>) : null,
       floorPrice: inAuction && value !== null ? (value * BigInt(params.floorBps)) / BPS : null,
+      autoRepay: l.raw.autoRepay ?? false,
+      keeper: l.raw.keeper && l.raw.keeper !== ZERO_ADDRESS ? l.raw.keeper : null,
     };
   });
 }
@@ -713,8 +743,9 @@ export async function listLoans(ctx: SuretyContext, options: { states?: LoanStat
     blockNumber: at.blockNumber,
   });
   const ids = Array.from({ length: Number(count) }, (_, i) => BigInt(i + 1));
+  const lineAbi = veBTCCreditLineAbiFor(ctx.deployment);
   const raws = await ctx.reader.values(
-    ids.map((id) => call(line, veBTCCreditLineAbi, "loan", [id])),
+    ids.map((id) => call(line, lineAbi, "loan", [id])),
     { blockNumber: at.blockNumber },
   );
   const wanted = options.states;
@@ -751,10 +782,11 @@ export async function quoteVeBTCBorrow(ctx: SuretyContext, tokenId: bigint, amou
     kinkAprS,
     maxAprS,
     kinkUtilS,
+    pegS,
   ] = await ctx.reader.settle(
     [
       call(line, veBTCCreditLineAbi, "maxBorrow", [tokenId]),
-      call(line, veBTCCreditLineAbi, "params"),
+      call(line, veBTCCreditLineAbiFor(ctx.deployment), "params"),
       call(ve, veBTCAbi, "locked", [tokenId]),
       call(ve, veBTCAbi, "escrowType", [tokenId]),
       call(ve, veBTCAbi, "grantManager", [tokenId]),
@@ -767,10 +799,11 @@ export async function quoteVeBTCBorrow(ctx: SuretyContext, tokenId: bigint, amou
       call(c.irmLine, linearKinkIrmAbi, "kinkApr"),
       call(c.irmLine, linearKinkIrmAbi, "maxApr"),
       call(c.irmLine, linearKinkIrmAbi, "kinkUtilWad"),
+      ...(c.musdPeg ? [call(c.musdPeg, musdPegAbi, "pegHealthy")] : []),
     ],
     { blockNumber },
   );
-  const params = must(paramsS, "VeBTCCreditLine.params");
+  const params = normalizeLineParams(must(paramsS, "VeBTCCreditLine.params") as Partial<LineParams>);
   const lock = toLock(must(lockS, "veBTC.locked"));
   const owner = orNull(ownerS) ?? ZERO_ADDRESS;
   const cash = must(cashS, "VeBTCCreditLine.cash");
@@ -796,6 +829,8 @@ export async function quoteVeBTCBorrow(ctx: SuretyContext, tokenId: bigint, amou
   if (price === null) reasons.push("oracle-unavailable");
   if (orNull(pausedS) === true) reasons.push("line-paused");
   if (cash === 0n) reasons.push("no-liquidity");
+  // open and borrowMore revert while the MUSD peg is unhealthy (v2).
+  if (c.musdPeg && pegS !== undefined && orNull(pegS as Settled<boolean>) !== true) reasons.push("peg-unhealthy");
 
   const maxBorrow = orNull(maxBorrowS) ?? 0n;
   const quoted = amount ?? maxBorrow;
@@ -827,6 +862,8 @@ export async function quoteVeBTCBorrow(ctx: SuretyContext, tokenId: bigint, amou
     borrowAprNow: wadToNumber(aprNow),
     borrowAprAfter: wadToNumber(aprAfter),
     borrowApyAfter: aprToApy(aprAfter),
+    originationFee: originationFeeMath(quoted, params.originationFeeBps),
+    receives: quoted - originationFeeMath(quoted, params.originationFeeBps),
   };
 }
 

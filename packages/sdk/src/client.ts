@@ -14,12 +14,21 @@ import type {
   BorrowQuote,
   Cohorts,
   EpochInfo,
+  FeeSchedule,
+  HarvestPlan,
   LoanState,
   LoanView,
+  PegView,
+  SavingsView,
+  ShareFillQuote,
+  ShareListing,
+  ShareMarketView,
+  SponsorLedger,
   TxRequest,
   VaultStats,
   VeBTCPosition,
 } from "./types.js";
+import * as v2 from "./v2.js";
 
 export interface SuretyClientOptions {
   chainId: number;
@@ -53,6 +62,21 @@ export interface SuretyClient {
   listLoans(options?: { states?: LoanState[] }): Promise<AuctionView[]>;
   quoteVeBTCBorrow(tokenId: IntLike, amount?: IntLike): Promise<BorrowQuote>;
   getAuctions(): Promise<AuctionView[]>;
+  /** Fee schedule: the line's origination and liquidation fee split, the vault's fees, ShareMarket's fee. */
+  getFees(): Promise<FeeSchedule>;
+
+  /* v2 reads (they throw on a v1 deployment) */
+  /** MUSD peg: per-source readings, median, spread, health, and the BTC price in MUSD. */
+  getPeg(): Promise<PegView>;
+  /** Idle MUSD: the vault's own plus what is parked in sMUSD, and the savings yield. */
+  getSavings(): Promise<SavingsView>;
+  getShareMarket(options?: { start?: number; count?: number }): Promise<ShareMarketView>;
+  getShareListingsOf(seller: Address): Promise<ShareListing[]>;
+  quoteShareFill(id: IntLike, shares: IntLike): Promise<ShareFillQuote>;
+  /** Testnet: every starter kit the Sponsor handed out. */
+  getSponsorLedger(): Promise<SponsorLedger>;
+  /** What a harvest of the loan's veBTC rewards would claim, with `harvest`'s arguments. */
+  getHarvestPlan(loanId: IntLike): Promise<HarvestPlan>;
 
   /* Unsigned transaction builders */
   buildVote(args: { tokenId: IntLike; lineIds: IntLike[]; weightsBps: IntLike[] }): TxRequest;
@@ -75,6 +99,14 @@ export interface SuretyClient {
   buildCheckpoint(args: { lineId: IntLike }): TxRequest;
   buildCover(args: { lineId: IntLike }): TxRequest;
   buildClaim(args: { tokenId: IntLike; lineId: IntLike; epoch: IntLike }): TxRequest;
+  buildSetAutoRepay(args: { loanId: IntLike; enabled: boolean }): TxRequest;
+  buildHarvest(args: { loanId: IntLike; rewards: readonly Address[]; tokens: readonly (readonly Address[])[] }): TxRequest;
+  buildSavingsHarvest(): TxRequest;
+  buildListShares(args: { shares: IntLike; discountBps: IntLike }): TxRequest[];
+  buildFillListing(args: { id: IntLike; shares: IntLike; maxAssets: IntLike }): TxRequest[];
+  buildCancelListing(args: { id: IntLike }): TxRequest;
+  buildCancelAndRedeem(args: { id: IntLike; minAssets: IntLike }): TxRequest;
+  buildStressPeg(args: { musdUsdWad: IntLike; duration: IntLike }): TxRequest;
   morphoMarketParams(lineId: IntLike): MarketParams;
   buildSupplyCollateral(args: { marketParams: MarketParams; assets: IntLike; onBehalf: Address }): TxRequest;
   buildBorrow(args: { marketParams: MarketParams; assets: IntLike; onBehalf: Address; receiver: Address }): TxRequest;
@@ -150,6 +182,14 @@ export function createSuretyClient(options: SuretyClientOptions): SuretyClient {
         amount === undefined ? undefined : b.toBigInt(amount, "amount"),
       ),
     getAuctions: () => reads.getAuctions(ctx),
+    getFees: () => v2.getFeeSchedule(ctx),
+    getPeg: () => v2.getPeg(ctx),
+    getSavings: () => v2.getSavings(ctx),
+    getShareMarket: (opts) => v2.getShareMarket(ctx, opts),
+    getShareListingsOf: (seller) => v2.getShareListingsOf(ctx, seller),
+    quoteShareFill: (id, shares) => v2.quoteShareFill(ctx, b.toBigInt(id, "id"), b.toBigInt(shares, "shares")),
+    getSponsorLedger: () => v2.getSponsorLedger(ctx),
+    getHarvestPlan: (loanId) => v2.getHarvestPlan(ctx, b.toBigInt(loanId, "loanId")),
 
     buildVote: (args) => b.buildVote(d, args),
     buildPoke: (args) => b.buildPoke(d, args),
@@ -171,6 +211,14 @@ export function createSuretyClient(options: SuretyClientOptions): SuretyClient {
     buildCheckpoint: (args) => b.buildCheckpoint(d, args),
     buildCover: (args) => b.buildCover(d, args),
     buildClaim: (args) => b.buildClaim(d, args),
+    buildSetAutoRepay: (args) => b.buildSetAutoRepay(d, args),
+    buildHarvest: (args) => b.buildHarvest(d, args),
+    buildSavingsHarvest: () => b.buildSavingsHarvest(d),
+    buildListShares: (args) => b.buildListShares(d, args),
+    buildFillListing: (args) => b.buildFillListing(d, args),
+    buildCancelListing: (args) => b.buildCancelListing(d, args),
+    buildCancelAndRedeem: (args) => b.buildCancelAndRedeem(d, args),
+    buildStressPeg: (args) => b.buildStressPeg(d, args),
     morphoMarketParams: (lineId) => b.morphoMarketParams(d, lineId),
     buildSupplyCollateral: (args) => b.buildSupplyCollateral(d, args),
     buildBorrow: (args) => b.buildBorrow(d, args),

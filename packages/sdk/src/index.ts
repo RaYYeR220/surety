@@ -10,9 +10,22 @@ export { call, isRevert, orNull, Reader, type ReadCall, type ReaderOptions, type
 export {
   decodeMarketParams,
   marketIdOf,
+  normalizeLineParams,
   openedEvent,
+  veBTCCreditLineAbiFor,
   votedEvent,
   type At,
   type SuretyContext,
 } from "./reads.js";
+export {
+  getFeeSchedule,
+  getHarvestPlan,
+  getPeg,
+  getSavings,
+  getShareListingsOf,
+  getShareMarket,
+  getSponsorLedger,
+  quoteShareFill,
+  starterKitEvent,
+} from "./v2.js";
 export type * from "./types.js";

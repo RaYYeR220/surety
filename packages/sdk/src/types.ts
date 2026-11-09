@@ -1,6 +1,7 @@
 import type { Address, Hex } from "viem";
 
-import type { LineKind, MarketParams } from "./deployments/types.js";
+import type { LineKind, LineParams, MarketParams, PegSourceKind } from "./deployments/types.js";
+import type { PegHealth } from "./math.js";
 
 /** Unsigned transaction: send as-is from the user's wallet. */
 export interface TxRequest {
@@ -45,8 +46,15 @@ export interface VaultStats {
   totalSupply: bigint;
   /** Assets per 1e18 shares (srMUSD -> MUSD). */
   sharePrice: bigint;
-  /** MUSD held by the vault itself, not allocated to any line. */
+  /**
+   * MUSD not lent out: what the vault holds itself plus what its savings adapter parks in sMUSD (v2). Withdrawals
+   * and covers draw on both.
+   */
   idle: bigint;
+  /** MUSD held by the vault contract itself. */
+  idleInVault: bigint;
+  /** MUSD parked in sMUSD through the savings adapter (`realAssets`); 0 without one, null when unreadable. */
+  parked: bigint | null;
   /** Share of total assets the allocator keeps idle, bps. */
   idleBufferBps: bigint;
   /** Performance fee on interest, WAD (the voters' fee). */
@@ -213,6 +221,10 @@ export interface LoanView {
   auctionEndsAt: bigint | null;
   /** Current Dutch auction price (Auction state only). */
   auctionPrice: bigint | null;
+  /** Whether anyone may harvest the NFT's rewards into repayment (v2; false on v1 lines). */
+  autoRepay: boolean;
+  /** Address that started the auction, paid the keeper share of the liquidation fee (v2; null otherwise). */
+  keeper: Address | null;
 }
 
 export type BorrowIneligibility =
@@ -224,7 +236,8 @@ export type BorrowIneligibility =
   | "oracle-unavailable"
   | "no-liquidity"
   | "line-paused"
-  | "above-max";
+  | "above-max"
+  | "peg-unhealthy";
 
 export interface BorrowQuote {
   tokenId: bigint;
@@ -249,9 +262,163 @@ export interface BorrowQuote {
   borrowAprNow: number;
   borrowAprAfter: number;
   borrowApyAfter: number;
+  /** Origination fee on `amount` (0 on v1 lines). */
+  originationFee: bigint;
+  /** What the borrower receives for `amount`; the debt is the full amount. */
+  receives: bigint;
 }
 
 export interface AuctionView extends LoanView {
   /** Price floor the auction decays to. */
   floorPrice: bigint | null;
+}
+
+/* v2: MUSD peg */
+
+export interface PegSourceReading {
+  index: number;
+  address: Address;
+  /** From the deployment file; null when the file does not list it. */
+  kind: PegSourceKind | null;
+  pool: Address | null;
+  ok: boolean;
+  /** MUSD/USD, WAD; null when the source has no usable reading. */
+  musdUsdWad: bigint | null;
+}
+
+export interface PegView extends PegHealth {
+  address: Address;
+  minSources: number;
+  maxSpreadBps: number;
+  bandBps: number;
+  sources: PegSourceReading[];
+  /** `pegHealthy()` as the contract answers it (the line refuses new loans while false). */
+  healthyOnChain: boolean;
+  /** `VoteAllocator.pegGateOpen()`: whether a rebalance would fund lines now. */
+  allocatorGateOpen: boolean | null;
+  /** BTC/USD under the line's price (stressed on a stress deployment); null when it reverts. */
+  btcUsdWad: bigint | null;
+  /** BTC in MUSD as the line and the Morpho oracle value it; null when it reverts. */
+  btcMusdWad: bigint | null;
+  /** Testnet: the StressedPegSource override, if one applies now. */
+  stress: { active: boolean; musdUsdWad: bigint; endsAt: bigint } | null;
+}
+
+/* v2: fees */
+
+export interface FeeSchedule {
+  /** The veBTC line's parameters, fee fields included. */
+  line: LineParams;
+  treasury: Address | null;
+  /** VaultV2 performance fee (the voters' fee), WAD. */
+  performanceFee: bigint;
+  performanceFeeRecipient: Address;
+  /** VaultV2 management fee, WAD of total assets per second. */
+  managementFee: bigint;
+  /** The management fee as a yearly rate, WAD. */
+  managementFeeAprWad: bigint;
+  managementFeeRecipient: Address;
+  /** ShareMarket fee on each fill; null without a ShareMarket. */
+  shareMarketFeeBps: number | null;
+}
+
+/* v2: savings (idle MUSD in sMUSD) */
+
+export interface SavingsView {
+  adapter: Address;
+  smusd: Address;
+  /** Whether idle MUSD is parked (savings is the vault's liquidity adapter). */
+  parking: boolean | null;
+  liquidityAdapter: Address | null;
+  /** MUSD held by the vault contract. */
+  vaultIdle: bigint;
+  /** Savings adapter `realAssets`: sMUSD held, MUSD held and yield claimable. */
+  parked: bigint;
+  /** vaultIdle + parked: what is not lent out. */
+  idle: bigint;
+  /** Yield a `harvest()` would claim and re-deposit now. */
+  claimableYield: bigint | null;
+  /** Cumulative yield sMUSD has paid the adapter. */
+  yieldClaimed: bigint | null;
+}
+
+/* v2: ShareMarket */
+
+export interface ShareListing {
+  id: bigint;
+  seller: Address;
+  discountBps: number;
+  /** srMUSD still for sale. */
+  shares: bigint;
+  /** What those shares are worth at the live share price, MUSD. */
+  value: bigint;
+  /** What a buyer pays for all of them now. */
+  price: bigint;
+  /** Treasury fee inside `price`. */
+  fee: bigint;
+}
+
+export interface ShareMarketView {
+  address: Address;
+  feeBps: number;
+  /** Whether listing and filling are open (the vault's gate takes new shares). */
+  isOpen: boolean;
+  openCount: bigint;
+  /** Vault share price, MUSD per 1e18 srMUSD. */
+  sharePrice: bigint;
+  /** Open listings from `start`, at most `count` (positions are unordered). */
+  listings: ShareListing[];
+  /** The deepest discount on offer. */
+  best: { id: bigint; discountBps: number; shares: bigint; pricePerShare: bigint } | null;
+}
+
+export interface ShareFillQuote {
+  id: bigint;
+  /** Shares the fill would buy. */
+  filled: bigint;
+  /** MUSD the buyer pays. */
+  assets: bigint;
+  fee: bigint;
+  sellerReceives: bigint;
+}
+
+/* v2: testnet Sponsor */
+
+export interface StarterKitEntry {
+  user: Address;
+  tokenId: bigint;
+  btcGas: bigint;
+  lockAmount: bigint;
+  musd: bigint;
+  blockNumber: bigint;
+  transactionHash: Hex;
+}
+
+export interface SponsorLedger {
+  address: Address;
+  kitsIssued: bigint;
+  /** Full kits the Sponsor's balances still pay for; null when unreadable. */
+  kitsLeft: bigint | null;
+  dailyLimit: bigint;
+  kit: { btcGas: bigint; lockAmount: bigint; musd: bigint; lockDuration: bigint };
+  /** Every StarterKit event: the public ledger of the wallets that tried the product. */
+  entries: StarterKitEntry[];
+}
+
+/* v2: harvesting a loan's rewards */
+
+export interface HarvestPlan {
+  loanId: bigint;
+  tokenId: bigint;
+  autoRepay: boolean;
+  /** Pools the escrowed NFT votes on, on Mezo's PoolsVoter. */
+  pools: Address[];
+  /** Reward contracts with something earned, and the tokens to claim from each: `harvest`'s arguments. */
+  rewards: Address[];
+  tokens: Address[][];
+  earned: { reward: Address; token: Address; amount: bigint }[];
+  /** veBTC rebase the distributor would pay now. */
+  claimableRebase: bigint;
+  /** Whether a harvest would claim anything. */
+  worthHarvesting: boolean;
 }
