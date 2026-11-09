@@ -1,0 +1,127 @@
+{
+  "version": 2,
+  "chainId": 31612,
+  "epochLength": 604800,
+  "deployedAt": 13118764,
+  "stress": false,
+  "timelock": 86400,
+  "contracts": {
+    "vault": "0xFB1226A2C58168044d457b226528236a1F847bE1",
+    "morphoAdapter": "0x6ab4E79d33a6B13d71fFcc6E9b5a5DD5dDd38295",
+    "morpho": "0x565834cE7E40b8987BC20EbF83E2159467bDA311",
+    "irm": "0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7",
+    "savingsAdapter": "0x9FA1f41E6153eD4FD7BAeA409069d5fcf372A514",
+    "shareMarket": "0x5722197a666Ccf158945939fCbE2Aebc892e017a",
+    "creditVoter": "0x1EABc0B7f938F6E119Cb25d7d4F70Bf26db10061",
+    "voteAllocator": "0x33079321E90987cbD8B13Bc22802361292d8373C",
+    "suretyPool": "0xFe5d5E400A086fCc606ED99073d72b6b0557bcAc",
+    "depositGate": "0x99b72dE077dc365537a762dde516c45470512228",
+    "veBTCLine": "0x690C2F3Db0FAC14281c2a000CA3214C36516d87D",
+    "loanEscrowImpl": "0x92Cb86376Fc1ba5b1Da2dE1FE1a1ffD926D27D22",
+    "irmLine": "0xc7724370fd27Ae961B3747e601ce9DAac26e7269",
+    "priceSource": "0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279",
+    "btcMusdSource": "0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279",
+    "btcUsdSource": "0x9a5e9c5BfDa2154785056E75f2732306fA205F5d",
+    "skipSource": "0x9a5e9c5BfDa2154785056E75f2732306fA205F5d",
+    "morphoOracle": "0xE3C71349FB0C6b222D82B36161fa2F12294fbb51",
+    "musdPeg": "0x07777966126dBf0f3919E217D0A2247156879a5F",
+    "treasury": "0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282"
+  },
+  "external": {
+    "musd": "0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186",
+    "btc": "0x7b7C000000000000000000000000000000000000",
+    "veBTC": "0x3D4b1b884A7a1E59fE8589a3296EC8f8cBB6f279",
+    "poolsVoter": "0x48233cCC97B87Ba93bCA212cbEe48e3210211f03",
+    "rewardsDistributor": "0xb58477e074265BdC7F7ca6100eD0f7De264F74A2",
+    "skipAggregator": "0x7b7c000000000000000000000000000000000015",
+    "smusd": "0xb4D498029af77680cD1eF828b967f010d06C51CC"
+  },
+  "morphoMarketId": "0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8",
+  "lineParams": {
+    "maxLtvTimedBps": 5000,
+    "maxLtvPermanentBps": 4000,
+    "liqLtvBps": 6500,
+    "liqFeeBps": 300,
+    "floorBps": 8500,
+    "auctionDuration": 21600,
+    "minTerm": 259200,
+    "originationFeeBps": 25,
+    "protocolShareBps": 2000,
+    "keeperShareBps": 5000
+  },
+  "peg": {
+    "minSources": 2,
+    "maxSpreadBps": 1000,
+    "bandBps": 300,
+    "maxPremiumBps": 300
+  },
+  "pegSources": [
+    {
+      "kind": "ClTwap",
+      "address": "0xd29D9199BF441A6da411b6dB4929020240e6bDc0",
+      "pool": "0xCC372B7E15535aB225fe17c1075831D38ef7aC1a",
+      "window": "1800",
+      "minLiquidity": "10000000000000000000"
+    },
+    {
+      "kind": "StableTwap",
+      "address": "0xebdBbA24cc595210456e543F7789140d2C93Bc25",
+      "pool": "0xEd812AEc0Fecc8fD882Ac3eccC43f3aA80A6c356",
+      "granularity": "2",
+      "maxAge": "21600"
+    },
+    {
+      "kind": "StableTwap",
+      "address": "0x9F34Ea63dbC890458B5FF966C013b868bd87f4b0",
+      "pool": "0x10906a9E9215939561597b4C8e4b98F93c02031A",
+      "granularity": "2",
+      "maxAge": "21600"
+    },
+    {
+      "kind": "BtcCross",
+      "address": "0xC52AFe4cc75D8da3363fb766551a1C5775b0c9D8",
+      "pool": "0x9CBc1537d255768b431488305b1C7EFc2ac95022",
+      "window": "1800",
+      "minLiquidity": "200000000000000000000",
+      "btcUsd": "0x9a5e9c5BfDa2154785056E75f2732306fA205F5d"
+    }
+  ],
+  "fees": {
+    "performanceFee": "100000000000000000",
+    "performanceFeeRecipient": "0xFe5d5E400A086fCc606ED99073d72b6b0557bcAc",
+    "managementFee": "63419583",
+    "managementFeeRecipient": "0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282",
+    "forceDeallocatePenalty": "10000000000000000",
+    "shareMarketFeeBps": 10
+  },
+  "caps": {
+    "morpho": "2000000000000000000000",
+    "line": "2000000000000000000000",
+    "savings": "1000000000000000000000000000"
+  },
+  "lines": [
+    {
+      "id": 0,
+      "kind": "Morpho",
+      "name": "BTC / MUSD (Morpho)",
+      "adapter": "0x6ab4E79d33a6B13d71fFcc6E9b5a5DD5dDd38295",
+      "marketId": "0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8",
+      "marketParams": {
+        "loanToken": "0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186",
+        "collateralToken": "0x7b7C000000000000000000000000000000000000",
+        "oracle": "0xE3C71349FB0C6b222D82B36161fa2F12294fbb51",
+        "irm": "0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7",
+        "lltv": "860000000000000000"
+      }
+    },
+    {
+      "id": 1,
+      "kind": "VeBTC",
+      "name": "veBTC credit line",
+      "adapter": "0x690C2F3Db0FAC14281c2a000CA3214C36516d87D"
+    }
+  ],
+  "proof": {
+    "txs": []
+  }
+}
