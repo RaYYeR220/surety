@@ -84,7 +84,7 @@ A claim can carry two tiers when both kinds of evidence exist. Claims 1 to 39 da
 | 42 | BTC collateral is priced at BTC/USD divided by the peg's median clamped to [$1, $1.03] while the peg is healthy, and at BTC/USD otherwise: never above BTC/USD, never more than 2.91% below it. | REPRODUCIBLE, VERIFIED-LIVE | `test_btcMusd_dividesByAHealthyPegClampedToThePremium`, `test_btcMusd_anyPegFailureReadsAsOneDollar_onlySkipReverts`, `testFuzz_btcMusd_boundedByThePremium`; `maxPremiumBps()` = 300 on the testnet BtcMusdPriceSource |
 | 43 | While the peg is unhealthy, new veBTC borrowing reverts with `PegUnhealthy` and rebalances fund no line; repayment, harvests, auctions and bids never read the peg. On testnet a `borrowMore` sent while MUSD read $0.94 reverted on chain with `PegUnhealthy`. | REPRODUCIBLE, VERIFIED-LIVE | `test_pegBreaker_blocksBorrowing_notRepayAuctionsOrEscrow`, `test_pegGate_holdsAllocations_deallocationsStillRun`, `invariant_noBorrowingWhileUnhealthy`; [0x6438…8e16](https://explorer.test.mezo.org/tx/0x6438e38d8cd1dfb4f522a6c72c25cf987e97e98201d2838d2f7a7942633f8e16) (status: reverted) |
 | 44 | The v2 review's attack on the peg (both thin CL pools pushed for 60 s, $77.87 in fees) moves the BTC price by 0 bps on a fork of Mezo mainnet, and one pushed CL pool no longer trips the breaker. | REPRODUCIBLE | `AuditV2ForkTest` with `SURETY_FORK=true` |
-| 45 | On Mezo mainnet's pools at block 13,100,532, the four mainnet sources read 0.99144 (CL mUSDC/MUSD), 0.99125 (basic mUSDC/MUSD), 0.98604 (basic MUSD/mUSDT, 13.9 hours since its last observation, so left out) and 1.00246 (BTC cross); the median, 0.99144, is healthy, and BTC is priced at BTC/USD. | REPRODUCIBLE | `SURETY_FORK=true forge test --match-contract LivePeg -vv`. The mainnet MusdPeg itself is not deployed yet (N16) |
+| 45 | On Mezo mainnet's pools at block 13,100,532, the four mainnet sources read 0.99144 (CL mUSDC/MUSD), 0.99125 (basic mUSDC/MUSD), 0.98604 (basic MUSD/mUSDT, 13.9 hours since its last observation, so left out) and 1.00246 (BTC cross); the median, 0.99144, is healthy, and BTC is priced at BTC/USD. | REPRODUCIBLE | `SURETY_FORK=true forge test --match-contract LivePeg -vv`. The deployed mainnet MusdPeg's own reading is claim 66 |
 
 ## v2: the veBTC line
 
@@ -120,6 +120,13 @@ A claim can carry two tiers when both kinds of evidence exist. Claims 1 to 39 da
 | 63 | The whole v2 lifecycle ran live on testnet, each role from its own team account: a deposit parked in sMUSD, a vote, incentives, a rebalance, two veBTC loans with origination fees, auto-repay, an escrow vote and bribe, a Morpho borrow on Mezo's Morpho Blue, a `PegUnhealthy` revert, an auction with no shortfall, a ShareMarket fill, a starter kit and the next epoch's attribution. | VERIFIED-LIVE | [v2 lifecycle table](PROOF.md#live-lifecycle-on-testnet-v2): 51 transactions recorded, 1 step pending |
 | 64 | The app renders its pages from a build snapshot with every Mezo RPC blocked, reaches network idle within 5 s with the RPCs up, and makes no RPC request from a hidden tab. | REPRODUCIBLE | `pnpm --filter web build && pnpm --filter web check:load`; the numbers of 2026-11-09 in [FEEDBACK-RESPONSE.md](../FEEDBACK-RESPONSE.md#7-the-live-app-loads-quickly). The live site passes the same check: [FEEDBACK-RESPONSE.md](../FEEDBACK-RESPONSE.md#7-the-live-app-loads-quickly) |
 
+## v2 on Mezo mainnet
+
+| # | Claim | Tier | Evidence |
+| --- | --- | --- | --- |
+| 65 | Surety v2 is deployed on Mezo mainnet: 19 contracts, all an exact match on Sourcify (the LoanEscrow implementation, created by the line's constructor, on runtime bytecode), on Mezo's own Morpho Blue in a BTC/MUSD market at LLTV 86%, with Mezo's sMUSD as the vault's liquidity adapter, 2,000 MUSD caps on the Morpho line and the veBTC line, weekly epochs, and 1-day timelocks on the vault's curator functions, the Morpho adapter and new lines. | VERIFIED-LIVE | [PROOF.md](PROOF.md#mezo-mainnet-31612-v2) and [its configuration on chain](PROOF.md#configuration-on-chain-v2-mainnet); `contracts/deployments/31612.json` (market `0x4bff245d…3030b8`); 124 deployment transactions, all successful, in `contracts/broadcast/Deploy.s.sol/31612/run-latest.json` |
+| 66 | Right after the deployment, at block 13,118,945, the mainnet MusdPeg read MUSD at 0.995137812070612232 and healthy, from two of its four sources: basic mUSDC/MUSD (0.991271) and the BTC cross (0.999005). CL mUSDC/MUSD was under its liquidity floor and basic MUSD/mUSDT past its 6-hour bound, so neither counted. BTC was priced at BTC/USD, 75,150.1 MUSD. | VERIFIED-LIVE | `cast call 0x07777966126dBf0f3919E217D0A2247156879a5F "musdUsdWad()(uint256)" --rpc-url https://mezo.drpc.org --block 13118945`, and likewise `pegHealthy()(bool)` and `readings()((address,bool,uint256)[])`; `priceWad()(uint256)` on the BtcMusdPriceSource `0x6C97…1279`; [PROOF.md](PROOF.md#the-mainnet-musd-peg-at-launch) |
+
 ## Not claimed
 
 | # | Not claimed | Why |
@@ -127,7 +134,7 @@ A claim can carry two tiers when both kinds of evidence exist. Claims 1 to 39 da
 | N1 | Production readiness, or safety for meaningful amounts of money | Single-key owner roles, no external audit. Mainnet runs with 2,000 MUSD caps. |
 | N2 | An external audit | The reviews were internal and independent, not a contracted audit. |
 | N3 | A real Mezo gauge or MEZO emissions for srMUSD | Needs a Mezo governance call to `createVaultGauge`; on the roadmap. |
-| N4 | Mainnet TVL, users or volume | Mainnet v1 is a capped launch: deployed and verified, no deposits yet. Pending — real MUSD through the mainnet vault, after the v2 mainnet deployment, before 2026-11-15. |
+| N4 | Mainnet TVL, users or volume | v1 and v2 are deployed and verified on mainnet with 2,000 MUSD caps (claims 31 and 65); neither vault holds MUSD yet. Pending — real MUSD through the v2 mainnet vault, before 2026-11-15: a deposit, the rebalance into Mezo's Morpho market and the veBTC line, and a veBTC loan with an escrow vote. |
 | N5 | That lenders never lose money | When the line's cohorts and the reserve are short, lenders bear the rest, as in the v1 run (36.98 MUSD). |
 | N6 | That lenders are restored at once | A cover is recognised under VaultV2's `maxRate`; it can take weeks for a large loss. |
 | N7 | Decentralised or timelocked administration on testnet | Every owner role is the deployer key and every timelock is zero on testnet. |
@@ -139,7 +146,6 @@ A claim can carry two tiers when both kinds of evidence exist. Claims 1 to 39 da
 | N13 | That APYs shown in the app or SDK are realised returns | They are estimates from the current rate curves and utilisation. |
 | N14 | MEZO incentives or more collateral lines | Roadmap items, not built. |
 | N15 | Outside users | Every wallet that has used Surety so far is the team's, and the ledger labels them. Pending — outside wallets, once the v2 app is live (before 2026-11-15). |
-| N16 | Surety v2 on Mezo mainnet | Deployed on testnet only; the mainnet run so far is a dry run (`contracts/deployments/dry-run/31612.json`). Pending — v2 mainnet deployment, before 2026-11-15. |
 | N17 | A meaningful yield from sMUSD | sMUSD's yield has been about 0.05% a year lately, and testnet sMUSD paid none during the v2 run. |
 | N18 | That the testnet peg reads a market | Testnet has no usable MUSD pool; its peg is one StressedPegSource that reads $1 unless someone overrides it. |
 | N20 | Contracts verified on Mezo's Blockscout explorer | Its verifier currently lists no Solidity compiler versions; the contracts are verified on Sourcify ([PROOF.md](PROOF.md#mezo-testnet-31611-v2)). |
