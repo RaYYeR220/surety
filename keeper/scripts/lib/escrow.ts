@@ -2,7 +2,7 @@
  * Reads shared by the escrow scripts: the sender's veBTC credit-line loans and the Mezo PoolsVoter gauge an escrow
  * votes on (its fee and bribe reward contracts and their reward tokens).
  */
-import { isRevert, veBTCCreditLineAbi } from "@surety/sdk";
+import { isRevert, veBTCCreditLineAbiFor } from "@surety/sdk";
 import { zeroAddress, type Address } from "viem";
 
 import { poolAbi, poolsVoterAbi, symbolAbi, votingRewardAbi } from "./mezo.js";
@@ -24,9 +24,9 @@ export const LOAN_AUCTION = 2;
 /** Latest loan the sender holds on `tokenId` (any state), or null. */
 export async function latestLoanOn(c: Ctx, tokenId: bigint): Promise<{ loanId: bigint; loan: LoanRecord } | null> {
   const line = c.d.contracts.veBTCLine;
-  const count = await rd<bigint>(c, line, veBTCCreditLineAbi, "loanCount");
+  const count = await rd<bigint>(c, line, veBTCCreditLineAbiFor(c.d), "loanCount");
   for (let id = count; id >= 1n; id--) {
-    const loan = await rd<LoanRecord>(c, line, veBTCCreditLineAbi, "loan", [id]);
+    const loan = await rd<LoanRecord>(c, line, veBTCCreditLineAbiFor(c.d), "loan", [id]);
     if (loan.tokenId === tokenId && loan.borrower.toLowerCase() === c.me.toLowerCase()) return { loanId: id, loan };
   }
   return null;

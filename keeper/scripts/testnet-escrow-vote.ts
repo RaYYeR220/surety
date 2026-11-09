@@ -23,7 +23,7 @@
  */
 import { parseArgs } from "node:util";
 
-import { erc20Abi, explorerUrl, veBTCAbi, veBTCCreditLineAbi } from "@surety/sdk";
+import { erc20Abi, explorerUrl, veBTCAbi, veBTCCreditLineAbiFor } from "@surety/sdk";
 import { getAddress, isAddress, parseEventLogs, parseUnits, zeroAddress, type Address } from "viem";
 
 import { sleep } from "../src/retry.js";
@@ -116,10 +116,10 @@ async function printState(c: Ctx, g: GaugeInfo): Promise<void> {
   }
 
   const [cash, paused, p] = await Promise.all([
-    rd<bigint>(c, line, veBTCCreditLineAbi, "cash"),
-    rd<boolean>(c, line, veBTCCreditLineAbi, "paused"),
+    rd<bigint>(c, line, veBTCCreditLineAbiFor(c.d), "cash"),
+    rd<boolean>(c, line, veBTCCreditLineAbiFor(c.d), "paused"),
     rd<{ maxLtvTimedBps: number; maxLtvPermanentBps: number; liqLtvBps: number; minTerm: number }>(
-      c, line, veBTCCreditLineAbi, "params",
+      c, line, veBTCCreditLineAbiFor(c.d), "params",
     ),
   ]);
   say(
@@ -167,12 +167,12 @@ async function checkVoteWindow(c: Ctx): Promise<void> {
 /** The NFT this run works with: --token-id, else the lock recorded by an earlier run, else a new lock. */
 async function lock(c: Ctx, amount: bigint, explicit: bigint | null): Promise<bigint | null> {
   const ve = c.d.external.veBTC;
-  const minTerm = BigInt((await rd<{ minTerm: number }>(c, c.d.contracts.veBTCLine, veBTCCreditLineAbi, "params")).minTerm);
+  const minTerm = BigInt((await rd<{ minTerm: number }>(c, c.d.contracts.veBTCLine, veBTCCreditLineAbiFor(c.d), "params")).minTerm);
   const known = explicit ?? recordedLockId(c);
   if (known !== null) {
     const owner = await rd<Address>(c, ve, veBTCLockAbi, "ownerOf", [known]);
     const held = owner.toLowerCase() === c.me.toLowerCase();
-    const escrowed = await rd<boolean>(c, c.d.contracts.veBTCLine, veBTCCreditLineAbi, "isEscrow", [owner]);
+    const escrowed = await rd<boolean>(c, c.d.contracts.veBTCLine, veBTCCreditLineAbiFor(c.d), "isEscrow", [owner]);
     if (held || escrowed) {
       say(`  · lock: using veBTC #${known} (${held ? "held by the sender" : `in loan escrow ${owner}`})`);
       return known;
@@ -230,8 +230,8 @@ async function openLoan(c: Ctx, tokenId: bigint, amount: bigint): Promise<Positi
   if (existing) say(`  · loan: #${existing.loanId} on veBTC #${tokenId} is ${LOAN_STATES[existing.loan.state]}; opening a new one`);
 
   const [paused, cash] = await Promise.all([
-    rd<boolean>(c, line, veBTCCreditLineAbi, "paused"),
-    rd<bigint>(c, line, veBTCCreditLineAbi, "cash"),
+    rd<boolean>(c, line, veBTCCreditLineAbiFor(c.d), "paused"),
+    rd<bigint>(c, line, veBTCCreditLineAbiFor(c.d), "cash"),
   ]);
   if (paused) throw new Error("the veBTC credit line is paused: open is disabled");
   if (cash < amount) throw new Error(`the veBTC credit line has ${musd(cash)} of cash, less than the ${musd(amount)} loan`);
@@ -251,12 +251,12 @@ async function openLoan(c: Ctx, tokenId: bigint, amount: bigint): Promise<Positi
     say("  · open: needs the NFT approve above on chain first; stopping the dry run here");
     return null;
   }
-  const sent = await sendBuilt(c, `veBTC loan opened #${tokenId} (${fmt(amount, 0)} MUSD)`, open!, veBTCCreditLineAbi);
+  const sent = await sendBuilt(c, `veBTC loan opened #${tokenId} (${fmt(amount, 0)} MUSD)`, open!, veBTCCreditLineAbiFor(c.d));
   if (!sent) return null;
-  const opened = parseEventLogs({ abi: veBTCCreditLineAbi, logs: sent.receipt.logs, eventName: "Opened" })[0];
+  const opened = parseEventLogs({ abi: veBTCCreditLineAbiFor(c.d), logs: sent.receipt.logs, eventName: "Opened" })[0];
   if (!opened) throw new Error(`open ${sent.hash} emitted no Opened event`);
   const loanId = opened.args.loanId;
-  const record = await rd<{ escrow: Address }>(c, line, veBTCCreditLineAbi, "loan", [loanId]);
+  const record = await rd<{ escrow: Address }>(c, line, veBTCCreditLineAbiFor(c.d), "loan", [loanId]);
   say(`      loan #${loanId}, escrow ${record.escrow}`);
   return { tokenId, loanId, escrow: record.escrow };
 }
@@ -288,7 +288,7 @@ async function vote(c: Ctx, pos: Position, g: GaugeInfo): Promise<void> {
   }
   await send(c, `escrow vote loan #${loanId} (veBTC #${tokenId}) 100% on ${g.name}`, {
     address: c.d.contracts.veBTCLine,
-    abi: veBTCCreditLineAbi,
+    abi: veBTCCreditLineAbiFor(c.d),
     functionName: "escrowVote",
     args: [loanId, [g.pool], [BPS]],
   });

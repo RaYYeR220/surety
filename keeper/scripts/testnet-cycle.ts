@@ -35,7 +35,7 @@ import {
   suretyPoolAbi,
   vaultV2Abi,
   veBTCAbi,
-  veBTCCreditLineAbi,
+  veBTCCreditLineAbiFor,
   voteAllocatorAbi,
   type TxRequest,
 } from "@surety/sdk";
@@ -150,9 +150,9 @@ const LOAN_STATES = ["None", "Active", "Auction", "Closed", "Liquidated"] as con
 
 /** Latest loan the deployer opened on `tokenId`, or null. */
 async function findLoan(c: Ctx, tokenId: bigint): Promise<{ loanId: bigint; loan: LoanRecord } | null> {
-  const count = await rd<bigint>(c, c.d.contracts.veBTCLine, veBTCCreditLineAbi, "loanCount");
+  const count = await rd<bigint>(c, c.d.contracts.veBTCLine, veBTCCreditLineAbiFor(c.d), "loanCount");
   for (let id = count; id >= 1n; id--) {
-    const loan = await rd<LoanRecord>(c, c.d.contracts.veBTCLine, veBTCCreditLineAbi, "loan", [id]);
+    const loan = await rd<LoanRecord>(c, c.d.contracts.veBTCLine, veBTCCreditLineAbiFor(c.d), "loan", [id]);
     if (loan.tokenId === tokenId && loan.borrower.toLowerCase() === c.me.toLowerCase()) return { loanId: id, loan };
   }
   return null;
@@ -356,7 +356,7 @@ async function setup(c: Ctx): Promise<void> {
     const approved = await rd<Address>(c, d.external.veBTC, veBTCAbi, "getApproved", [LOAN_NFT]);
     if (approved.toLowerCase() === d.contracts.veBTCLine.toLowerCase()) say(`  · veBTC #${LOAN_NFT} already approved`);
     else await sendBuilt(c, `approve veBTC #${LOAN_NFT} to credit line`, approveNft!, veBTCAbi);
-    await sendBuilt(c, `veBTC loan opened #${LOAN_NFT} (${fmt(LOAN_AMOUNT, 0)} MUSD)`, open!, veBTCCreditLineAbi);
+    await sendBuilt(c, `veBTC loan opened #${LOAN_NFT} (${fmt(LOAN_AMOUNT, 0)} MUSD)`, open!, veBTCCreditLineAbiFor(c.d));
   }
 
   // 6. BTC borrower on the Morpho market.
@@ -473,32 +473,32 @@ async function stress(c: Ctx): Promise<void> {
   const { loanId } = found;
   let loan = found.loan;
   if (loan.state === 1) {
-    const [ltv, value] = await rd<readonly [bigint, bigint]>(c, line, veBTCCreditLineAbi, "healthOf", [loanId]);
+    const [ltv, value] = await rd<readonly [bigint, bigint]>(c, line, veBTCCreditLineAbiFor(c.d), "healthOf", [loanId]);
     say(`  veBTC loan #${loanId}: collateral ${musd(value)}, LTV ${pct(ltv)}`);
     if (ltv < 7_000n) throw new Error(`loan #${loanId} LTV ${pct(ltv)} is below the 70% liquidation LTV`);
     await sendBuilt(
       c,
       `veBTC auction started (loan #${loanId}, LTV ${pct(ltv)})`,
       c.surety.buildStartAuction({ loanId }),
-      veBTCCreditLineAbi,
+      veBTCCreditLineAbiFor(c.d),
     );
-    loan = await rd<LoanRecord>(c, line, veBTCCreditLineAbi, "loan", [loanId]);
+    loan = await rd<LoanRecord>(c, line, veBTCCreditLineAbiFor(c.d), "loan", [loanId]);
   }
   if (loan.state === 2) {
-    const p = await rd<{ auctionDuration: number; floorBps: number }>(c, line, veBTCCreditLineAbi, "params");
+    const p = await rd<{ auctionDuration: number; floorBps: number }>(c, line, veBTCCreditLineAbiFor(c.d), "params");
     const floorAt = loan.auctionStart + BigInt(p.auctionDuration);
     say(`  auction started ${utc(loan.auctionStart)}, reaches its ${p.floorBps / 100}% floor at ${utc(floorAt)}`);
     await waitUntil(c, floorAt + 2n, "auction decays to its floor");
     const [price, debt] = await Promise.all([
-      rd<bigint>(c, line, veBTCCreditLineAbi, "auctionPrice", [loanId]),
-      rd<bigint>(c, line, veBTCCreditLineAbi, "debtOf", [loanId]),
+      rd<bigint>(c, line, veBTCCreditLineAbiFor(c.d), "auctionPrice", [loanId]),
+      rd<bigint>(c, line, veBTCCreditLineAbiFor(c.d), "debtOf", [loanId]),
     ]);
     const maxPrice = (price * 1_005n) / 1_000n; // the live oracle may tick up between simulation and inclusion
     say(`  floor price ${musd(price)} vs debt ${musd(debt)}`);
     await ensureAllowance(c, d.external.musd, line, maxPrice, "approve MUSD to credit line (bid)");
-    const sent = await sendBuilt(c, "veBTC auction bid at floor", c.surety.buildBid({ loanId, maxPrice }), veBTCCreditLineAbi);
+    const sent = await sendBuilt(c, "veBTC auction bid at floor", c.surety.buildBid({ loanId, maxPrice }), veBTCCreditLineAbiFor(c.d));
     if (sent) {
-      for (const ev of parseEventLogs({ abi: veBTCCreditLineAbi, logs: sent.receipt.logs, eventName: "Bid" })) {
+      for (const ev of parseEventLogs({ abi: veBTCCreditLineAbiFor(c.d), logs: sent.receipt.logs, eventName: "Bid" })) {
         say(
           `      paid ${musd(ev.args.price)} for debt ${musd(ev.args.debt)}: shortfall ${musd(ev.args.shortfall)}, ` +
             `surplus ${musd(ev.args.surplus)}`,
@@ -509,7 +509,7 @@ async function stress(c: Ctx): Promise<void> {
     say(`  · veBTC loan #${loanId}: already liquidated`);
   }
 
-  const bad = await rd<bigint>(c, line, veBTCCreditLineAbi, "badDebtTotal");
+  const bad = await rd<bigint>(c, line, veBTCCreditLineAbiFor(c.d), "badDebtTotal");
   say(`  veBTC line bad debt total ${musd(bad)}`);
   printVault("after loss", await vaultState(c));
   await printBalances(c);
@@ -703,7 +703,7 @@ async function epochPhase(c: Ctx, waitForFlip: boolean): Promise<void> {
       continue;
     }
     const owner = await rd<Address>(c, d.external.veBTC, veBTCAbi, "ownerOf", [b.tokenId]);
-    if (await rd<boolean>(c, d.contracts.veBTCLine, veBTCCreditLineAbi, "isEscrow", [owner])) {
+    if (await rd<boolean>(c, d.contracts.veBTCLine, veBTCCreditLineAbiFor(c.d), "isEscrow", [owner])) {
       say(`  · poke #${b.tokenId}: in a loan escrow, cannot vote`);
       continue;
     }

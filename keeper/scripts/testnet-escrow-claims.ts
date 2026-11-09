@@ -19,7 +19,7 @@
  */
 import { parseArgs } from "node:util";
 
-import { erc20Abi, veBTCCreditLineAbi } from "@surety/sdk";
+import { erc20Abi, veBTCCreditLineAbiFor } from "@surety/sdk";
 import { getAddress, isAddress, parseAbi, parseEventLogs, type Address, type Log } from "viem";
 
 import {
@@ -70,7 +70,7 @@ interface Loan {
 async function findLoan(c: Ctx, explicit: bigint | null): Promise<Loan> {
   const line = c.d.contracts.veBTCLine;
   if (explicit !== null) {
-    const loan = await rd<LoanRecord>(c, line, veBTCCreditLineAbi, "loan", [explicit]);
+    const loan = await rd<LoanRecord>(c, line, veBTCCreditLineAbiFor(c.d), "loan", [explicit]);
     if (loan.state === 0) throw new Error(`loan #${explicit} does not exist`);
     return { loanId: explicit, loan };
   }
@@ -79,9 +79,9 @@ async function findLoan(c: Ctx, explicit: bigint | null): Promise<Loan> {
     const found = await latestLoanOn(c, lockId);
     if (found) return found;
   }
-  const count = await rd<bigint>(c, line, veBTCCreditLineAbi, "loanCount");
+  const count = await rd<bigint>(c, line, veBTCCreditLineAbiFor(c.d), "loanCount");
   for (let id = count; id >= 1n; id--) {
-    const loan = await rd<LoanRecord>(c, line, veBTCCreditLineAbi, "loan", [id]);
+    const loan = await rd<LoanRecord>(c, line, veBTCCreditLineAbiFor(c.d), "loan", [id]);
     const open = loan.state === LOAN_ACTIVE || loan.state === LOAN_AUCTION;
     if (open && loan.borrower.toLowerCase() === c.me.toLowerCase()) return { loanId: id, loan };
   }
@@ -150,7 +150,7 @@ async function claimFeesAndBribes(c: Ctx, l: Loan, gauges: GaugeInfo[], received
   if (!any) say("  · escrowClaim: nothing earned yet; simulating the call path only");
   const sent = await send(c, label, {
     address: c.d.contracts.veBTCLine,
-    abi: veBTCCreditLineAbi,
+    abi: veBTCCreditLineAbiFor(c.d),
     functionName: "escrowClaim",
     args: [loanId, claims.map((cl) => cl.reward), claims.map((cl) => cl.tokens)],
   });
@@ -193,7 +193,7 @@ async function claimRebase(c: Ctx, l: Loan, received: Map<string, bigint>): Prom
   if (claimable === 0n) say("  · escrowClaimRebase: no rebase yet; simulating the call path only");
   const sent = await send(c, label, {
     address: d.contracts.veBTCLine,
-    abi: veBTCCreditLineAbi,
+    abi: veBTCCreditLineAbiFor(c.d),
     functionName: "escrowClaimRebase",
     args: [loanId],
   });
