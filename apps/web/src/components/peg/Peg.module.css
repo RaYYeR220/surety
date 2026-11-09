@@ -1,0 +1,239 @@
+/* ---------- Badge (borrow, lend, peg page) ---------- */
+.badgeLink {
+  display: inline-flex;
+  text-decoration: none;
+  border-radius: var(--radius-pill);
+}
+
+.badgeLink:hover > span {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+/* ---------- Status ---------- */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+@media (max-width: 760px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.issues {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+.onchain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+/* ---------- Readings on one axis around $1 ---------- */
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-5);
+}
+
+.track {
+  position: relative;
+  height: 44px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunk);
+  border: var(--border-width) solid var(--color-line);
+}
+
+.zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--color-positive-soft);
+  border-left: var(--border-width) dashed var(--color-positive);
+  border-right: var(--border-width) dashed var(--color-positive);
+}
+
+.par {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 0;
+  border-left: var(--border-width-strong) solid var(--color-ink-3);
+}
+
+.tick {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--color-ink);
+}
+
+.tickLabel {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  color: var(--color-ink-2);
+}
+
+.tick[data-row="1"] .tickLabel {
+  bottom: calc(100% + 22px);
+}
+
+.median {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  transform: rotate(45deg);
+  background: var(--color-accent);
+  border: var(--border-width-strong) solid var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.scale {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--color-ink-3);
+}
+
+.scalePar {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--color-ink-2);
+}
+
+.legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legendZone {
+  display: inline-block;
+  width: 18px;
+  height: 10px;
+  background: var(--color-positive-soft);
+  border: var(--border-width) dashed var(--color-positive);
+}
+
+.legendTick {
+  display: inline-block;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--color-ink);
+}
+
+.legendMedian {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  transform: rotate(45deg);
+  background: var(--color-accent);
+}
+
+/* ---------- Sources ---------- */
+.source {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sourceName {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+}
+
+.pad {
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+.listHead {
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  margin-bottom: var(--space-2);
+}
+
+/* ---------- Price formula ---------- */
+.formula {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunk);
+  border: var(--border-width) solid var(--color-line);
+}
+
+.formula > span:not(.op) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.formula strong {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-strong);
+}
+
+.op {
+  font-size: var(--text-xl);
+  color: var(--color-ink-3);
+  line-height: 1.4;
+}
+
+/* ---------- Depeg switch (testnet) ---------- */
+.testnetBadge {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-warning);
+  color: var(--color-surface);
+  font-family: var(--font-label);
+  font-weight: var(--weight-label);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-caps);
+}
+
+.sim {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .sim {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
