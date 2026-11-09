@@ -9,11 +9,10 @@
 import { deployedChainIds, getDeployment, type Board, type SuretyDeployment } from "@surety/sdk";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-import { CHAIN_NAMES, liveClient, useSelectedChain } from "@/lib/chain";
+import { CHAIN_NAMES, useSelectedChain } from "@/lib/chain";
 import { lineColor } from "@/lib/lines";
 import { useVisiblePoll } from "@/lib/poll";
-import { timeBox } from "@/lib/rpc";
-import { readChainSnapshot, type ChainSnapshot, type ChainSnapshots } from "@/lib/snapshot";
+import type { ChainSnapshot, ChainSnapshots } from "@/lib/snapshot";
 
 /** Where the split comes from: this epoch's live votes, the last closed epoch's, or the illustration. */
 export type SplitSource = "current" | "closed" | "illustrative";
@@ -162,6 +161,12 @@ export function LandingDataProvider({ snapshots, children }: { snapshots: ChainS
     async () => {
       if (!deployment) return;
       try {
+        // The SDK client loads with the first live read, after the page is up.
+        const [{ liveClient }, { readChainSnapshot }, { timeBox }] = await Promise.all([
+          import("@/lib/live"),
+          import("@/lib/snapshot"),
+          import("@/lib/rpc"),
+        ]);
         const snap = await timeBox(readChainSnapshot(liveClient(chainId, deployment), { peg: false }), LIVE_READ_MS);
         setLive(snap);
         setFailedOn(null);

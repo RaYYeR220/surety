@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 
 import { formatMusd, formatPct } from "@/lib/format";
-import { formatAsOf } from "@/lib/snapshot";
+import { formatAsOf } from "@/lib/asOf";
 
 import styles from "./BoardPreview.module.css";
 import s from "./Landing.module.css";
