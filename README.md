@@ -8,9 +8,9 @@ Borrow MUSD against your veBTC without unlocking it, and let the NFT's own fees 
 
 In most money markets a curator picks where deposits go and loses nothing when a listing fails. Mezo described the alternative in [Aerodrome for lending](https://mezo.org/blog/aerodrome-for-lending): let vote-escrow holders steer lending the way gauges steer liquidity, so that votes become a price for risk. Surety builds that for MUSD credit. Lenders deposit MUSD into a Morpho VaultV2. Every epoch, veBTC holders split their voting power across credit lines, and the vault's capital follows the votes. Voters earn the vault's performance fee and sponsor incentives, but those rewards season for four epochs and are slashed first if a line they voted for records a loss; the pool's reserve comes second and lenders last. One of the lines lends MUSD against a locked veBTC NFT without unlocking it: the NFT sits in its own escrow and keeps voting and earning for the borrower, and those earnings can repay the loan.
 
-Status: v2 is live on Mezo testnet (chain 31611, deployed 2026-11-09, lifecycle recorded) on Mezo's own testnet Morpho Blue. v1 stays deployed on testnet and on Mezo mainnet (chain 31612) as a capped launch. The code has had an internal review and two independent reviews (v1 and the v2 changes), not an external audit.
+Status: v2 is deployed on Mezo mainnet (chain 31612, 2026-11-09) on Mezo's own Morpho Blue, with 2,000 MUSD caps on each line and every contract verified on Sourcify ([addresses](#deployments)). It is also live on Mezo testnet (chain 31611, lifecycle recorded) on Mezo's testnet Morpho Blue. v1 stays deployed on both networks. The code has had an internal review and two independent reviews (v1 and the v2 changes), not an external audit.
 
-Pending — v2 on Mezo mainnet, with real MUSD through the vault, before 2026-11-15; its addresses will be added under [Deployments](#deployments).
+Pending — real MUSD through the v2 mainnet vault, before 2026-11-15: a deposit, the rebalance into Mezo's Morpho market and the veBTC line, and a veBTC loan whose escrow votes on Mezo.
 
 ## What's new in v2
 
@@ -23,7 +23,7 @@ Each point of the Wave 1 review, with the commits, the transactions and what is 
 - **Idle cash in sMUSD.** The vault's idle MUSD, its 10% buffer included, sits in Mezo's sMUSD through a VaultV2 liquidity adapter.
 - **A market for vault shares.** Lenders can sell srMUSD at a discount when the vault's cash is lent out.
 - **Try it on testnet.** A starter kit (gas, a veBTC lock, test MUSD) for any new wallet, a key kept in the browser, Mezo Passport's Bitcoin wallets, and a ledger of every wallet that has used Surety, team wallets labelled. Pending — outside users; none yet.
-- **Mezo's own Morpho on testnet.** v2 uses Mezo's testnet Morpho Blue instead of a self-deployed one.
+- **Mezo's own Morpho Blue on both networks.** On mainnet v2 lends through a new BTC/MUSD market (LLTV 86%) on Mezo's Morpho Blue; on testnet it uses Mezo's testnet Morpho Blue instead of a self-deployed one.
 - **A faster app.** First paint from a build snapshot, every RPC call time-boxed with fallbacks, checked in headless Chrome with the RPCs blocked.
 - **Reviewed again.** An independent review of the v2 changes found 1 high, 2 medium and 2 low issues; all are fixed, each with regression tests.
 
@@ -31,7 +31,7 @@ Each point of the Wave 1 review, with the commits, the transactions and what is 
 
 1. **Use the app.** Open [surety-credit.vercel.app](https://surety-credit.vercel.app) and choose **Open the credit board** (`/app`). `/app/review` lists ten checks, each with where to see it. `/app/try` takes a new visitor from a testnet starter kit to a veBTC loan with no wallet installed. `/app/peg` shows the MUSD peg's sources and, on testnet, lets anyone push MUSD off its peg for a few minutes. The **Stress test** panel on the board (testnet only) applies a temporary BTC haircut of up to 90% for up to 2 hours. `/app?demo=1` shows every page on example data without a wallet, and `/app/proof` lists the contracts and the recorded transactions of both versions.
 
-2. **Check the contracts.** All 18 Surety contracts in [`contracts/deployments/31611.json`](contracts/deployments/31611.json) (v2), the 14 in [`contracts/deployments/v1/31611.json`](contracts/deployments/v1/31611.json) and the 11 in [`contracts/deployments/v1/31612.json`](contracts/deployments/v1/31612.json) are an exact match on Sourcify. Links for each are in [docs/PROOF.md](docs/PROOF.md#verified-contracts) and under [Deployments](#deployments).
+2. **Check the contracts.** All 19 Surety contracts in [`contracts/deployments/31612.json`](contracts/deployments/31612.json) (v2 mainnet), the 18 in [`contracts/deployments/31611.json`](contracts/deployments/31611.json) (v2 testnet), the 14 in [`contracts/deployments/v1/31611.json`](contracts/deployments/v1/31611.json) and the 11 in [`contracts/deployments/v1/31612.json`](contracts/deployments/v1/31612.json) are an exact match on Sourcify. Links for each are in [docs/PROOF.md](docs/PROOF.md#verified-contracts) and under [Deployments](#deployments).
 3. **Follow v2 on chain.** `keeper/scripts/testnet-cycle-v2.ts` ran v2 end to end on testnet, each role from its own account. The key steps; every transaction is in [docs/PROOF.md](docs/PROOF.md#live-lifecycle-on-testnet-v2):
 
    <!-- proof:key-steps-v2:start -->
@@ -250,6 +250,37 @@ One run deploys and wires everything on Mezo's own Morpho Blue: the MUSD peg and
 
 Contracts are verified on Sourcify with an exact match. Mezo's Blockscout verifier currently lists no Solidity compiler versions (`GET https://api.explorer.test.mezo.org/api/v2/smart-contracts/verification/config` returns an empty `solidity_compiler_versions`, and so does the mainnet explorer's), so contracts cannot be verified there for now.
 
+**Mezo mainnet (31612), v2**: [`contracts/deployments/31612.json`](contracts/deployments/31612.json), deployed on 2026-11-09 in blocks 13,118,781 to 13,118,934 (124 transactions, all successful), on Mezo's own Morpho Blue. It runs the plain Skip price source (no stress knob) and the four-pool MUSD peg, weekly epochs on Mezo's Thursday flip, caps of 2,000 MUSD on the Morpho line and on the veBTC line, and 1-day timelocks on every vault curator function, on the Morpho adapter and on listing new lines. Idle MUSD parks in Mezo's sMUSD. Every Surety contract is an exact match on Sourcify, creation and runtime bytecode; the LoanEscrow implementation, created by the line's constructor, on runtime bytecode. Explorer: [explorer.mezo.org](https://explorer.mezo.org).
+
+<!-- proof:contracts-31612:start -->
+| Contract | Address | Verified |
+| --- | --- | --- |
+| Surety vault (VaultV2, srMUSD) | [`0xFB1226A2C58168044d457b226528236a1F847bE1`](https://explorer.mezo.org/address/0xFB1226A2C58168044d457b226528236a1F847bE1) | [Sourcify](https://repo.sourcify.dev/31612/0xFB1226A2C58168044d457b226528236a1F847bE1) |
+| MorphoMarketV1AdapterV2 | [`0x6ab4E79d33a6B13d71fFcc6E9b5a5DD5dDd38295`](https://explorer.mezo.org/address/0x6ab4E79d33a6B13d71fFcc6E9b5a5DD5dDd38295) | [Sourcify](https://repo.sourcify.dev/31612/0x6ab4E79d33a6B13d71fFcc6E9b5a5DD5dDd38295) |
+| SavingsAdapter | [`0x9FA1f41E6153eD4FD7BAeA409069d5fcf372A514`](https://explorer.mezo.org/address/0x9FA1f41E6153eD4FD7BAeA409069d5fcf372A514) | [Sourcify](https://repo.sourcify.dev/31612/0x9FA1f41E6153eD4FD7BAeA409069d5fcf372A514) |
+| CreditVoter | [`0x1EABc0B7f938F6E119Cb25d7d4F70Bf26db10061`](https://explorer.mezo.org/address/0x1EABc0B7f938F6E119Cb25d7d4F70Bf26db10061) | [Sourcify](https://repo.sourcify.dev/31612/0x1EABc0B7f938F6E119Cb25d7d4F70Bf26db10061) |
+| VoteAllocator | [`0x33079321E90987cbD8B13Bc22802361292d8373C`](https://explorer.mezo.org/address/0x33079321E90987cbD8B13Bc22802361292d8373C) | [Sourcify](https://repo.sourcify.dev/31612/0x33079321E90987cbD8B13Bc22802361292d8373C) |
+| SuretyPool | [`0xFe5d5E400A086fCc606ED99073d72b6b0557bcAc`](https://explorer.mezo.org/address/0xFe5d5E400A086fCc606ED99073d72b6b0557bcAc) | [Sourcify](https://repo.sourcify.dev/31612/0xFe5d5E400A086fCc606ED99073d72b6b0557bcAc) |
+| DepositGate | [`0x99b72dE077dc365537a762dde516c45470512228`](https://explorer.mezo.org/address/0x99b72dE077dc365537a762dde516c45470512228) | [Sourcify](https://repo.sourcify.dev/31612/0x99b72dE077dc365537a762dde516c45470512228) |
+| VeBTCCreditLine | [`0x690C2F3Db0FAC14281c2a000CA3214C36516d87D`](https://explorer.mezo.org/address/0x690C2F3Db0FAC14281c2a000CA3214C36516d87D) | [Sourcify](https://repo.sourcify.dev/31612/0x690C2F3Db0FAC14281c2a000CA3214C36516d87D) |
+| LoanEscrow implementation | [`0x92Cb86376Fc1ba5b1Da2dE1FE1a1ffD926D27D22`](https://explorer.mezo.org/address/0x92Cb86376Fc1ba5b1Da2dE1FE1a1ffD926D27D22) | [Sourcify](https://repo.sourcify.dev/31612/0x92Cb86376Fc1ba5b1Da2dE1FE1a1ffD926D27D22) |
+| LinearKinkIrm (veBTC line) | [`0xc7724370fd27Ae961B3747e601ce9DAac26e7269`](https://explorer.mezo.org/address/0xc7724370fd27Ae961B3747e601ce9DAac26e7269) | [Sourcify](https://repo.sourcify.dev/31612/0xc7724370fd27Ae961B3747e601ce9DAac26e7269) |
+| ShareMarket | [`0x5722197a666Ccf158945939fCbE2Aebc892e017a`](https://explorer.mezo.org/address/0x5722197a666Ccf158945939fCbE2Aebc892e017a) | [Sourcify](https://repo.sourcify.dev/31612/0x5722197a666Ccf158945939fCbE2Aebc892e017a) |
+| MusdPeg | [`0x07777966126dBf0f3919E217D0A2247156879a5F`](https://explorer.mezo.org/address/0x07777966126dBf0f3919E217D0A2247156879a5F) | [Sourcify](https://repo.sourcify.dev/31612/0x07777966126dBf0f3919E217D0A2247156879a5F) |
+| ClTwapPegSource (CL mUSDC/MUSD) | [`0xd29D9199BF441A6da411b6dB4929020240e6bDc0`](https://explorer.mezo.org/address/0xd29D9199BF441A6da411b6dB4929020240e6bDc0) | [Sourcify](https://repo.sourcify.dev/31612/0xd29D9199BF441A6da411b6dB4929020240e6bDc0) |
+| StableTwapPegSource (basic mUSDC/MUSD) | [`0xebdBbA24cc595210456e543F7789140d2C93Bc25`](https://explorer.mezo.org/address/0xebdBbA24cc595210456e543F7789140d2C93Bc25) | [Sourcify](https://repo.sourcify.dev/31612/0xebdBbA24cc595210456e543F7789140d2C93Bc25) |
+| StableTwapPegSource (basic MUSD/mUSDT) | [`0x9F34Ea63dbC890458B5FF966C013b868bd87f4b0`](https://explorer.mezo.org/address/0x9F34Ea63dbC890458B5FF966C013b868bd87f4b0) | [Sourcify](https://repo.sourcify.dev/31612/0x9F34Ea63dbC890458B5FF966C013b868bd87f4b0) |
+| BtcCrossPegSource (CL BTC/MUSD) | [`0xC52AFe4cc75D8da3363fb766551a1C5775b0c9D8`](https://explorer.mezo.org/address/0xC52AFe4cc75D8da3363fb766551a1C5775b0c9D8) | [Sourcify](https://repo.sourcify.dev/31612/0xC52AFe4cc75D8da3363fb766551a1C5775b0c9D8) |
+| BtcMusdPriceSource (lines' price) | [`0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279`](https://explorer.mezo.org/address/0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279) | [Sourcify](https://repo.sourcify.dev/31612/0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279) |
+| SkipPriceSource (BTC/USD) | [`0x9a5e9c5BfDa2154785056E75f2732306fA205F5d`](https://explorer.mezo.org/address/0x9a5e9c5BfDa2154785056E75f2732306fA205F5d) | [Sourcify](https://repo.sourcify.dev/31612/0x9a5e9c5BfDa2154785056E75f2732306fA205F5d) |
+| MorphoPriceOracle | [`0xE3C71349FB0C6b222D82B36161fa2F12294fbb51`](https://explorer.mezo.org/address/0xE3C71349FB0C6b222D82B36161fa2F12294fbb51) | [Sourcify](https://repo.sourcify.dev/31612/0xE3C71349FB0C6b222D82B36161fa2F12294fbb51) |
+| Morpho Blue (Mezo's) | [`0x565834cE7E40b8987BC20EbF83E2159467bDA311`](https://explorer.mezo.org/address/0x565834cE7E40b8987BC20EbF83E2159467bDA311) | on Mezo's explorer |
+| AdaptiveCurveIrm (Mezo's) | [`0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7`](https://explorer.mezo.org/address/0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7) | on Mezo's explorer |
+
+<!-- proof:contracts-31612:end -->
+
+Lines: 0 is BTC / MUSD on Mezo's Morpho Blue (market `0x4bff245d…3030b8`, LLTV 86%), 1 is the veBTC credit line. The treasury is `0x37D5…C282`, the deployer, until a multisig takes over. Mezo contracts used: MUSD `0xdD46…F186`, BTC `0x7b7C…0000`, veBTC `0x3D4b…f279`, PoolsVoter `0x4823…1f03`, RewardsDistributor `0xb584…74A2`, Skip BTC/USD `0x7b7c…0015`, sMUSD `0xb4D4…51CC`, and for the peg the pools CL mUSDC/MUSD `0xCC37…aC1a`, basic mUSDC/MUSD `0xEd81…c356`, basic MUSD/mUSDT `0x1090…031A` and CL BTC/MUSD `0x9CBc…5022`; full addresses in the deployment file. The configuration read on chain and the peg's first reading are in [docs/PROOF.md](docs/PROOF.md#mezo-mainnet-31612-v2). The vault holds no MUSD yet.
+
 **Mezo testnet (31611), v2**: [`contracts/deployments/31611.json`](contracts/deployments/31611.json), deployed on 2026-11-09 at block 16,667,109 with `STRESS=true`, 1-hour epochs and no timelocks, on Mezo's own testnet Morpho Blue. Explorer: [explorer.test.mezo.org](https://explorer.test.mezo.org).
 
 | Contract | Address | Verified |
@@ -276,8 +307,6 @@ Contracts are verified on Sourcify with an exact match. Mezo's Blockscout verifi
 | AdaptiveCurveIrm (Mezo's) | [`0x0c97Fe017628636649ff374aD499529F91167441`](https://explorer.test.mezo.org/address/0x0c97Fe017628636649ff374aD499529F91167441) | on Mezo's explorer |
 
 Lines: 0 is BTC / MUSD on Mezo's testnet Morpho Blue (market `0xf0bb6162…e3ff`, LLTV 77%), 1 is the veBTC credit line. The treasury and starter-kit relayer are `0x37D5…C282` (the deployer) and `0x030E…7DdC`. Mezo contracts used: MUSD `0x1189…c503`, BTC `0x7b7C…0000`, veBTC `0x38E3…130a`, PoolsVoter `0x263F…5F0D`, RewardsDistributor `0x9050…7442`, Skip BTC/USD `0x7b7c…0015`, sMUSD `0x6f46…8e16`; full addresses in the deployment file.
-
-**Mezo mainnet (31612), v2**: Pending — the v2 mainnet deployment on Mezo's Morpho Blue `0x5658…A311`, before 2026-11-15; its dry run is [`contracts/deployments/dry-run/31612.json`](contracts/deployments/dry-run/31612.json), and its addresses will be listed here.
 
 **Mezo testnet (31611), v1**: [`contracts/deployments/v1/31611.json`](contracts/deployments/v1/31611.json), deployed at block 16,327,001 with `STRESS=true`, 1-hour epochs and no timelocks. Kept for the recorded loss run; superseded by v2 for new activity.
 
@@ -353,7 +382,7 @@ The contracts went through an internal review and two independent reviews, each 
 
 ## Roadmap
 
-- v2 on Mezo mainnet, with real MUSD through the vault.
+- Real MUSD through the v2 mainnet vault.
 - A real Mezo vault gauge for srMUSD through governance, using Mezo's ERC4626VaultAdapter, so lenders earn MEZO emissions.
 - MEZO-denominated incentives next to MUSD ones.
 - Every owner role, and the treasury, behind a multisig and a timelock.
