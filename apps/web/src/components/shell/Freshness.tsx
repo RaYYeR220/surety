@@ -5,6 +5,7 @@
 // (with its time) or a live read. Live reads replace the snapshot through the normal queries.
 import { getDeployment, MEZO_MAINNET_ID, type Board } from "@surety/sdk";
 import { hashKey, useQueryClient, type QueryClient, type QueryState } from "@tanstack/react-query";
+import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 
 import { Container } from "@/components/layout/Layout";
@@ -60,6 +61,7 @@ export function FreshnessStrip() {
   const env = useSurety();
   const snap = useChainSnapshot(env.chainId);
   const state = useBoardState(env.chainId);
+  const onTry = usePathname()?.startsWith("/app/try") ?? false;
   if (env.demo) return null;
 
   const at = state?.dataUpdatedAt || null;
@@ -71,7 +73,7 @@ export function FreshnessStrip() {
   let note: string;
   if (live) note = "Live";
   else if (failed) note = `${env.chainName} did not answer; retrying`;
-  else if (fetching || board) note = "Reading the chain…";
+  else if (fetching) note = "Reading the chain…";
   else note = "";
 
   return (
@@ -89,7 +91,7 @@ export function FreshnessStrip() {
             </span>
             {!live && note ? <span className={styles.freshNote}>{note}</span> : null}
           </span>
-          {env.chainId === MEZO_MAINNET_ID ? (
+          {onTry ? null : env.chainId === MEZO_MAINNET_ID ? (
             <AppLink href="/app/try" className={styles.freshLink}>
               Try it on testnet, no wallet needed
             </AppLink>
