@@ -18,7 +18,7 @@ import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 import {ICreditVoter} from "./interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "./interfaces/IEscrowRegistry.sol";
 import {ISuretyLine} from "./interfaces/ISuretyLine.sol";
-import {ISuretyPool} from "./interfaces/ISuretyPool.sol";
+import {ISuretyPool, SAVINGS_LINE_ID} from "./interfaces/ISuretyPool.sol";
 import {IVeBTC} from "./interfaces/IVeBTC.sol";
 import {EpochLib} from "./libraries/EpochLib.sol";
 import {LineIds} from "./libraries/LineIds.sol";
@@ -30,7 +30,9 @@ import {LineIds} from "./libraries/LineIds.sol";
 /// lenders bear whatever is left. Matured cohorts are never slashed and are claimed pro rata to each NFT's votes.
 /// @dev
 /// - Cohort `(L, t)` collects incentives posted during epoch `t` and the fee shares the allocator attributes to the
-///   votes of tally epoch `t`. Its shares stay in the vault and keep compounding.
+///   votes of tally epoch `t`. Its shares stay in the vault and keep compounding. The fee VaultV2 takes on the yield
+///   of the vault's idle MUSD parked in sMUSD is not a line's: the allocator reports that yield under
+///   SAVINGS_LINE_ID and its part goes to the reserve.
 /// - A cohort is slashable while unmatured and backed (`lineVotes(t, L) > 0`); at most SEASON + 2 epochs per line
 ///   are unmatured. Matured cohorts take no inflows (late fees go to the reserve), so the share count a cohort holds
 ///   at maturity is final; it is frozen into `finalShares` at the first claim.
@@ -278,8 +280,8 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// @dev Distributes the vault shares received since the last call (performance fees, plus anything sent to the
     /// pool directly). First, the fee shares VaultV2 minted on covers' re-recognised MUSD go back to whoever each
     /// cover slashed (see `_creditCoverFees`). Each line's part of the rest is pro rata to `interest`; it goes to the
-    /// reserve when the line had no votes in `cohortEpoch`, as do rounding dust, a zero total, and every part when
-    /// `cohortEpoch` is not an ended, unmatured epoch.
+    /// reserve when the line had no votes in `cohortEpoch` or is SAVINGS_LINE_ID (the savings yield), as do rounding
+    /// dust, a zero total, and every part when `cohortEpoch` is not an ended, unmatured epoch.
     function distributeFees(uint256 cohortEpoch, uint256[] calldata lineIds, uint256[] calldata interest)
         external
         nonReentrant
@@ -555,7 +557,8 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     }
 
     /// @dev Credits `shares` to the cohorts of `cohortEpoch` pro rata to each line's interest, skipping lines without
-    /// votes in it. Returns what it credited; the rest is left for the reserve.
+    /// votes in it and the savings yield (SAVINGS_LINE_ID), which count in the total but credit no cohort. Returns
+    /// what it credited; the rest is left for the reserve.
     function _splitByInterest(
         uint256 shares,
         uint256 cohortEpoch,
@@ -570,8 +573,9 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         if (totalInterest == 0) return 0;
         // Bounded by the allocator's line list.
         for (uint256 i; i < n; ++i) {
+            if (interest[i] == 0 || lineIds[i] == SAVINGS_LINE_ID) continue;
             // forge-lint: disable-next-line(calls-loop)
-            if (interest[i] == 0 || voter.lineVotes(cohortEpoch, lineIds[i]) == 0) continue;
+            if (voter.lineVotes(cohortEpoch, lineIds[i]) == 0) continue;
             uint256 part = Math.mulDiv(shares, interest[i], totalInterest);
             cohorts[lineIds[i]][cohortEpoch].shares += part;
             toCohorts += part;

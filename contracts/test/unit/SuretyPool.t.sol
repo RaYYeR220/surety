@@ -12,6 +12,7 @@ import {MAX_MAX_RATE} from "vault-v2/libraries/ConstantsLib.sol";
 import {CreditVoter} from "../../src/CreditVoter.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "../../src/interfaces/IEscrowRegistry.sol";
+import {SAVINGS_LINE_ID} from "../../src/interfaces/ISuretyPool.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {PoolFixture} from "../utils/PoolFixture.sol";
 
@@ -249,6 +250,36 @@ contract SuretyPoolTest is PoolFixture {
         pool.distributeFees(0, new uint256[](0), new uint256[](0));
         vm.expectRevert(SuretyPool.LengthMismatch.selector);
         _distribute(0, _arr(MORPHO_LINE), new uint256[](0));
+    }
+
+    /// @dev The yield of the vault's cash parked in sMUSD is reported under SAVINGS_LINE_ID: it counts in the split,
+    /// so the lines get only their interest's part of the fees, and its own part goes to the reserve.
+    function test_distributeFees_savingsYieldToReserve() public {
+        uint256 a = _lockPermanent(alice, 3e18);
+        _warpEpochs(1);
+        uint256 e1 = _currentEpoch();
+        _voteAll(alice, a, MORPHO_LINE);
+        _earnMorphoInterest(3 days);
+        _warpEpochs(1);
+        vault.accrueInterest();
+
+        uint256 fees = _pendingFeeShares();
+        uint256 toMorpho = fees * 250 / 1000;
+        vm.expectEmit(address(pool));
+        emit SuretyPool.FeesDistributed(e1, fees, fees - toMorpho);
+        _distribute(e1, _arr(MORPHO_LINE, VE_LINE, SAVINGS_LINE_ID), _arr(250, 0, 750));
+        assertEq(_cohortShares(MORPHO_LINE, e1), toMorpho);
+        assertEq(pool.reserveShares(), fees - toMorpho);
+
+        // Savings yield alone: every fee share to the reserve, though the epoch's cohorts are open.
+        _warp(1 days);
+        vault.accrueInterest();
+        uint256 more = _pendingFeeShares();
+        assertGt(more, 0);
+        _distribute(e1, _arr(MORPHO_LINE, SAVINGS_LINE_ID), _arr(0, 1));
+        assertEq(_cohortShares(MORPHO_LINE, e1), toMorpho);
+        assertEq(pool.reserveShares(), fees - toMorpho + more);
+        assertEq(pool.accountedShares(), vault.balanceOf(address(pool)));
     }
 
     /* Claims */
