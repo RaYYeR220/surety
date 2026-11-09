@@ -102,6 +102,8 @@ export interface DecideOptions {
   savingsHarvestMin?: bigint;
   /** When the keeper last synced each peg pool (lowercase address -> timestamp). */
   lastPoolSync?: ReadonlyMap<string, bigint>;
+  /** Least time between two syncs of one peg pool, seconds (default POOL_SYNC_INTERVAL); 0 turns syncs off. */
+  poolSyncInterval?: bigint;
 }
 
 export type Action =
@@ -239,12 +241,17 @@ export const POOL_SYNC_INTERVAL = 3_600n;
  * permissionless and stores a fresh observation. Each pool is synced when its latest observation is about 50 minutes
  * old, at most hourly, which keeps both stable sources reading and limits how long a quiet pool can hide a move.
  */
-export function syncPegPools(s: KeeperSnapshot, lastSync: ReadonlyMap<string, bigint> = new Map()): Action[] {
+export function syncPegPools(
+  s: KeeperSnapshot,
+  lastSync: ReadonlyMap<string, bigint> = new Map(),
+  interval: bigint = POOL_SYNC_INTERVAL,
+): Action[] {
+  if (interval === 0n) return [];
   return (s.pegPools ?? [])
     .filter((p) => {
       const age = s.now > p.observedAt ? s.now - p.observedAt : 0n;
       const last = lastSync.get(p.pool.toLowerCase());
-      return age >= POOL_SYNC_AFTER && (last === undefined || s.now - last >= POOL_SYNC_INTERVAL);
+      return age >= POOL_SYNC_AFTER && (last === undefined || s.now - last >= interval);
     })
     .map((p) => ({ kind: "syncPegPool", pool: p.pool, age: s.now > p.observedAt ? s.now - p.observedAt : 0n }));
 }
@@ -268,7 +275,7 @@ export function decide(s: KeeperSnapshot, options: DecideOptions = {}): Action[]
     ...lossActions(s, { rebalancing }),
     ...ballotsToPoke(s).map((tokenId): Action => ({ kind: "poke", tokenId })),
   ];
-  actions.push(...syncPegPools(s, options.lastPoolSync));
+  actions.push(...syncPegPools(s, options.lastPoolSync, options.poolSyncInterval ?? POOL_SYNC_INTERVAL));
   if (rebalancing) actions.push({ kind: "rebalance", epoch: s.currentEpoch });
   actions.push(...savingsHarvestDue(s, rebalancing, options.savingsHarvestMin ?? 1n));
   actions.push(...harvestsDue(s, options.lastHarvest));

@@ -28,6 +28,8 @@ export interface KeeperOptions {
   snapshotRetry?: RetryOptions;
   /** Least claimable sMUSD yield worth a savings `harvest()` (default 1 wei: anything). */
   savingsHarvestMin?: bigint;
+  /** Least seconds between two syncs of one peg pool (default 3600); 0 turns syncs off. */
+  poolSyncInterval?: bigint;
 }
 
 export interface TickResult {
@@ -115,6 +117,7 @@ export class Keeper {
       morphoLiquidations: this.o.morphoLiquidations ?? false,
       lastHarvest: this.lastHarvest,
       lastPoolSync: this.lastPoolSync,
+      ...(this.o.poolSyncInterval !== undefined ? { poolSyncInterval: this.o.poolSyncInterval } : {}),
       ...(this.o.savingsHarvestMin !== undefined ? { savingsHarvestMin: this.o.savingsHarvestMin } : {}),
     });
     log.info("tick", {

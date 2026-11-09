@@ -118,3 +118,16 @@ describe("keeper and the peg pools", () => {
     expect(snap.pegPools).toBeUndefined();
   });
 });
+
+describe("peg pool sync interval", () => {
+  it("can be lengthened or turned off", () => {
+    const s = snapshot({ pegPools: pools(4_000n, 4_000n) });
+    const synced = new Map([[USDC_POOL.toLowerCase(), NOW - 2n * 3_600n]]);
+    // Every 5 hours: the pool synced 2 hours ago waits, the other is due.
+    expect(syncPegPools(s, synced, 5n * 3_600n).map((a) => (a.kind === "syncPegPool" ? a.pool : null))).toEqual([
+      USDT_POOL,
+    ]);
+    expect(syncPegPools(s, synced, 0n)).toEqual([]);
+    expect(decide(s, { poolSyncInterval: 0n })).toEqual([]);
+  });
+});

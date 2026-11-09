@@ -30,6 +30,7 @@ Options:
   --rpc <url>              RPC URL; repeat or comma-separate for fallbacks (env KEEPER_RPC_URL)
   --deployment <path>      deployment JSON to use instead of the bundled one
   --morpho-liquidations    also liquidate unhealthy Morpho positions (off by default; needs MUSD)
+  --pool-sync-interval <s> least seconds between syncs of one peg pool (default 3600; 0 turns them off)
   --log-level <level>      debug | info | warn | error (default info)
   --help                   show this help
 
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
       rpc: { type: "string", multiple: true },
       deployment: { type: "string" },
       "morpho-liquidations": { type: "boolean", default: false },
+      "pool-sync-interval": { type: "string", default: "3600" },
       "log-level": { type: "string", default: "info" },
       help: { type: "boolean", default: false },
     },
@@ -110,6 +112,8 @@ async function main(): Promise<void> {
   const intervalSeconds = values.interval ? Number(values.interval) : chainId === MEZO_MAINNET_ID ? 600 : 60;
   if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) fail("--interval must be a positive number");
   const flipDelay = BigInt(Math.max(1, Math.floor(Number(values["flip-delay"]))));
+  const poolSyncSeconds = Number(values["pool-sync-interval"]);
+  if (!Number.isInteger(poolSyncSeconds) || poolSyncSeconds < 0) fail("--pool-sync-interval must be a whole number of seconds");
 
   const executor = new Executor({
     publicClient,
@@ -124,6 +128,7 @@ async function main(): Promise<void> {
     log,
   });
   const keeper = new Keeper({
+    poolSyncInterval: BigInt(poolSyncSeconds),
     client,
     source,
     executor,
