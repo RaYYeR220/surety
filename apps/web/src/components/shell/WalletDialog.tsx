@@ -39,30 +39,44 @@ export function WalletDialogProvider({ children }: { children: ReactNode }) {
 }
 
 type PassportState =
+  | { s: "idle" }
   | { s: "loading" }
   | { s: "ready"; chainId: number; wallets: PassportWallet[] }
   | { s: "failed" };
 
+/** Whether a Bitcoin wallet Passport supports (Unisat, OKX, Xverse) has injected itself into the page. */
+function hasBitcoinWallet(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as { unisat?: unknown; okxwallet?: { bitcoin?: unknown }; XverseProviders?: unknown };
+  return !!(w.unisat || w.okxwallet?.bitcoin || w.XverseProviders);
+}
+
 /**
- * Mezo Passport's Bitcoin wallets, loaded when the dialog opens: a separate chunk that never ships with the
- * first page.
+ * Mezo Passport's Bitcoin wallets: a separate chunk that never ships with the first page. It loads as the dialog
+ * opens when a Bitcoin wallet is installed, otherwise only when asked for (it weighs about 430 KB compressed).
  */
-function usePassport(chainId: number): PassportState {
-  const [state, setState] = useState<PassportState>({ s: "loading" });
+function usePassport(chainId: number): [PassportState, () => void] {
+  const [wanted, setWanted] = useState(hasBitcoinWallet);
+  const [loaded, setLoaded] = useState<{ chainId: number; wallets: PassportWallet[] } | "failed" | null>(null);
   useEffect(() => {
+    if (!wanted) return;
     let alive = true;
     import("@/lib/passport")
       .then(({ passportWallets }) => {
-        if (alive) setState({ s: "ready", chainId, wallets: passportWallets(chainId) });
+        if (alive) setLoaded({ chainId, wallets: passportWallets(chainId) });
       })
       .catch(() => {
-        if (alive) setState({ s: "failed" });
+        if (alive) setLoaded("failed");
       });
     return () => {
       alive = false;
     };
-  }, [chainId]);
-  return state.s === "ready" && state.chainId !== chainId ? { s: "loading" } : state;
+  }, [chainId, wanted]);
+  let state: PassportState = { s: "idle" };
+  if (loaded === "failed") state = { s: "failed" };
+  else if (loaded && loaded.chainId === chainId) state = { s: "ready", ...loaded };
+  else if (wanted) state = { s: "loading" };
+  return [state, () => setWanted(true)];
 }
 
 function WalletPanel({ onDone }: { onDone: () => void }) {
@@ -72,7 +86,7 @@ function WalletPanel({ onDone }: { onDone: () => void }) {
   const { connectAsync, isPending, variables } = useConnect();
   const { disconnect } = useDisconnect();
   const burnerKey = useBurnerKey();
-  const passport = usePassport(env.chainId);
+  const [passport, loadPassport] = usePassport(env.chainId);
   const [error, setError] = useState<string | null>(null);
 
   const onTestnet = env.chainId === MEZO_TESTNET_ID;
@@ -174,7 +188,11 @@ function WalletPanel({ onDone }: { onDone: () => void }) {
         <h3 id="wallet-btc" className={styles.walletGroupTitle}>
           Bitcoin wallets <span className={styles.walletGroupNote}>through Mezo Passport</span>
         </h3>
-        {passport.s === "loading" ? (
+        {passport.s === "idle" ? (
+          <Button variant="secondary" block onClick={loadPassport}>
+            Show Bitcoin wallets
+          </Button>
+        ) : passport.s === "loading" ? (
           <p className={styles.walletHint}>Loading Mezo Passport…</p>
         ) : passport.s === "failed" ? (
           <p className={styles.walletHint}>Mezo Passport could not load. Check your connection and reopen this dialog.</p>
