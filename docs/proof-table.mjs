@@ -1,10 +1,14 @@
 #!/usr/bin/env node
-// Renders the live-lifecycle proof from a deployment file's `proof.txs` as Markdown: the v1 run (written by
-// keeper/scripts/testnet-cycle.ts) and the v2 run (keeper/scripts/testnet-cycle-v2.ts).
+// Renders the proof blocks of the docs from the deployment files as Markdown: the live lifecycles from a testnet
+// file's `proof.txs`, the v1 run (written by keeper/scripts/testnet-cycle.ts) and the v2 run
+// (keeper/scripts/testnet-cycle-v2.ts), and the contracts of the v2 mainnet deployment with their Sourcify links.
 //
-//   node docs/proof-table.mjs                     print the v1 and v2 blocks for contracts/deployments/v1/31611.json
-//                                                 and contracts/deployments/31611.json
-//   node docs/proof-table.mjs <deployment.json>   print the blocks for one deployment file (v1 or v2 by its schema)
+//   node docs/proof-table.mjs                     print the v1 and v2 lifecycle blocks for
+//                                                 contracts/deployments/v1/31611.json and
+//                                                 contracts/deployments/31611.json, and the v2 mainnet contracts of
+//                                                 contracts/deployments/31612.json
+//   node docs/proof-table.mjs <deployment.json>   print the blocks for one deployment file (v1 or v2 by its schema;
+//                                                 a v2 mainnet file renders its contracts)
 //   node docs/proof-table.mjs --write             also replace the rendered blocks in README.md and docs/PROOF.md
 //
 // Every expected step that is not in a file yet is rendered as a PENDING row, so the tables show what is still
@@ -16,8 +20,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXPLORERS = { 31611: "https://explorer.test.mezo.org", 31612: "https://explorer.mezo.org" };
+const SOURCIFY = "https://repo.sourcify.dev";
+const MAINNET = 31612;
 const V1_FILE = join(ROOT, "contracts/deployments/v1/31611.json");
 const V2_FILE = join(ROOT, "contracts/deployments/31611.json");
+const MAINNET_FILE = join(ROOT, "contracts/deployments/31612.json");
 
 /* v1: steps of testnet-cycle.ts in order */
 
@@ -108,6 +115,46 @@ const MARKERS = {
   table: ["<!-- proof:lifecycle:start -->", "<!-- proof:lifecycle:end -->"],
   keysV2: ["<!-- proof:key-steps-v2:start -->", "<!-- proof:key-steps-v2:end -->"],
   tableV2: ["<!-- proof:lifecycle-v2:start -->", "<!-- proof:lifecycle-v2:end -->"],
+  contractsMainnet: ["<!-- proof:contracts-31612:start -->", "<!-- proof:contracts-31612:end -->"],
+};
+
+/* v2 mainnet: the contracts of the deployment file */
+
+// Surety's contracts in the order the docs list them: [key in `contracts`, label]. A key the file has but this list
+// does not is still rendered, under its own name, so a new contract never drops out of the table.
+const CONTRACTS = [
+  ["vault", "Surety vault (VaultV2, srMUSD)"],
+  ["morphoAdapter", "MorphoMarketV1AdapterV2"],
+  ["savingsAdapter", "SavingsAdapter"],
+  ["creditVoter", "CreditVoter"],
+  ["voteAllocator", "VoteAllocator"],
+  ["suretyPool", "SuretyPool"],
+  ["depositGate", "DepositGate"],
+  ["veBTCLine", "VeBTCCreditLine"],
+  ["loanEscrowImpl", "LoanEscrow implementation"],
+  ["irmLine", "LinearKinkIrm (veBTC line)"],
+  ["shareMarket", "ShareMarket"],
+  ["musdPeg", "MusdPeg"],
+  ["pegSources", null],
+  ["btcMusdSource", "BtcMusdPriceSource (lines' price)"],
+  ["btcUsdSource", "SkipPriceSource (BTC/USD)"],
+  ["morphoOracle", "MorphoPriceOracle"],
+];
+// Not Surety's contracts (Mezo's Morpho Blue and IRM) or not a contract (the treasury key).
+const EXTERNAL = { morpho: "Morpho Blue (Mezo's)", irm: "AdaptiveCurveIrm (Mezo's)" };
+const NOT_CONTRACTS = new Set(["treasury"]);
+const PEG_SOURCES = {
+  ClTwap: "ClTwapPegSource",
+  StableTwap: "StableTwapPegSource",
+  BtcCross: "BtcCrossPegSource",
+  Stressed: "StressedPegSource",
+};
+// Mezo's pools behind the mainnet peg sources.
+const POOLS = {
+  "0xcc372b7e15535ab225fe17c1075831d38ef7ac1a": "CL mUSDC/MUSD",
+  "0xed812aec0fecc8fd882ac3eccc43f3aa80a6c356": "basic mUSDC/MUSD",
+  "0x10906a9e9215939561597b4c8e4b98f93c02031a": "basic MUSD/mUSDT",
+  "0x9cbc1537d255768b431488305b1c7efc2ac95022": "CL BTC/MUSD",
 };
 
 function load(path) {
@@ -199,6 +246,60 @@ function renderKeys(src, rows) {
     .join("\n");
 }
 
+/** v2 mainnet: Surety's contracts as [label, address], once per address, in the order of CONTRACTS. */
+function listContracts({ d }) {
+  const seen = new Set();
+  const out = [];
+  const add = (label, address) => {
+    if (!address || seen.has(address.toLowerCase())) return;
+    seen.add(address.toLowerCase());
+    out.push([label, address]);
+  };
+  for (const [key, label] of CONTRACTS) {
+    if (key !== "pegSources") add(label, d.contracts[key]);
+    else {
+      for (const s of d.pegSources ?? []) {
+        const pool = s.pool && (POOLS[s.pool.toLowerCase()] ?? `pool ${short(s.pool)}`);
+        add(`${PEG_SOURCES[s.kind] ?? `${s.kind} peg source`}${pool ? ` (${pool})` : ""}`, s.address);
+      }
+    }
+  }
+  const listed = new Set(CONTRACTS.map(([key]) => key));
+  for (const [key, address] of Object.entries(d.contracts)) {
+    if (!listed.has(key) && !(key in EXTERNAL) && !NOT_CONTRACTS.has(key)) add(key, address);
+  }
+  return out;
+}
+
+/** The contracts table: PROOF.md's columns, or the README's (explorer link on the address, Mezo's Morpho rows). */
+function renderContracts(src, file, { readme = false } = {}) {
+  const { d, explorer } = src;
+  const contracts = listContracts(src);
+  const address = (a) => `${explorer}/address/${a}`;
+  const sourcify = (a) => `${SOURCIFY}/${d.chainId}/${a}`;
+  if (readme) {
+    const out = ["| Contract | Address | Verified |", "| --- | --- | --- |"];
+    for (const [label, a] of contracts) {
+      out.push(`| ${label} | [\`${a}\`](${address(a)}) | [Sourcify](${sourcify(a)}) |`);
+    }
+    for (const [key, label] of Object.entries(EXTERNAL)) {
+      const a = d.contracts[key];
+      if (a) out.push(`| ${label} | [\`${a}\`](${address(a)}) | on Mezo's explorer |`);
+    }
+    return out.join("\n");
+  }
+  const out = [
+    `Rendered by \`node docs/proof-table.mjs\` from \`${file}\`: ${contracts.length} Surety contracts.`,
+    "",
+    "| Contract | Address | Sourcify | Explorer |",
+    "| --- | --- | --- | --- |",
+  ];
+  for (const [label, a] of contracts) {
+    out.push(`| ${label} | \`${a}\` | [source](${sourcify(a)}) | [explorer](${address(a)}) |`);
+  }
+  return out.join("\n");
+}
+
 /** Replaces what sits between the markers, indented like the start marker (so a block can live in a list item). */
 function splice(path, [start, end], body, { required = true } = {}) {
   const text = readFileSync(path, "utf8");
@@ -217,23 +318,39 @@ function splice(path, [start, end], body, { required = true } = {}) {
 
 function render(file) {
   const src = load(file);
-  const rows = src.version >= 2 ? planV2(src) : planV1(src);
   const shown = relative(ROOT, file).replaceAll("\\", "/");
   // A file from another checkout is named by the path it has inside the repository.
   const outside = shown.startsWith("..") || isAbsolute(shown);
   const name = outside ? `contracts/deployments/${src.version >= 2 ? "" : "v1/"}${src.d.chainId}.json` : shown;
+  // The v2 mainnet deployment has no scripted lifecycle: its block is the contracts table.
+  if (src.version >= 2 && src.d.chainId === MAINNET) {
+    return {
+      contracts: true,
+      proof: renderContracts(src, name),
+      readme: renderContracts(src, name, { readme: true }),
+    };
+  }
+  const rows = src.version >= 2 ? planV2(src) : planV1(src);
   return { version: src.version, keys: renderKeys(src, rows), table: renderTable(src, rows, name) };
 }
 
 const args = process.argv.slice(2);
 const write = args.includes("--write");
 const fileArg = args.find((a) => !a.startsWith("--"));
-const files = fileArg ? [fileArg] : [V1_FILE, V2_FILE].filter((f) => existsSync(f));
+const files = fileArg ? [fileArg] : [V1_FILE, V2_FILE, MAINNET_FILE].filter((f) => existsSync(f));
 const blocks = files.map(render);
 
 if (write) {
   const updated = new Set();
   for (const b of blocks) {
+    if (b.contracts) {
+      splice(join(ROOT, "docs/PROOF.md"), MARKERS.contractsMainnet, b.proof);
+      updated.add("docs/PROOF.md");
+      if (splice(join(ROOT, "README.md"), MARKERS.contractsMainnet, b.readme, { required: false })) {
+        updated.add("README.md");
+      }
+      continue;
+    }
     const [keys, table] = b.version >= 2 ? [MARKERS.keysV2, MARKERS.tableV2] : [MARKERS.keys, MARKERS.table];
     // The v1 key steps must be in the README; the v2 ones go wherever their markers are.
     for (const doc of ["README.md", "docs/PROOF.md"]) {
@@ -244,5 +361,5 @@ if (write) {
   }
   process.stdout.write(`Updated ${[...updated].join(" and ")}\n`);
 } else {
-  process.stdout.write(`${blocks.map((b) => `${b.keys}\n\n${b.table}`).join("\n\n")}\n`);
+  process.stdout.write(`${blocks.map((b) => (b.contracts ? b.proof : `${b.keys}\n\n${b.table}`)).join("\n\n")}\n`);
 }

@@ -60,7 +60,7 @@ A claim can carry two tiers when both kinds of evidence exist. Claims 1 to 39 da
 | 28 | In that run the Morpho line lost 125.4043 MUSD, of which 88.4209 was covered from voters (their whole 100 srMUSD cohort) and 36.9834 stayed with lenders; the veBTC line lost 31.7562 MUSD and was covered in full for 35.6901 srMUSD of its 150 srMUSD cohort. Voters covered 120.18 of the 157.16 MUSD of bad debt (76%). | VERIFIED-LIVE | `Liquidate`, `Bid`, `LossRecorded`, `CohortSlashed` and `Covered` events ([PROOF.md](PROOF.md#the-loss-from-the-events)) |
 | 29 | Once VaultV2 has recognised the 118.63 MUSD the covers returned, which takes about three weeks at the vault's size, the v1 testnet share price is about 0.970. | MODELED | Arithmetic in [PROOF.md](PROOF.md#the-loss-from-the-events) |
 | 30 | After the losses the keeper kept flipping epochs on testnet: hourly pokes and rebalances, and covers that use the new fees reaching the reserve to pay down the lenders' share of the Morpho loss. | VERIFIED-LIVE | Keeper rows of the [v1 lifecycle table](PROOF.md#live-lifecycle-on-testnet) |
-| 31 | Surety v1 is deployed on Mezo mainnet: 11 contracts, all an exact match on Sourcify, wired to Mezo's own Morpho Blue and IRM, with 1-day timelocks and 2,000 MUSD caps. | VERIFIED-LIVE | [PROOF.md](PROOF.md#mezo-mainnet-31612) |
+| 31 | Surety v1 is deployed on Mezo mainnet: 11 contracts, all an exact match on Sourcify, wired to Mezo's own Morpho Blue and IRM, with 1-day timelocks and 2,000 MUSD caps. | VERIFIED-LIVE | [PROOF.md](PROOF.md#mezo-mainnet-31612-v1) |
 
 ## Tests, review and tooling
 

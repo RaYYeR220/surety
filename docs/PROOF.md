@@ -4,6 +4,96 @@ Every public claim about Surety points to something that can be checked: a verif
 
 ## Verified contracts
 
+### Mezo mainnet (31612), v2
+
+Deployed on 2026-11-09 from [`contracts/deployments/31612.json`](../contracts/deployments/31612.json): 124 transactions in blocks 13,118,781 to 13,118,934, all of them successful, for 0.0000482 BTC of gas ([`contracts/broadcast/Deploy.s.sol/31612/run-latest.json`](../contracts/broadcast/Deploy.s.sol/31612/run-latest.json)). All 19 Surety contracts are an exact match on Sourcify, creation and runtime bytecode, except the LoanEscrow implementation: the line's constructor creates it, so it matches on runtime bytecode only. Checked on 2026-11-09. The deployment runs on Mezo's own Morpho Blue ([`0x5658…A311`](https://explorer.mezo.org/address/0x565834cE7E40b8987BC20EbF83E2159467bDA311)) and AdaptiveCurveIrm ([`0x3760…C1e7`](https://explorer.mezo.org/address/0x3760Ebc636F912a4dB9540fdA4Dec09C25C6C1e7)), in a new BTC/MUSD market at LLTV 86% (id `0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8`), and parks idle MUSD in Mezo's sMUSD ([`0xb4D4…51CC`](https://explorer.mezo.org/address/0xb4D498029af77680cD1eF828b967f010d06C51CC)) through the SavingsAdapter. The treasury is the deployer key [`0x37D5…C282`](https://explorer.mezo.org/address/0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282) until a multisig takes over.
+
+<!-- proof:contracts-31612:start -->
+Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31612.json`: 19 Surety contracts.
+
+| Contract | Address | Sourcify | Explorer |
+| --- | --- | --- | --- |
+| Surety vault (VaultV2, srMUSD) | `0xFB1226A2C58168044d457b226528236a1F847bE1` | [source](https://repo.sourcify.dev/31612/0xFB1226A2C58168044d457b226528236a1F847bE1) | [explorer](https://explorer.mezo.org/address/0xFB1226A2C58168044d457b226528236a1F847bE1) |
+| MorphoMarketV1AdapterV2 | `0x6ab4E79d33a6B13d71fFcc6E9b5a5DD5dDd38295` | [source](https://repo.sourcify.dev/31612/0x6ab4E79d33a6B13d71fFcc6E9b5a5DD5dDd38295) | [explorer](https://explorer.mezo.org/address/0x6ab4E79d33a6B13d71fFcc6E9b5a5DD5dDd38295) |
+| SavingsAdapter | `0x9FA1f41E6153eD4FD7BAeA409069d5fcf372A514` | [source](https://repo.sourcify.dev/31612/0x9FA1f41E6153eD4FD7BAeA409069d5fcf372A514) | [explorer](https://explorer.mezo.org/address/0x9FA1f41E6153eD4FD7BAeA409069d5fcf372A514) |
+| CreditVoter | `0x1EABc0B7f938F6E119Cb25d7d4F70Bf26db10061` | [source](https://repo.sourcify.dev/31612/0x1EABc0B7f938F6E119Cb25d7d4F70Bf26db10061) | [explorer](https://explorer.mezo.org/address/0x1EABc0B7f938F6E119Cb25d7d4F70Bf26db10061) |
+| VoteAllocator | `0x33079321E90987cbD8B13Bc22802361292d8373C` | [source](https://repo.sourcify.dev/31612/0x33079321E90987cbD8B13Bc22802361292d8373C) | [explorer](https://explorer.mezo.org/address/0x33079321E90987cbD8B13Bc22802361292d8373C) |
+| SuretyPool | `0xFe5d5E400A086fCc606ED99073d72b6b0557bcAc` | [source](https://repo.sourcify.dev/31612/0xFe5d5E400A086fCc606ED99073d72b6b0557bcAc) | [explorer](https://explorer.mezo.org/address/0xFe5d5E400A086fCc606ED99073d72b6b0557bcAc) |
+| DepositGate | `0x99b72dE077dc365537a762dde516c45470512228` | [source](https://repo.sourcify.dev/31612/0x99b72dE077dc365537a762dde516c45470512228) | [explorer](https://explorer.mezo.org/address/0x99b72dE077dc365537a762dde516c45470512228) |
+| VeBTCCreditLine | `0x690C2F3Db0FAC14281c2a000CA3214C36516d87D` | [source](https://repo.sourcify.dev/31612/0x690C2F3Db0FAC14281c2a000CA3214C36516d87D) | [explorer](https://explorer.mezo.org/address/0x690C2F3Db0FAC14281c2a000CA3214C36516d87D) |
+| LoanEscrow implementation | `0x92Cb86376Fc1ba5b1Da2dE1FE1a1ffD926D27D22` | [source](https://repo.sourcify.dev/31612/0x92Cb86376Fc1ba5b1Da2dE1FE1a1ffD926D27D22) | [explorer](https://explorer.mezo.org/address/0x92Cb86376Fc1ba5b1Da2dE1FE1a1ffD926D27D22) |
+| LinearKinkIrm (veBTC line) | `0xc7724370fd27Ae961B3747e601ce9DAac26e7269` | [source](https://repo.sourcify.dev/31612/0xc7724370fd27Ae961B3747e601ce9DAac26e7269) | [explorer](https://explorer.mezo.org/address/0xc7724370fd27Ae961B3747e601ce9DAac26e7269) |
+| ShareMarket | `0x5722197a666Ccf158945939fCbE2Aebc892e017a` | [source](https://repo.sourcify.dev/31612/0x5722197a666Ccf158945939fCbE2Aebc892e017a) | [explorer](https://explorer.mezo.org/address/0x5722197a666Ccf158945939fCbE2Aebc892e017a) |
+| MusdPeg | `0x07777966126dBf0f3919E217D0A2247156879a5F` | [source](https://repo.sourcify.dev/31612/0x07777966126dBf0f3919E217D0A2247156879a5F) | [explorer](https://explorer.mezo.org/address/0x07777966126dBf0f3919E217D0A2247156879a5F) |
+| ClTwapPegSource (CL mUSDC/MUSD) | `0xd29D9199BF441A6da411b6dB4929020240e6bDc0` | [source](https://repo.sourcify.dev/31612/0xd29D9199BF441A6da411b6dB4929020240e6bDc0) | [explorer](https://explorer.mezo.org/address/0xd29D9199BF441A6da411b6dB4929020240e6bDc0) |
+| StableTwapPegSource (basic mUSDC/MUSD) | `0xebdBbA24cc595210456e543F7789140d2C93Bc25` | [source](https://repo.sourcify.dev/31612/0xebdBbA24cc595210456e543F7789140d2C93Bc25) | [explorer](https://explorer.mezo.org/address/0xebdBbA24cc595210456e543F7789140d2C93Bc25) |
+| StableTwapPegSource (basic MUSD/mUSDT) | `0x9F34Ea63dbC890458B5FF966C013b868bd87f4b0` | [source](https://repo.sourcify.dev/31612/0x9F34Ea63dbC890458B5FF966C013b868bd87f4b0) | [explorer](https://explorer.mezo.org/address/0x9F34Ea63dbC890458B5FF966C013b868bd87f4b0) |
+| BtcCrossPegSource (CL BTC/MUSD) | `0xC52AFe4cc75D8da3363fb766551a1C5775b0c9D8` | [source](https://repo.sourcify.dev/31612/0xC52AFe4cc75D8da3363fb766551a1C5775b0c9D8) | [explorer](https://explorer.mezo.org/address/0xC52AFe4cc75D8da3363fb766551a1C5775b0c9D8) |
+| BtcMusdPriceSource (lines' price) | `0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279` | [source](https://repo.sourcify.dev/31612/0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279) | [explorer](https://explorer.mezo.org/address/0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279) |
+| SkipPriceSource (BTC/USD) | `0x9a5e9c5BfDa2154785056E75f2732306fA205F5d` | [source](https://repo.sourcify.dev/31612/0x9a5e9c5BfDa2154785056E75f2732306fA205F5d) | [explorer](https://explorer.mezo.org/address/0x9a5e9c5BfDa2154785056E75f2732306fA205F5d) |
+| MorphoPriceOracle | `0xE3C71349FB0C6b222D82B36161fa2F12294fbb51` | [source](https://repo.sourcify.dev/31612/0xE3C71349FB0C6b222D82B36161fa2F12294fbb51) | [explorer](https://explorer.mezo.org/address/0xE3C71349FB0C6b222D82B36161fa2F12294fbb51) |
+
+<!-- proof:contracts-31612:end -->
+
+### Configuration on chain, v2 mainnet
+
+Each line below can be run against the mainnet RPC (`--rpc-url https://mezo.drpc.org`). Values were read on 2026-11-09, after the deployment.
+
+| What | Call | Value |
+| --- | --- | --- |
+| The VoteAllocator is the vault's allocator, the deployer is not | `cast call 0xFB1226A2C58168044d457b226528236a1F847bE1 "isAllocator(address)(bool)" 0x33079321E90987cbD8B13Bc22802361292d8373C` (and `0x37D5…C282`) | `true` (`false`) |
+| Performance fee is 10%, paid to the SuretyPool | `performanceFee()(uint96)`, `performanceFeeRecipient()(address)` on the vault | `1e17`, `0xFe5d…bcAc` |
+| Management fee is 0.20% a year, paid to the treasury | `managementFee()(uint96)`, `managementFeeRecipient()(address)` on the vault | `63419583`, `0x37D5…C282` |
+| Idle MUSD parks in sMUSD | `liquidityAdapter()(address)` on the vault; `parking()(bool)` on the VoteAllocator | `0x9FA1…A514` (SavingsAdapter), `true` |
+| The DepositGate is the receive-shares gate and lets the treasury through | `receiveSharesGate()(address)` on the vault; `treasury()(address)` on the gate | `0x99b7…2228`, `0x37D5…C282` |
+| Max rate is 200% a year | `maxRate()(uint64)` on the vault | `63419583967` |
+| Forced-exit penalty is 1% on all three adapters | `forceDeallocatePenalty(address)(uint256)` for each adapter | `1e16` |
+| Caps are 2,000 MUSD on the Morpho line and on the veBTC line, relative 100% | `absoluteCap(bytes32)(uint256)`, `relativeCap(bytes32)(uint256)` for the two adapter ids, the BTC and veBTC collateral ids and the market id | `2e21`, `1e18` |
+| Savings cap | `absoluteCap(bytes32)(uint256)` for the savings adapter id | `1e27` |
+| Vault curator functions wait 1 day | `timelock(bytes4)(uint256)` on the vault for each of the 17 timelockable selectors, `addAdapter` (`0x60d54d41`) to `increaseTimelock` (`0x47966291`) | `86400` each |
+| The Morpho adapter's own functions wait 1 day | `timelock(bytes4)(uint256)` on the adapter for `burnShares`, `setSkimRecipient`, `abdicate` and `increaseTimelock` | `86400` each |
+| New lines wait 1 day; weekly epochs; seasoning | `LINE_TIMELOCK()`, `bootstrapEnded()(bool)`, `EPOCH_LENGTH()` on the CreditVoter; `SEASON()` on the SuretyPool | `86400`, `true`, `604800`, `4` |
+| veBTC line parameters | `params()(uint16,uint16,uint16,uint16,uint16,uint32,uint32,uint16,uint16,uint16)` on the VeBTCCreditLine | `5000 4000 6500 300 8500 21600 259200 25 2000 5000` |
+| The line's fees go to the treasury, and its peg check is on | `treasury()(address)`, `pegCheck()(bool)` on the VeBTCCreditLine | `0x37D5…C282`, `true` |
+| Peg thresholds | `minSources()`, `maxSpreadBps()`, `bandBps()` on the MusdPeg | `2`, `1000`, `300` |
+| Premium cap and Skip price age | `maxPremiumBps()(uint16)` on the BtcMusdPriceSource; `maxAge()` on the SkipPriceSource | `300`, `60` |
+| The market is on Mezo's Morpho Blue at LLTV 86% | `cast call 0x565834cE7E40b8987BC20EbF83E2159467bDA311 "idToMarketParams(bytes32)(address,address,address,address,uint256)" 0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8` | MUSD, BTC, the MorphoPriceOracle `0xE3C7…bb51`, AdaptiveCurveIrm `0x3760…C1e7`, `8.6e17` |
+| ShareMarket fee | `feeBps()(uint16)`, `treasury()(address)` on the ShareMarket | `10`, `0x37D5…C282` |
+| No MUSD in the vault yet | `totalAssets()(uint256)` on the vault | `0` |
+
+The cap ids are encoded as in [`LineIds.sol`](../contracts/src/libraries/LineIds.sol). For the veBTC line's adapter id, for example:
+
+```sh
+cast call 0xFB1226A2C58168044d457b226528236a1F847bE1 "absoluteCap(bytes32)(uint256)" \
+  $(cast keccak $(cast abi-encode "f(string,address)" this 0x690C2F3Db0FAC14281c2a000CA3214C36516d87D)) \
+  --rpc-url https://mezo.drpc.org
+# 2000000000000000000000 [2e21]
+```
+
+### The mainnet MUSD peg at launch
+
+Read at block 13,118,945 (2026-11-09 22:46:56 UTC), eleven blocks after the deployment's last transaction:
+
+| Source | Reading |
+| --- | --- |
+| CL mUSDC/MUSD (`0xd29D…bDc0`) | not counted: the pool's in-range liquidity over the window, about 3.1e17, is under the source's 1e19 floor |
+| Basic mUSDC/MUSD (`0xebdB…Bc25`) | 0.991271 |
+| Basic MUSD/mUSDT (`0x9F34…f4b0`) | not counted: its latest observation, from 09:01 UTC, was 13.8 hours old, past the 6-hour bound |
+| BTC cross (`0xC52A…c9D8`) | 0.999005 |
+| MusdPeg | `musdUsdWad()` = 0.995137812070612232, the mean of the two sources that read; `pegHealthy()` = `true`: 2 sources, the minimum, 78 bps apart (limit 1000) and 49 bps under $1 (band 300) |
+| BtcMusdPriceSource | `priceWad()` = 75,150.1 MUSD per BTC, Skip's BTC/USD itself: the median is under $1, so the clamp divides by exactly $1 |
+
+Read them yourself; with `--block 13118945` the calls return the values above, without it today's:
+
+```sh
+cast call 0x07777966126dBf0f3919E217D0A2247156879a5F "pegHealthy()(bool)" --rpc-url https://mezo.drpc.org
+cast call 0x07777966126dBf0f3919E217D0A2247156879a5F "musdUsdWad()(uint256)" --rpc-url https://mezo.drpc.org
+cast call 0x07777966126dBf0f3919E217D0A2247156879a5F "readings()((address,bool,uint256)[])" --rpc-url https://mezo.drpc.org
+cast call 0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279 "priceWad()(uint256)" --rpc-url https://mezo.drpc.org
+```
+
+The basic pools write an observation only when someone trades or calls the permissionless `sync()`; the keeper's pool syncs ([keeper/README.md](../keeper/README.md)) are there to keep both inside their 6-hour bound.
+
 ### Mezo testnet (31611), v2
 
 All 18 Surety contracts in [`contracts/deployments/31611.json`](../contracts/deployments/31611.json) are verified on Sourcify with an exact match (runtime bytecode and metadata). Checked on 2026-11-09. The deployment also uses Mezo's own testnet Morpho Blue ([`0xCe1d…5a73`](https://explorer.test.mezo.org/address/0xCe1da828cA15cb1FDAfa84C366A53C8106655a73)) and AdaptiveCurveIrm ([`0x0c97…7441`](https://explorer.test.mezo.org/address/0x0c97Fe017628636649ff374aD499529F91167441)), both verified on Mezo's explorer since May 2026, months before Surety's first deployment.
@@ -119,7 +209,7 @@ Mezo's explorer serves the verified sources of a contract at `https://api.explor
 
 The deployed bytecode differs from Mezo's because Surety compiles with its own settings (solc 0.8.28, optimizer at 200 runs; Mezo's VaultV2 was built with via-IR at 100,000 runs). Surety uses Mezo's own Morpho Blue and IRM on mainnet, and in v2 on testnet too; the vendored Morpho Blue was deployed only for the v1 testnet deployment.
 
-### Mezo mainnet (31612)
+### Mezo mainnet (31612), v1
 
 Deployed 2026-10-25 from `contracts/deployments/v1/31612.json` (block 12755630); every contract below is an exact match on Sourcify (creation and runtime bytecode; the LoanEscrow implementation is runtime-only because it is created by the line's constructor). Morpho Blue and AdaptiveCurveIrm are Mezo's own deployments.
 
