@@ -5,6 +5,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: {
     "testnet-cycle": "scripts/testnet-cycle.ts",
+    "testnet-cycle-v2": "scripts/testnet-cycle-v2.ts",
     "testnet-escrow-vote": "scripts/testnet-escrow-vote.ts",
     "testnet-escrow-claims": "scripts/testnet-escrow-claims.ts",
   },

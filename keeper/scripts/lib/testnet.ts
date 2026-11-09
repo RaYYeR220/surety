@@ -32,6 +32,7 @@ import {
   type Hex,
   type PublicClient,
   type TransactionReceipt,
+  type WalletClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -88,6 +89,9 @@ export interface Ctx {
   d: SuretyDeployment;
   me: Address;
   exec: Executor;
+  /** Signs for `me`; used directly only to send a call that is meant to revert on chain. */
+  wallet: WalletClient;
+  rpc: string;
   deploymentPath: string;
   dryRun: boolean;
   /**
@@ -101,6 +105,10 @@ export interface ProofEntry {
   label: string;
   hash: Hex;
   block: number;
+  /** Set on a transaction that was sent to be refused on chain; absent on mined successes. */
+  status?: "reverted";
+  /** The custom error such a transaction reverted with. */
+  reason?: string;
 }
 
 export interface Sent {
@@ -120,33 +128,61 @@ export interface ContextOptions {
   logFields?: Record<string, unknown>;
 }
 
+/**
+ * Reads the 32-byte private key in the environment variable `name` and registers it for scrubbing. The key is never
+ * printed, not even in the error for a malformed one.
+ */
+export function keyFromEnv(name: string): Hex {
+  const raw = process.env[name]?.trim();
+  if (!raw) throw new Error(`${name} is not set`);
+  const key = (raw.startsWith("0x") ? raw : `0x${raw}`) as Hex;
+  secrets.push(key);
+  if (!isHex(key) || key.length !== 66) throw new Error(`${name} must be a 32-byte hex key`);
+  return key;
+}
+
+function signer(pc: PublicClient, rpc: string, key: Hex, dryRun: boolean, logFields: Record<string, unknown>) {
+  const account = privateKeyToAccount(key);
+  const wallet = createWalletClient({ account, chain: mezoTestnet, transport: http(rpc, { timeout: 30_000 }) });
+  const log = createLogger({ level: "warn", secrets: [key] }, logFields);
+  const exec = new Executor({
+    publicClient: guardEstimates(pc),
+    walletClient: wallet,
+    account,
+    dryRun,
+    log,
+    receiptTimeoutMs: 180_000,
+  });
+  return { me: account.address, wallet, exec };
+}
+
 /** Loads the sending key and the deployment, and builds the clients and the Executor. */
 export function openContext(o: ContextOptions): Ctx {
   if (o.envFile) process.loadEnvFile(o.envFile);
-  const raw = process.env.DEPLOYER_PRIVATE_KEY?.trim();
-  if (!raw) throw new Error("DEPLOYER_PRIVATE_KEY is not set (pass --env-file)");
-  const key = (raw.startsWith("0x") ? raw : `0x${raw}`) as Hex;
-  secrets.push(key);
-  if (!isHex(key) || key.length !== 66) throw new Error("DEPLOYER_PRIVATE_KEY must be a 32-byte hex key");
-  const account = privateKeyToAccount(key);
+  if (!process.env.DEPLOYER_PRIVATE_KEY?.trim()) throw new Error("DEPLOYER_PRIVATE_KEY is not set (pass --env-file)");
+  const key = keyFromEnv("DEPLOYER_PRIVATE_KEY");
 
   const deploymentPath = o.deployment ?? DEFAULT_DEPLOYMENT;
   const d = parseDeployment(JSON.parse(readFileSync(deploymentPath, "utf8")));
   if (d.chainId !== CHAIN_ID) throw new Error(`${deploymentPath} is for chain ${d.chainId}, not ${CHAIN_ID}`);
   const rpc = o.rpc ?? RPC;
   const pc = createMezoPublicClient(CHAIN_ID, { rpcUrls: [rpc], timeout: 30_000 });
-  const wc = createWalletClient({ account, chain: mezoTestnet, transport: http(rpc, { timeout: 30_000 }) });
-  const log = createLogger({ level: "warn", secrets: [key] }, o.logFields ?? {});
-  const exec = new Executor({
-    publicClient: guardEstimates(pc),
-    walletClient: wc,
-    account,
-    dryRun: o.dryRun,
-    log,
-    receiptTimeoutMs: 180_000,
-  });
+  const { me, wallet, exec } = signer(pc, rpc, key, o.dryRun, o.logFields ?? {});
   const surety = createSuretyClient({ chainId: CHAIN_ID, publicClient: pc, deployment: d });
-  return { pc, surety, d, me: account.address, exec, deploymentPath, dryRun: o.dryRun, quiet: o.quiet ?? false };
+  return { pc, surety, d, me, exec, wallet, rpc, deploymentPath, dryRun: o.dryRun, quiet: o.quiet ?? false };
+}
+
+/**
+ * The same deployment, clients and proof file, sending from `key` instead. For scripts that act as several
+ * accounts; `quiet` is off unless asked for, since only the keeper's own address races the keeper.
+ */
+export function withSender(
+  base: Ctx,
+  key: Hex,
+  o: { quiet?: boolean; logFields?: Record<string, unknown> } = {},
+): Ctx {
+  const { me, wallet, exec } = signer(base.pc, base.rpc, key, base.dryRun, o.logFields ?? {});
+  return { ...base, me, wallet, exec, quiet: o.quiet ?? false };
 }
 
 /** Runs a script's main, reporting a failure as one scrubbed line and exit code 1. */
@@ -338,6 +374,78 @@ export async function sendBuilt(
 ): Promise<Sent | null> {
   const { functionName, args } = decodeFunctionData({ abi, data: tx.data });
   return send(c, label, { address: tx.to, abi, functionName, args: args ?? [] }, options);
+}
+
+/** The custom error (or revert string) a call reverts with now, or null if it succeeds. */
+export async function revertReason(c: Ctx, call: ContractCall, blockNumber?: bigint): Promise<string | null> {
+  try {
+    await c.pc.simulateContract({
+      address: call.address,
+      abi: call.abi,
+      functionName: call.functionName,
+      args: call.args ?? [],
+      account: c.me,
+      ...(blockNumber === undefined ? {} : { blockNumber }),
+    } as Parameters<PublicClient["simulateContract"]>[0]);
+    return null;
+  } catch (e) {
+    const err = e as { shortMessage?: string; message?: string; walk?: (fn: (x: unknown) => boolean) => unknown };
+    const revert = err.walk?.((x) => (x as { name?: string }).name === "ContractFunctionRevertedError") as
+      | { data?: { errorName?: string }; reason?: string }
+      | undefined;
+    if (revert?.data?.errorName) return revert.data.errorName;
+    if (revert?.reason) return revert.reason;
+    throw e; // not a revert: an RPC failure
+  }
+}
+
+/**
+ * Sends a call that must be refused, so the refusal itself is on chain: it is simulated first and sent only if it
+ * reverts with `expected`; then it is signed with an explicit gas limit (nothing estimates it) and sent raw. The mined
+ * transaction is recorded with status "reverted" and its reason, read again at the block before it. Null in a dry run.
+ */
+export async function sendRefused(
+  c: Ctx,
+  label: string,
+  call: ContractCall,
+  expected: string,
+  gas: bigint,
+): Promise<{ hash: Hex; block: bigint; reason: string } | null> {
+  const reason = await revertReason(c, call);
+  if (reason !== expected) {
+    throw new Error(`${label}: expected the call to revert with ${expected}, it ${reason ? `reverts with ${reason}` : "succeeds"}`);
+  }
+  if (c.dryRun) {
+    say(`  · ${label}: reverts with ${reason} (dry run, not sent)`);
+    return null;
+  }
+  const account = c.wallet.account;
+  if (!account?.signTransaction) throw new Error(`${label}: the sender cannot sign locally`);
+  const [nonce, gasPrice] = await Promise.all([
+    c.pc.getTransactionCount({ address: c.me, blockTag: "pending" }),
+    c.pc.getGasPrice(),
+  ]);
+  const data = encodeFunctionData({ abi: call.abi, functionName: call.functionName, args: call.args ?? [] } as never);
+  const serializedTransaction = await account.signTransaction({
+    chainId: CHAIN_ID,
+    type: "legacy",
+    to: call.address,
+    data,
+    gas,
+    gasPrice,
+    nonce,
+  });
+  const hash = await c.pc.sendRawTransaction({ serializedTransaction });
+  const receipt = await c.pc.waitForTransactionReceipt({ hash, timeout: 180_000 });
+  if (receipt.status === "success") throw new Error(`${label}: ${hash} was meant to revert but succeeded`);
+  const onChain = (await revertReason(c, call, receipt.blockNumber - 1n)) ?? reason;
+  record(c, { label, hash, block: Number(receipt.blockNumber), status: "reverted", reason: onChain });
+  say(`  x ${label}`);
+  say(
+    `      ${explorerUrl(CHAIN_ID, "tx", hash)}  (block ${receipt.blockNumber}, reverted: ${onChain}, ` +
+      `gas ${receipt.gasUsed}/${gas})`,
+  );
+  return { hash, block: receipt.blockNumber, reason: onChain };
 }
 
 export async function ensureAllowance(c: Ctx, token: Address, spender: Address, amount: bigint, label: string): Promise<void> {

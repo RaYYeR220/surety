@@ -16,6 +16,7 @@
     "build:cycle": "tsup --config scripts/tsup.config.ts",
     "build:scripts": "tsup --config scripts/tsup.config.ts",
     "cycle": "node dist/scripts/testnet-cycle.js",
+    "cycle:v2": "node dist/scripts/testnet-cycle-v2.js",
     "escrow:vote": "node dist/scripts/testnet-escrow-vote.js",
     "escrow:claims": "node dist/scripts/testnet-escrow-claims.js"
   },

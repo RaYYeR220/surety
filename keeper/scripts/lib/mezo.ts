@@ -24,6 +24,7 @@ export const veBTCLockAbi = parseAbi([
   "function ownerOf(uint256 tokenId) view returns (address)",
   "function balanceOf(address owner) view returns (uint256)",
   "function ownerToNFTokenIdList(address owner, uint256 index) view returns (uint256)",
+  "function transferFrom(address from, address to, uint256 tokenId)",
   "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
 ]);
 
