@@ -21,6 +21,9 @@ import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 ///   the shares), `fill` waits (the buyer cannot), and so does `cancel` (the seller cannot). `cancelAndRedeem` stays
 ///   open: it redeems the listed shares for the seller, as VaultV2 keeps withdrawals open, so listing never leaves a
 ///   seller with fewer ways out than holding.
+/// - Losses not yet realised: the share price drops, and the gate closes, only when a loss is realised (a bid below
+///   the debt, Morpho bad debt). While an auction is visibly heading below its debt a buyer can still fill at the
+///   pre-loss price, the same price a seller's `redeem` would get; the app shows live auctions next to the market.
 /// - Dust: listings and fills are at least MIN_SHARES. A fill that would leave less than MIN_SHARES returns the
 ///   remainder to the seller and closes the listing, so no listing is left too small to fill.
 /// - No owner and no admin. MUSD goes from the buyer to the seller and the treasury directly; the market holds only
@@ -204,6 +207,8 @@ contract ShareMarket is ReentrancyGuardTransient {
     }
 
     /// @notice `seller`'s open listings.
+    /// @dev Scans every listing the seller ever made, for off-chain reads; page through `openListings` instead when a
+    /// seller has very many.
     function listingsOf(address seller) external view returns (uint256[] memory ids) {
         uint256[] storage all = sellerIds[seller];
         ids = new uint256[](all.length);
