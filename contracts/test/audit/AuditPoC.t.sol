@@ -258,7 +258,7 @@ contract AuditPoCTest is SuretyFixture {
     /* ------------------------------------------------------------------ */
 
     /// @dev The review's book: alice backs the veBTC line, a sponsor's 1,000 MUSD sits in its E1 cohort, a loan
-    /// settles ~858 MUSD short. The cohort used to pay ~U/(1-f) because the fee shares VaultV2 mints on the returned
+    /// settles ~613 MUSD short (~858 before the floor moved from 70% to 85%). The cohort used to pay ~U/(1-f) because the fee shares VaultV2 mints on the returned
     /// MUSD went to other cohorts or the reserve. They are now credited back to the slashed cohort at the next
     /// distribution after VaultV2 re-recognised the MUSD, so it nets exactly the recorded loss.
     function test_L04_slashedCohortNetsExactlyTheRecordedLoss() public {
@@ -279,7 +279,7 @@ contract AuditPoCTest is SuretyFixture {
         _bid(bidder, loanId);
         vm.prank(keeper);
         uint256 loss = pool.checkpoint(VE_LINE);
-        assertGt(loss, 800e18);
+        assertGt(loss, 600e18);
 
         uint256 cohortBefore = _shares(VE_LINE, e1);
         uint256 reserveBefore = pool.reserveShares();
@@ -306,7 +306,7 @@ contract AuditPoCTest is SuretyFixture {
 
     /// @dev The review's book: alice votes only the veBTC line; a sponsor's 1,000 MUSD backs it. E2: ~9,900 MUSD goes
     /// to the line, a borrower takes 2,000 MUSD against 0.05 BTC; BTC drops 60%, the NFT is sold at the floor for
-    /// ~860 MUSD less than the debt. Not checkpointed yet.
+    /// ~613 MUSD less than the debt. Not checkpointed yet.
     function _lossSetup() internal returns (uint256 lenderPre) {
         _deposit(lender, 10_000e18);
         uint256 aliceId = _lockPermanent(alice, 6e18);
@@ -339,7 +339,7 @@ contract AuditPoCTest is SuretyFixture {
         _expectDepositRefused();
         vm.prank(keeper);
         uint256 loss = pool.checkpoint(VE_LINE);
-        assertGt(loss, 800e18);
+        assertGt(loss, 600e18);
         assertTrue(pool.depositsPaused(), "recorded, uncovered");
         _expectDepositRefused();
 

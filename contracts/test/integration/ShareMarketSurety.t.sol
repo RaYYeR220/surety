@@ -16,7 +16,6 @@ contract ShareMarketSuretyTest is SuretyFixture {
     uint16 internal constant FEE_BPS = 10;
 
     ShareMarket internal market;
-    address internal treasury = makeAddr("treasury");
     address internal buyer = makeAddr("buyer");
     uint256 internal loanId;
 
@@ -67,13 +66,15 @@ contract ShareMarketSuretyTest is SuretyFixture {
         uint256 half = shares / 2;
         uint256 id = _list(lender, half, 200);
         uint256 value = vault.convertToAssets(half);
+        uint256 treasuryBefore = musd.balanceOf(treasury);
         (uint256 filled, uint256 assets) = _fill(buyer, id, half);
+        uint256 fee = musd.balanceOf(treasury) - treasuryBefore;
 
         assertEq(filled, half);
         assertEq(assets, Math.mulDiv(value, 9_800, 10_000, Math.Rounding.Ceil));
         assertGt(assets, idle, "more than the vault could pay out");
-        assertEq(musd.balanceOf(treasury), assets * FEE_BPS / 10_000);
-        assertEq(musd.balanceOf(lender), assets - musd.balanceOf(treasury));
+        assertEq(fee, assets * FEE_BPS / 10_000);
+        assertEq(musd.balanceOf(lender), assets - fee);
         assertEq(vault.balanceOf(buyer), half);
 
         // The buyer's shares earn the borrower's interest like any lender's.

@@ -98,7 +98,7 @@ contract LoanEscrowTest is LineFixture {
 
         vm.prank(borrower);
         line.escrowClaim(loanId, rewards, tokens);
-        assertEq(musd.balanceOf(borrower), 20_000e18 + 100e18);
+        assertEq(musd.balanceOf(borrower), _afterFee(20_000e18) + 100e18);
         assertEq(rewardToken.balanceOf(borrower), 5e18);
         assertEq(btc.balanceOf(borrower), 0.01e18);
         assertEq(musd.balanceOf(escrow), 0);
@@ -175,7 +175,7 @@ contract LoanEscrowTest is LineFixture {
         vm.prank(borrower);
         line.escrowClaim(loanId, rewards, tokens);
 
-        assertEq(musd.balanceOf(borrower), 20_000e18 + 10e18);
+        assertEq(musd.balanceOf(borrower), _afterFee(20_000e18) + 10e18);
         assertEq(fake.balanceOf(borrower), 0);
         assertEq(musd.balanceOf(address(escrow)), 50e18);
         assertEq(fake.balanceOf(address(escrow)), 7e18);

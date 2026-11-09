@@ -784,7 +784,17 @@ contract VoteAllocatorTest is AllocatorFixture {
         // in the voter while it was an adapter (the CreditVoter refuses anything else) and even given caps, then
         // removed by the curator, so the allocator does try to fund it.
         VeBTCCreditLine rogue = new VeBTCCreditLine(
-            address(vault), musd, ve, poolsVoter, distributor, stressedSource, lineIrm, _lineParams(), stranger
+            address(vault),
+            musd,
+            ve,
+            poolsVoter,
+            distributor,
+            stressedSource,
+            peg,
+            lineIrm,
+            _lineParams(),
+            treasury,
+            stranger
         );
         vm.expectRevert(CreditVoter.NotVaultAdapter.selector);
         vm.prank(admin);

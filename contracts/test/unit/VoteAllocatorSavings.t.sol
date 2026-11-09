@@ -53,14 +53,14 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
     uint256 internal constant DUST = 2;
 
     RecordingPool internal recorder;
-    MockPeg internal peg;
+    MockPeg internal gatePeg;
     address internal btcBorrower = makeAddr("btcBorrower");
     address internal saver = makeAddr("saver");
 
     function setUp() public override {
         super.setUp();
         recorder = new RecordingPool();
-        peg = new MockPeg();
+        gatePeg = new MockPeg();
         _deploySavings();
         vm.startPrank(admin);
         allocator.setSuretyPool(address(recorder));
@@ -148,15 +148,15 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
     function test_setPeg_oneShot_ownerOnly() public {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        allocator.setPeg(peg);
+        allocator.setPeg(gatePeg);
         vm.startPrank(admin);
         vm.expectRevert(VoteAllocator.ZeroAddress.selector);
         allocator.setPeg(IMusdPeg(address(0)));
-        allocator.setPeg(peg);
+        allocator.setPeg(gatePeg);
         vm.expectRevert(VoteAllocator.PegAlreadySet.selector);
-        allocator.setPeg(peg);
+        allocator.setPeg(gatePeg);
         vm.stopPrank();
-        assertEq(address(allocator.peg()), address(peg));
+        assertEq(address(allocator.peg()), address(gatePeg));
     }
 
     /* Parking */
@@ -400,7 +400,7 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
     function test_pegGate_holdsAllocations_deallocationsStillRun() public {
         (uint256 aliceId, uint256 bobId) = _seed();
         vm.prank(admin);
-        allocator.setPeg(peg);
+        allocator.setPeg(gatePeg);
         _warpEpochs(1);
         _rebalance();
         assertApproxEqAbs(allocator.lineAssets(BTC_LINE), 540_000e18, DUST);
@@ -409,7 +409,7 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
         _vote(alice, aliceId, BTC_LINE);
         _vote(bob, bobId, CBTC_LINE);
         _warpEpochs(1);
-        peg.set(false);
+        gatePeg.set(false);
         assertFalse(allocator.pegGateOpen());
         _deposit(carol, 500_000e18);
 
@@ -423,14 +423,14 @@ contract VoteAllocatorSavingsTest is AllocatorFixture {
         assertApproxEqAbs(_parked(), 960_000e18, DUST);
 
         // A monitor that reverts counts as unhealthy.
-        peg.set(true);
-        peg.breakIt();
+        gatePeg.set(true);
+        gatePeg.breakIt();
         assertFalse(allocator.pegGateOpen());
         _rebalance();
         assertEq(allocator.lineAssets(CBTC_LINE), 0);
 
         // Healthy again: the next run funds the lines.
-        peg.fix();
+        gatePeg.fix();
         assertTrue(allocator.pegGateOpen());
         _rebalance();
         uint256 deployable = _deployableNow();

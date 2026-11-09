@@ -11,6 +11,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
 
 import {IEscrowRegistry} from "../interfaces/IEscrowRegistry.sol";
+import {IMusdPeg} from "../interfaces/IMusdPeg.sol";
 import {IPoolsVoter} from "../interfaces/IPoolsVoter.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {IRewardsDistributor} from "../interfaces/IRewardsDistributor.sol";
@@ -24,23 +25,34 @@ import {LoanEscrow} from "./LoanEscrow.sol";
 /// @notice Lends MUSD against locked veBTC NFTs without unlocking them. It is a Morpho VaultV2 adapter (the vault
 /// allocates MUSD into it and deallocates idle cash back out) and an isolated lending market: each loan's NFT sits in
 /// its own LoanEscrow clone, keeps voting and earning for the borrower, and is sold by Dutch auction on default.
+/// A borrower can let the NFT's fees and bribes repay the loan: with auto-repay on, anyone may `harvest` them.
 /// @dev Accounting:
 /// - `cash` is MUSD available to lend; `realAssets = cash + totalDebt`, interest included up to the current second.
 ///   A loan closed below its debt removes the whole debt and adds only the proceeds, so the shortfall leaves
 ///   `realAssets` at once and is recorded in `badDebtTotal` for the SuretyPool to cover.
-/// - `interestEarnedTotal` counts what the line earns (interest through the borrow index, plus liquidation fees
-///   kept) independently of the capital moved in or out, so the VoteAllocator never reads interest from changes in
-///   `realAssets`, which anyone can move with VaultV2's `forceDeallocate`.
+/// - `interestEarnedTotal` counts what the line earns (interest through the borrow index, plus the lenders' part of
+///   liquidation fees) independently of the capital moved in or out, so the VoteAllocator never reads interest from
+///   changes in `realAssets`, which anyone can move with VaultV2's `forceDeallocate`.
 /// - Debt is tracked in normalised units against a global `borrowIndex` (WAD). Rounding always favours lenders:
 ///   borrowing mints normalised debt rounded up, partial repayments burn it rounded down, debts round up.
-/// - Collateral value is `locked.amount * BTC/USD` with MUSD valued at $1; lock boosts are ignored.
+/// - Collateral value is `locked.amount` times the oracle's BTC price in MUSD (BtcMusdPriceSource in production);
+///   lock boosts are ignored.
 /// - Utilisation is `debt / (cash + debt)` on the line's own cash. VaultV2's permissionless `forceDeallocate` can
 ///   pull that cash out (its penalty goes to lenders): utilisation then reads 100%, every borrower accrues at the
 ///   IRM's max APR and `open` / `borrowMore` revert with InsufficientCash until the allocator refills the line.
 ///   The keeper rebalances at every epoch flip and should also rebalance when the line's cash falls well below what
 ///   the allocator targets for it.
+/// Fees, in MUSD and paid out in the transaction that earns them, so none of them sits in `cash`:
+/// - origination: `originationFeeBps` of every amount borrowed goes to `treasury`; the borrower receives the rest and
+///   owes the full amount;
+/// - liquidation: of the fee the line keeps on a bid (proceeds above the debt, up to `liqFeeBps` of it),
+///   `protocolShareBps` leaves the line, `keeperShareBps` of that to the address that started the auction and the
+///   rest to `treasury`; lenders keep the remainder.
 /// Fail-closed oracle: open, borrowMore, startAuction and bid revert when the price source does; repay never reads it.
-/// The owner can pause new borrowing and set the SuretyPool once. It cannot move NFTs or MUSD.
+/// Depeg breaker: open and borrowMore also revert while `peg` reports MUSD unhealthy; repayment, harvests, auctions
+/// and escrow actions never read the peg.
+/// The owner can pause new borrowing and set the SuretyPool once. It cannot move NFTs or MUSD. `treasury` is fixed at
+/// deployment.
 contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
@@ -55,6 +67,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     /// @param floorBps Auction floor as a share of live collateral value.
     /// @param auctionDuration Seconds over which the auction price decays from 100% to the floor.
     /// @param minTerm Minimum remaining lock time for a timed lock to open or increase a loan.
+    /// @param originationFeeBps Share of every amount borrowed paid to the treasury, at most 100.
+    /// @param protocolShareBps Share of the liquidation fee kept on a bid that leaves the line, at most 5000.
+    /// @param keeperShareBps Share of that protocol part paid to the address that started the auction.
     struct Params {
         uint16 maxLtvTimedBps;
         uint16 maxLtvPermanentBps;
@@ -63,6 +78,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         uint16 floorBps;
         uint32 auctionDuration;
         uint32 minTerm;
+        uint16 originationFeeBps;
+        uint16 protocolShareBps;
+        uint16 keeperShareBps;
     }
 
     enum LoanState {
@@ -73,6 +91,8 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         Liquidated
     }
 
+    /// @param keeper Address that started the auction; it is paid the keeper share of the liquidation fee.
+    /// @param autoRepay Whether anyone may harvest the NFT's rewards into repayment.
     struct Loan {
         address borrower;
         address escrow;
@@ -80,12 +100,16 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         uint256 normDebt;
         LoanState state;
         uint64 auctionStart;
+        address keeper;
+        bool autoRepay;
     }
 
     uint256 internal constant WAD = 1e18;
     uint256 internal constant BPS = 10_000;
     uint8 public constant REASON_LTV = 0;
     uint8 public constant REASON_EXPIRY = 1;
+    uint16 public constant MAX_ORIGINATION_FEE_BPS = 100;
+    uint16 public constant MAX_PROTOCOL_SHARE_BPS = 5000;
 
     address public immutable vault;
     IERC20 public immutable musd;
@@ -95,7 +119,11 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     IPoolsVoter public immutable voter;
     IRewardsDistributor public immutable distributor;
     IPriceSource public immutable oracle;
+    /// @notice MUSD/USD peg whose health gates new borrowing.
+    IMusdPeg public immutable peg;
     LinearKinkIrm public immutable irm;
+    /// @notice Recipient of origination fees and of the treasury part of liquidation fees.
+    address public immutable treasury;
     /// @notice LoanEscrow implementation cloned once per loan.
     address public immutable escrowImplementation;
 
@@ -106,6 +134,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     uint16 internal immutable floorBps;
     uint32 internal immutable auctionDuration;
     uint32 internal immutable minTerm;
+    uint16 internal immutable originationFeeBps;
+    uint16 internal immutable protocolShareBps;
+    uint16 internal immutable keeperShareBps;
 
     /// @notice MUSD held by the line and available to lend or deallocate.
     uint256 public cash;
@@ -118,7 +149,7 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     uint256 public lastAccrual;
     /// @notice Cumulative shortfall of auctions settled below debt. Never decreases; covers add cash instead.
     uint256 public badDebtTotal;
-    /// @dev Interest booked into the borrow index plus liquidation fees kept, as of `lastAccrual`.
+    /// @dev Interest booked into the borrow index plus the lenders' part of liquidation fees, as of `lastAccrual`.
     uint256 internal interestBooked;
     /// @notice Id of the most recent loan; loan ids start at 1.
     uint256 public loanCount;
@@ -132,17 +163,34 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     mapping(address escrow => uint256) public loanIdOfEscrow;
 
     event InterestAccrued(uint256 borrowIndex, uint256 interest);
+    /// @param amount Debt taken on; the borrower received it less the origination fee.
     event Opened(uint256 indexed loanId, address indexed borrower, uint256 indexed tokenId, uint256 amount);
+    /// @param amount Debt taken on; the borrower received it less the origination fee.
     event Borrowed(uint256 indexed loanId, uint256 amount);
+    event OriginationFeePaid(uint256 indexed loanId, uint256 fee);
     event Repaid(uint256 indexed loanId, address indexed payer, uint256 amount);
     event Closed(uint256 indexed loanId);
     event Extended(uint256 indexed loanId, uint256 newEnd);
     event CollateralAdded(uint256 indexed loanId, uint256 amount);
     /// @param reason REASON_LTV or REASON_EXPIRY.
-    event AuctionStarted(uint256 indexed loanId, uint8 reason);
+    /// @param keeper The caller, paid the keeper share of the liquidation fee.
+    event AuctionStarted(uint256 indexed loanId, uint8 reason, address indexed keeper);
     event Bid(
         uint256 indexed loanId, address indexed bidder, uint256 price, uint256 debt, uint256 shortfall, uint256 surplus
     );
+    /// @notice Split of the liquidation fee kept on a bid; `toLenders` stays in the line's cash.
+    event LiquidationFeePaid(
+        uint256 indexed loanId, address indexed keeper, uint256 toLenders, uint256 toTreasury, uint256 toKeeper
+    );
+    event AutoRepaySet(uint256 indexed loanId, bool enabled);
+    /// @param musdClaimed MUSD the claim brought in: `repaid` of it repaid the loan, the rest went to the borrower.
+    /// @param rebaseClaimed Whether the veBTC rebase claim went through (the distributor can refuse it for a while
+    /// after an epoch flip).
+    event Harvested(
+        uint256 indexed loanId, address indexed caller, uint256 musdClaimed, uint256 repaid, bool rebaseClaimed
+    );
+    /// @notice A token other than MUSD that a harvest claimed, forwarded to the borrower.
+    event RewardForwarded(uint256 indexed loanId, address indexed token, uint256 amount);
     event CoverReceived(uint256 assets);
     event SuretyPoolSet(address indexed pool);
     event PauseSet(bool paused);
@@ -172,6 +220,8 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     error NoAuction();
     error NotLiquidatable();
     error PriceAboveMax();
+    /// @notice The MUSD peg is unhealthy, so no new MUSD is lent.
+    error PegUnhealthy();
 
     modifier onlyVault() {
         if (msg.sender != vault) revert NotVault();
@@ -183,6 +233,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         _;
     }
 
+    /// @dev Besides the limits in Params, requires the floor to sit above debt plus fee at the trigger
+    /// (`floorBps * BPS > liqLtvBps * (BPS + liqFeeBps)`): an auction started at the liquidation LTV that ends at the
+    /// floor still covers the debt and the fee unless the collateral keeps falling.
     constructor(
         address vault_,
         IERC20 musd_,
@@ -190,21 +243,20 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         IPoolsVoter voter_,
         IRewardsDistributor distributor_,
         IPriceSource oracle_,
+        IMusdPeg peg_,
         LinearKinkIrm irm_,
         Params memory p,
+        address treasury_,
         address owner_
     ) Ownable(owner_) {
         if (
             vault_ == address(0) || address(musd_) == address(0) || address(ve_) == address(0)
                 || address(voter_) == address(0) || address(distributor_) == address(0)
-                || address(oracle_) == address(0) || address(irm_) == address(0)
+                || address(oracle_) == address(0) || address(peg_) == address(0) || address(irm_) == address(0)
+                || treasury_ == address(0)
         ) revert ZeroAddress();
         if (IVaultV2(vault_).asset() != address(musd_)) revert AssetMismatch();
-        if (
-            p.maxLtvTimedBps == 0 || p.maxLtvPermanentBps == 0 || p.maxLtvTimedBps >= p.liqLtvBps
-                || p.maxLtvPermanentBps >= p.liqLtvBps || p.liqLtvBps > BPS || p.liqFeeBps > BPS || p.floorBps > BPS
-                || p.auctionDuration == 0
-        ) revert BadParams();
+        _checkParams(p);
 
         vault = vault_;
         musd = musd_;
@@ -213,7 +265,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         voter = voter_;
         distributor = distributor_;
         oracle = oracle_;
+        peg = peg_;
         irm = irm_;
+        treasury = treasury_;
         escrowImplementation = address(new LoanEscrow());
 
         maxLtvTimedBps = p.maxLtvTimedBps;
@@ -223,6 +277,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         floorBps = p.floorBps;
         auctionDuration = p.auctionDuration;
         minTerm = p.minTerm;
+        originationFeeBps = p.originationFeeBps;
+        protocolShareBps = p.protocolShareBps;
+        keeperShareBps = p.keeperShareBps;
 
         lastAccrual = block.timestamp;
         musd_.forceApprove(vault_, type(uint256).max);
@@ -284,7 +341,7 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     /* Borrowing */
 
     /// @notice Borrows `amount` MUSD against `tokenId`, which moves into a fresh escrow. The caller must own the NFT
-    /// and have approved this line for it.
+    /// and have approved this line for it. The loan owes `amount`; the caller receives it less the origination fee.
     function open(uint256 tokenId, uint256 amount) external nonReentrant whenNotPaused returns (uint256 loanId) {
         if (amount == 0) revert ZeroAmount();
         if (ve.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
@@ -293,6 +350,7 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         IVeBTC.LockedBalance memory lock = ve.locked(tokenId);
         if (lock.amount <= 0) revert NoLock();
         _checkTerm(lock);
+        _checkPeg();
 
         _accrue();
         if (amount > cash) revert InsufficientCash();
@@ -307,25 +365,30 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
             tokenId: tokenId,
             normDebt: normDebt,
             state: LoanState.Active,
-            auctionStart: 0
+            auctionStart: 0,
+            keeper: address(0),
+            autoRepay: false
         });
         loanIdOfEscrow[escrow] = loanId;
         totalNormDebt += normDebt;
         cash -= amount;
         emit Opened(loanId, msg.sender, tokenId, amount);
+        uint256 fee = _originationFee(loanId, amount);
 
         LoanEscrow(escrow).initialize(address(this), ve, voter, distributor, btc, tokenId);
         ve.transferFrom(msg.sender, escrow, tokenId);
         if (ve.ownerOf(tokenId) != escrow) revert EscrowMismatch();
-        musd.safeTransfer(msg.sender, amount);
+        _payOut(amount, fee);
     }
 
-    /// @notice Borrows `amount` more MUSD on an Active loan, subject to the same LTV and term limits as `open`.
+    /// @notice Borrows `amount` more MUSD on an Active loan, subject to the same LTV, term and peg checks as `open`.
+    /// The debt grows by `amount`; the caller receives it less the origination fee.
     function borrowMore(uint256 loanId, uint256 amount) external nonReentrant whenNotPaused {
         Loan storage record = _borrowerLoan(loanId, true);
         if (amount == 0) revert ZeroAmount();
         IVeBTC.LockedBalance memory lock = ve.locked(record.tokenId);
         _checkTerm(lock);
+        _checkPeg();
 
         _accrue();
         if (amount > cash) revert InsufficientCash();
@@ -336,38 +399,76 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         totalNormDebt += normDelta;
         cash -= amount;
         emit Borrowed(loanId, amount);
+        uint256 fee = _originationFee(loanId, amount);
 
-        musd.safeTransfer(msg.sender, amount);
+        _payOut(amount, fee);
     }
 
     /// @notice Repays up to `amount` of the loan's debt from the caller. Anyone may repay. Repaying the full debt,
-    /// also mid-auction, closes the loan and returns the NFT to the borrower. Never reads the oracle.
+    /// also mid-auction, closes the loan and returns the NFT to the borrower. Never reads the oracle or the peg.
     /// @return repaid MUSD taken from the caller.
     function repay(uint256 loanId, uint256 amount) external nonReentrant returns (uint256 repaid) {
         Loan storage record = _openLoan(loanId);
         if (amount == 0) revert ZeroAmount();
 
         _accrue();
-        uint256 debt = _toDebt(record.normDebt, borrowIndex);
-        bool full = amount >= debt;
-        if (full) {
-            repaid = debt;
-            totalNormDebt -= record.normDebt;
-            record.normDebt = 0;
-            record.state = LoanState.Closed;
-        } else {
-            repaid = amount;
-            // Rounded down, and strictly below the loan's normalised debt because amount < debt.
-            uint256 normDelta = Math.mulDiv(amount, WAD, borrowIndex);
-            record.normDebt -= normDelta;
-            totalNormDebt -= normDelta;
-        }
-        cash += repaid;
+        bool full;
+        (repaid, full) = _applyRepayment(record, amount);
         emit Repaid(loanId, msg.sender, repaid);
         if (full) emit Closed(loanId);
 
         musd.safeTransferFrom(msg.sender, address(this), repaid);
         if (full) LoanEscrow(record.escrow).release(record.borrower);
+    }
+
+    /// @notice Turns or stops turning the escrowed NFT's fees and bribes into repayment: while on, anyone may call
+    /// `harvest` for the loan.
+    function setAutoRepay(uint256 loanId, bool enabled) external nonReentrant {
+        Loan storage record = _borrowerLoan(loanId, false);
+        record.autoRepay = enabled;
+        emit AutoRepaySet(loanId, enabled);
+    }
+
+    /// @notice Claims the escrowed NFT's fees and bribes to this line and applies them: the MUSD received repays the
+    /// loan (the excess goes to the borrower; repaying the whole debt closes the loan and returns the NFT, as `repay`
+    /// does), every other token received goes to the borrower, and the veBTC rebase is claimed as in
+    /// `escrowClaimRebase`. Anyone may call it on a loan with auto-repay on, only the borrower otherwise. Active and
+    /// Auction loans; never reads the oracle or the peg.
+    /// @dev Only what the claim moves counts: the line's MUSD (its `cash` and any stray balance) and every token it
+    /// already held stay put. MUSD is measured around the claim alone; the listed tokens are read before it and
+    /// forwarded after it against the live balance, so a token listed twice is forwarded once. MUSD and the veBTC
+    /// address are never forwarded as listed tokens. A failing rebase claim (the distributor can refuse claims for a
+    /// while after an epoch flip) does not stop the harvest; the event reports it. Repaid names the escrow as payer.
+    /// @return repaid MUSD of the claim that repaid the loan.
+    function harvest(uint256 loanId, address[] calldata rewards, address[][] calldata tokens)
+        external
+        nonReentrant
+        returns (uint256 repaid)
+    {
+        Loan storage record = _openLoan(loanId);
+        if (!record.autoRepay && msg.sender != record.borrower) revert NotBorrower();
+        _accrue();
+        address borrower = record.borrower;
+        LoanEscrow escrow = LoanEscrow(record.escrow);
+
+        uint256[] memory before = _listedBalances(tokens);
+        uint256 musdBefore = musd.balanceOf(address(this));
+        // The claims run before the books because the books need what they paid; the line is locked meanwhile.
+        // forge-lint: disable-next-line(reentrancy-no-eth)
+        escrow.claimRewards(rewards, tokens, address(this));
+        uint256 claimed = musd.balanceOf(address(this)) - musdBefore;
+        bool rebaseClaimed = _tryClaimRebase(escrow, borrower);
+
+        // A zero claim books nothing: an open loan always owes at least one wei.
+        bool full;
+        (repaid, full) = _applyRepayment(record, claimed);
+        emit Harvested(loanId, msg.sender, claimed, repaid, rebaseClaimed);
+        if (repaid > 0) emit Repaid(loanId, address(escrow), repaid);
+        if (full) emit Closed(loanId);
+
+        if (claimed > repaid) musd.safeTransfer(borrower, claimed - repaid);
+        _forwardListed(loanId, tokens, before, borrower);
+        if (full) escrow.release(borrower);
     }
 
     /// @notice Extends the escrowed lock to `now + duration` (rounded down to weeks), which moves the maturity.
@@ -429,7 +530,8 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     /* Liquidation */
 
     /// @notice Starts the Dutch auction of an Active loan whose LTV reached `liqLtvBps` or whose timed lock has
-    /// reached its end. Permissionless.
+    /// reached its end. Permissionless; the caller is recorded as the loan's keeper and paid the keeper share of the
+    /// liquidation fee when the NFT sells.
     function startAuction(uint256 loanId) external nonReentrant {
         Loan storage record = loans[loanId];
         if (record.state != LoanState.Active) revert LoanNotActive();
@@ -445,7 +547,8 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         // Safe: block timestamps fit in 64 bits for billions of years.
         // forge-lint: disable-next-line(unsafe-typecast)
         record.auctionStart = uint64(block.timestamp);
-        emit AuctionStarted(loanId, reason);
+        record.keeper = msg.sender;
+        emit AuctionStarted(loanId, reason, msg.sender);
     }
 
     /// @notice Current auction price in MUSD: live collateral value, decaying linearly from 100% to `floorBps`
@@ -460,9 +563,9 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         return Math.mulDiv(value, span - (BPS - floorBps) * elapsed, span);
     }
 
-    /// @notice Buys the auctioned NFT at the current price, if it is at most `maxPrice`. The line keeps up to
-    /// debt plus the liquidation fee, any surplus goes to the borrower, and a price below the debt records the
-    /// difference as bad debt.
+    /// @notice Buys the auctioned NFT at the current price, if it is at most `maxPrice`. The proceeds cover the debt
+    /// and then the liquidation fee, which is split between lenders, treasury and keeper; any surplus goes to the
+    /// borrower, and a price below the debt records the difference as bad debt.
     function bid(uint256 loanId, uint256 maxPrice) external nonReentrant {
         Loan storage record = loans[loanId];
         if (record.state != LoanState.Auction) revert NoAuction();
@@ -479,13 +582,16 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         totalNormDebt -= record.normDebt;
         record.normDebt = 0;
         record.state = LoanState.Liquidated;
-        cash += toLine;
         badDebtTotal += shortfall;
-        if (toLine > debt) interestBooked += toLine - debt;
         emit Bid(loanId, msg.sender, price, debt, shortfall, surplus);
+        (uint256 toTreasury, uint256 toKeeper) =
+            _splitLiquidationFee(loanId, record.keeper, toLine > debt ? toLine - debt : 0);
+        cash += toLine - toTreasury - toKeeper;
 
         musd.safeTransferFrom(msg.sender, address(this), price);
         if (surplus > 0) musd.safeTransfer(record.borrower, surplus);
+        if (toTreasury > 0) musd.safeTransfer(treasury, toTreasury);
+        if (toKeeper > 0) musd.safeTransfer(record.keeper, toKeeper);
         LoanEscrow(record.escrow).release(msg.sender);
     }
 
@@ -526,7 +632,10 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
             liqFeeBps: liqFeeBps,
             floorBps: floorBps,
             auctionDuration: auctionDuration,
-            minTerm: minTerm
+            minTerm: minTerm,
+            originationFeeBps: originationFeeBps,
+            protocolShareBps: protocolShareBps,
+            keeperShareBps: keeperShareBps
         });
     }
 
@@ -571,7 +680,8 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
     }
 
     /// @notice Largest amount `open` would lend against `tokenId` now, capped by cash. Zero if the NFT is not
-    /// eligible (not NORMAL, a grant lock, no lock, or a timed lock ending within `minTerm`).
+    /// eligible (not NORMAL, a grant lock, no lock, or a timed lock ending within `minTerm`). The borrower would
+    /// receive it less the origination fee. Ignores the pause and the peg.
     function maxBorrow(uint256 tokenId) external view returns (uint256) {
         if (ve.escrowType(tokenId) != IVeBTC.EscrowType.NORMAL || ve.grantManager(tokenId) != address(0)) return 0;
         IVeBTC.LockedBalance memory lock = ve.locked(tokenId);
@@ -615,6 +725,124 @@ contract VeBTCCreditLine is ISuretyLine, IEscrowRegistry, Ownable2Step, Reentran
         // forge-lint: disable-next-line(unsafe-typecast)
         change = int256(position) - int256(allocation);
         allocation = position;
+    }
+
+    function _checkParams(Params memory p) internal pure {
+        if (
+            p.maxLtvTimedBps == 0 || p.maxLtvPermanentBps == 0 || p.maxLtvTimedBps >= p.liqLtvBps
+                || p.maxLtvPermanentBps >= p.liqLtvBps || p.liqLtvBps > BPS || p.liqFeeBps > BPS || p.floorBps > BPS
+                || uint256(p.floorBps) * BPS <= uint256(p.liqLtvBps) * (BPS + p.liqFeeBps) || p.auctionDuration == 0
+                || p.originationFeeBps > MAX_ORIGINATION_FEE_BPS || p.protocolShareBps > MAX_PROTOCOL_SHARE_BPS
+                || p.keeperShareBps > BPS
+        ) revert BadParams();
+    }
+
+    /// @dev Reverts with PegUnhealthy unless the peg reports MUSD healthy.
+    function _checkPeg() internal view {
+        if (!peg.pegHealthy()) revert PegUnhealthy();
+    }
+
+    /// @dev Origination fee on `amount`, rounded down; emits OriginationFeePaid when non-zero.
+    function _originationFee(uint256 loanId, uint256 amount) internal returns (uint256 fee) {
+        fee = amount * originationFeeBps / BPS;
+        if (fee > 0) emit OriginationFeePaid(loanId, fee);
+    }
+
+    /// @dev Pays a borrowing of `amount` out of the line: `amount - fee` to the caller, `fee` to the treasury.
+    function _payOut(uint256 amount, uint256 fee) internal {
+        musd.safeTransfer(msg.sender, amount - fee);
+        if (fee > 0) musd.safeTransfer(treasury, fee);
+    }
+
+    /// @dev Books a repayment of up to `amount` on `record`, interest accrued: the whole debt when `amount` covers
+    /// it (closing the loan), else `amount` with the normalised debt burned rounded down. Adds the repayment to cash.
+    function _applyRepayment(Loan storage record, uint256 amount) internal returns (uint256 repaid, bool full) {
+        uint256 debt = _toDebt(record.normDebt, borrowIndex);
+        full = amount >= debt;
+        if (full) {
+            repaid = debt;
+            totalNormDebt -= record.normDebt;
+            record.normDebt = 0;
+            record.state = LoanState.Closed;
+        } else {
+            repaid = amount;
+            // Rounded down, and strictly below the loan's normalised debt because amount < debt.
+            uint256 normDelta = Math.mulDiv(amount, WAD, borrowIndex);
+            record.normDebt -= normDelta;
+            totalNormDebt -= normDelta;
+        }
+        cash += repaid;
+    }
+
+    /// @dev Splits the liquidation fee a bid leaves in the line: the lenders' part is booked as income, the protocol
+    /// part is returned split between treasury and keeper for the caller to pay out. Nothing to split, no event.
+    function _splitLiquidationFee(uint256 loanId, address keeper, uint256 fee)
+        internal
+        returns (uint256 toTreasury, uint256 toKeeper)
+    {
+        if (fee == 0) return (0, 0);
+        uint256 protocolPart = fee * protocolShareBps / BPS;
+        // The keeper's share is of the rounded protocol part, so the three parts add up to the fee exactly.
+        // forge-lint: disable-next-line(divide-before-multiply)
+        toKeeper = protocolPart * keeperShareBps / BPS;
+        toTreasury = protocolPart - toKeeper;
+        uint256 toLenders = fee - protocolPart;
+        interestBooked += toLenders;
+        emit LiquidationFeePaid(loanId, keeper, toLenders, toTreasury, toKeeper);
+    }
+
+    /// @dev Claims the escrow's rebase for `to`; false when the distributor refuses.
+    function _tryClaimRebase(LoanEscrow escrow, address to) internal returns (bool claimed) {
+        // Runs inside `harvest` before its books, with the line locked.
+        // forge-lint: disable-next-line(reentrancy-no-eth)
+        try escrow.claimRebase(to) {
+            claimed = true;
+        } catch {}
+    }
+
+    /// @dev Balance of every listed token before a harvest's claim; zero for MUSD and veBTC entries.
+    function _listedBalances(address[][] calldata tokens) internal view returns (uint256[] memory before) {
+        uint256 count = 0;
+        for (uint256 i; i < tokens.length; ++i) {
+            count += tokens[i].length;
+        }
+        before = new uint256[](count);
+        uint256 k = 0;
+        for (uint256 i; i < tokens.length; ++i) {
+            for (uint256 j; j < tokens[i].length; ++j) {
+                address token = tokens[i][j];
+                // The caller picks the list; a failing token only fails this harvest.
+                // forge-lint: disable-next-line(calls-loop)
+                if (_isForwarded(token)) before[k] = IERC20(token).balanceOf(address(this));
+                ++k;
+            }
+        }
+    }
+
+    /// @dev Sends the borrower what each listed token's balance gained over `before`, read against the live balance.
+    function _forwardListed(uint256 loanId, address[][] calldata tokens, uint256[] memory before, address to) internal {
+        uint256 k = 0;
+        for (uint256 i; i < tokens.length; ++i) {
+            for (uint256 j; j < tokens[i].length; ++j) {
+                address token = tokens[i][j];
+                if (_isForwarded(token)) {
+                    // forge-lint: disable-next-line(calls-loop)
+                    uint256 balance = IERC20(token).balanceOf(address(this));
+                    if (balance > before[k]) {
+                        uint256 amount = balance - before[k];
+                        emit RewardForwarded(loanId, token, amount);
+                        // forge-lint: disable-next-line(calls-loop)
+                        IERC20(token).safeTransfer(to, amount);
+                    }
+                }
+                ++k;
+            }
+        }
+    }
+
+    /// @dev Tokens a harvest forwards as listed: not MUSD (it repays) and never the veBTC contract.
+    function _isForwarded(address token) internal view returns (bool) {
+        return token != address(musd) && token != address(ve);
     }
 
     function _openLoan(uint256 loanId) internal view returns (Loan storage record) {

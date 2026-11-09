@@ -241,7 +241,7 @@ contract LifecycleTest is SuretyFixture {
         uint256 tokenId;
         (loanId, tokenId) = _openTimed(borrower, 0.05e18, VE_BORROW);
         assertEq(ve.ownerOf(tokenId), line.loan(loanId).escrow);
-        assertEq(musd.balanceOf(borrower), VE_BORROW);
+        assertEq(musd.balanceOf(borrower), _afterFee(VE_BORROW));
     }
 
     /// @dev One keeper run at the flip: warp an epoch, rebalance, then carry the ballots into the new epoch.

@@ -4,11 +4,43 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
+import {IMusdPeg} from "../../src/interfaces/IMusdPeg.sol";
+import {IPegSource} from "../../src/interfaces/IPegSource.sol";
 import {IPriceSource} from "../../src/interfaces/IPriceSource.sol";
+import {BtcMusdPriceSource} from "../../src/oracles/BtcMusdPriceSource.sol";
 import {SkipPriceSource} from "../../src/oracles/SkipPriceSource.sol";
 import {StressedPriceSource} from "../../src/oracles/StressedPriceSource.sol";
 import {MorphoPriceOracle} from "../../src/oracles/MorphoPriceOracle.sol";
+import {MusdPeg} from "../../src/oracles/peg/MusdPeg.sol";
 import {MockAggregator} from "../mocks/MockAggregator.sol";
+import {MockPegSource} from "../mocks/MockPegSource.sol";
+
+/// @notice IMusdPeg whose `musdUsdWad` returns a set value or reverts with a set error.
+contract ScriptedPeg is IMusdPeg {
+    uint256 public value;
+    bytes public revertData;
+
+    error Boom();
+
+    function set(uint256 value_, bytes memory revertData_) external {
+        value = value_;
+        revertData = revertData_;
+    }
+
+    function musdUsdWad() external view returns (uint256) {
+        bytes memory data = revertData;
+        if (data.length > 0) {
+            assembly ("memory-safe") {
+                revert(add(data, 32), mload(data))
+            }
+        }
+        return value;
+    }
+
+    function pegHealthy() external pure returns (bool) {
+        return true;
+    }
+}
 
 contract OraclesTest is Test {
     /// @dev $81,565.5831 with 18 decimals, as reported by the Skip BTC/USD feed.
@@ -146,5 +178,64 @@ contract OraclesTest is Test {
         MorphoPriceOracle oracle = new MorphoPriceOracle(stressed);
         stressed.shock(6000, 1 hours);
         assertEq(oracle.price(), uint256(BTC_USD) * 4000 / 10_000 * 1e18);
+    }
+
+    /* BtcMusdPriceSource */
+
+    function test_btcMusd_dividesByPegAboveOneOnly() public {
+        MockPegSource s = new MockPegSource(1e18);
+        IPegSource[] memory list = new IPegSource[](1);
+        list[0] = s;
+        MusdPeg peg = new MusdPeg(list, 1, 500, 300);
+        BtcMusdPriceSource source = new BtcMusdPriceSource(skipSource, peg);
+        assertEq(source.priceWad(), uint256(BTC_USD));
+
+        // MUSD below $1 is ignored: BTC is never worth more MUSD than USD.
+        s.set(true, 0.95e18);
+        assertEq(source.musdUsdWad(), 0.95e18);
+        assertEq(source.priceWad(), uint256(BTC_USD));
+
+        // MUSD above $1 lowers the BTC price in MUSD, even when the peg is unhealthy.
+        s.set(true, 1.04e18);
+        assertFalse(peg.pegHealthy());
+        assertEq(source.priceWad(), uint256(BTC_USD) * 1e18 / 1.04e18);
+
+        // An unavailable peg counts as exactly $1.
+        s.set(false, 0);
+        assertEq(source.musdUsdWad(), 1e18);
+        assertEq(source.priceWad(), uint256(BTC_USD));
+
+        // Morpho's oracle stays a plain scale of the source.
+        s.set(true, 1.02e18);
+        MorphoPriceOracle oracle = new MorphoPriceOracle(source);
+        assertEq(oracle.price(), uint256(BTC_USD) * 1e18 / 1.02e18 * 1e18);
+    }
+
+    function test_btcMusd_revertsOnlyWithSkip_orOnOtherPegFailures() public {
+        ScriptedPeg peg = new ScriptedPeg();
+        BtcMusdPriceSource source = new BtcMusdPriceSource(skipSource, peg);
+        peg.set(1.01e18, "");
+        assertEq(source.priceWad(), uint256(BTC_USD) * 1e18 / 1.01e18);
+
+        peg.set(0, abi.encodeWithSelector(IMusdPeg.PegUnavailable.selector));
+        assertEq(source.priceWad(), uint256(BTC_USD));
+
+        // Only a bare PegUnavailable falls back; anything else propagates.
+        peg.set(0, abi.encodeWithSelector(ScriptedPeg.Boom.selector));
+        vm.expectRevert(ScriptedPeg.Boom.selector);
+        source.priceWad();
+        peg.set(0, abi.encodePacked(IMusdPeg.PegUnavailable.selector, uint256(1)));
+        vm.expectRevert(abi.encodePacked(IMusdPeg.PegUnavailable.selector, uint256(1)));
+        source.priceWad();
+
+        peg.set(1e18, "");
+        aggregator.setUpdatedAt(block.timestamp - 61);
+        vm.expectRevert(IPriceSource.StalePrice.selector);
+        source.priceWad();
+
+        vm.expectRevert(BtcMusdPriceSource.ZeroAddress.selector);
+        new BtcMusdPriceSource(IPriceSource(address(0)), peg);
+        vm.expectRevert(BtcMusdPriceSource.ZeroAddress.selector);
+        new BtcMusdPriceSource(skipSource, IMusdPeg(address(0)));
     }
 }
