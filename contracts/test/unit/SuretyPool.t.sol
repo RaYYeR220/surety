@@ -892,6 +892,38 @@ contract SuretyPoolTest is PoolFixture {
         assertEq(pool.uncoveredLoss(MORPHO_LINE), 0);
     }
 
+    /// @dev With the vault's cash parked in sMUSD (its liquidity adapter) and no idle MUSD, a cover still moves MUSD:
+    /// VaultV2 pulls it from savings on the pool's withdrawal, and it lands back in the vault as idle MUSD.
+    function test_cover_drawsOnSavingsLiquidity() public {
+        _deploySavings();
+        vm.prank(admin);
+        vault.setLiquidityAdapterAndData(address(savings), "");
+        uint256 a = _lockPermanent(alice, 1e18);
+        _deposit(lender, 20_000e18);
+        _warpEpochs(1);
+        _voteAll(alice, a, MORPHO_LINE);
+        _post(sponsor, MORPHO_LINE, 10_000e18);
+        vm.prank(admin);
+        vault.deallocate(address(savings), "", 28_000e18);
+        _allocateMorpho(28_000e18);
+        _borrowMorpho(morphoBorrower, 0.2e18, 10_000e18);
+        assertEq(pool.checkpoint(MORPHO_LINE), 0);
+        assertEq(musd.balanceOf(address(vault)), 0, "no idle MUSD");
+        assertEq(savings.realAssets(), 2_000e18);
+
+        _shock(6000);
+        _liquidateMorpho(liquidator, morphoBorrower);
+        vm.recordLogs();
+        uint256 first = pool.cover(MORPHO_LINE);
+        (, uint256 moved,,) = _coveredLog();
+        assertEq(moved, 2_000e18, "everything savings held");
+        assertGt(first, 0);
+        assertEq(savings.realAssets(), 0);
+        assertEq(musd.balanceOf(address(vault)), 2_000e18, "returned as idle MUSD");
+        assertEq(pool.cover(MORPHO_LINE), pool.lossRecorded(MORPHO_LINE) - first);
+        assertEq(pool.uncoveredLoss(MORPHO_LINE), 0);
+    }
+
     /* Cover sizing */
 
     /// @dev 0.01%, the tolerance of the exact-restoration checks.

@@ -356,11 +356,12 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         return _checkpoint(lineId, voter.line(lineId));
     }
 
-    /// @notice Checkpoints `lineId`, then covers as much of its uncovered loss as the pool and the vault's idle MUSD
+    /// @notice Checkpoints `lineId`, then covers as much of its uncovered loss as the pool and the vault's liquid MUSD
     /// allow. Permissionless and repeatable; `lossCovered` never exceeds `lossRecorded`.
     /// @dev Shares come pro rata from the line's backed, unmatured cohorts, then from the reserve, and are
     /// withdrawn from the vault as MUSD. Morpho line: the MUSD goes back to the vault as idle assets. veBTC line:
-    /// paid in through `receiveCover`.
+    /// paid in through `receiveCover`. The vault's liquid MUSD is its idle MUSD plus what its liquidity adapter holds
+    /// (the savings adapter, which the allocator sets and which VaultV2 withdraws from when idle MUSD is short).
     ///
     /// Sizing. A loss U leaves A assets for T shares, down from (A+U)/T a share. Withdrawing W burns W*T/A shares at
     /// the post-loss price, and VaultV2 later recognises the returned W as interest and mints its performance fee f
@@ -369,7 +370,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
     /// (A+U)/T and the pool is down exactly U from its pre-loss value, net of the fee shares it got back. Those fee
     /// shares are credited back to the cohorts (and reserve) the cover slashed, pro rata to what each paid, by the
     /// `distributeFees` calls that follow the re-recognition, so the slashed cohorts net exactly U. A cover cut
-    /// short (by the pool or by idle MUSD) moves less and covers `W*(1-f)*(A+U) / (A - f*W)` loss units: the shares
+    /// short (by the pool or by liquid MUSD) moves less and covers `W*(1-f)*(A+U) / (A - f*W)` loss units: the shares
     /// it takes, net of their fee shares, priced at (A+U)/T, so covering the rest later ends at the same price as
     /// one full cover. Returned MUSD that VaultV2 has not recognised yet (R = realAssets - A) enters through
     /// X = A + (1-f)*R and the gap G = U*X/(A+R): W = A*G/(X + G - f*A), and a partial W closes W*(X + G - f*A)/A
@@ -398,8 +399,7 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         uint256 available = cohortShares + reserveShares;
         if (available == 0) return 0;
         uint256 assets;
-        (covered, assets) =
-            _sizeCover(uncovered, Math.min(vault.previewRedeem(available), musd.balanceOf(address(vault))));
+        (covered, assets) = _sizeCover(uncovered, Math.min(vault.previewRedeem(available), _vaultLiquidity()));
         if (covered == 0) return 0;
 
         // At most `available`, since `assets` is at most what `available` redeems for.
@@ -702,6 +702,15 @@ contract SuretyPool is ISuretyPool, Ownable2Step, ReentrancyGuardTransient {
         uint256 real = _vaultRealAssets();
         uint256 total = vault.totalAssets();
         return real > total ? real - total : 0;
+    }
+
+    /// @dev MUSD a withdrawal from the vault can pay now: idle MUSD plus what the liquidity adapter holds, which
+    /// VaultV2 deallocates on a withdrawal larger than idle. The allocator only ever sets the savings adapter there,
+    /// whose position is all withdrawable while sMUSD pays out; if it does not, the cover's withdrawal reverts.
+    function _vaultLiquidity() internal view returns (uint256 liquid) {
+        liquid = musd.balanceOf(address(vault));
+        address adapter = vault.liquidityAdapter();
+        if (adapter != address(0)) liquid += IAdapter(adapter).realAssets();
     }
 
     /// @dev What VaultV2 values its assets at before the max rate: idle MUSD plus every adapter's real assets.
