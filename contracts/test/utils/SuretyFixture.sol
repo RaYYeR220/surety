@@ -13,6 +13,7 @@ import {MorphoMarketV1AdapterV2} from "vault-v2/adapters/MorphoMarketV1AdapterV2
 
 import {CreditVoter} from "../../src/CreditVoter.sol";
 import {DepositGate} from "../../src/DepositGate.sol";
+import {SavingsAdapter} from "../../src/SavingsAdapter.sol";
 import {SuretyPool} from "../../src/SuretyPool.sol";
 import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
@@ -31,6 +32,7 @@ import {MockAggregator} from "../mocks/MockAggregator.sol";
 import {MockDistributor} from "../mocks/MockDistributor.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockPoolsVoter} from "../mocks/MockPoolsVoter.sol";
+import {MockSavingsRate} from "../mocks/MockSavingsRate.sol";
 import {MockVeBTC} from "../mocks/MockVeBTC.sol";
 
 /// @notice Shared test world and the integrated Surety deployment.
@@ -67,6 +69,8 @@ abstract contract SuretyFixture is Test {
     uint256 internal constant LLTV = 0.86e18;
     uint256 internal constant MORPHO_CAP = 1_000_000_000e18;
     uint256 internal constant LINE_CAP = 100_000_000e18;
+    /// @dev The savings adapter holds the vault's cash, so its cap must never bind a deposit.
+    uint256 internal constant SAVINGS_CAP = 1_000_000_000e18;
     /// @dev Voter fee taken as the VaultV2 performance fee.
     uint256 internal constant VOTER_FEE = 0.1e18;
     /// @dev Penalty VaultV2 charges on a permissionless `forceDeallocate`, per adapter.
@@ -130,6 +134,8 @@ abstract contract SuretyFixture is Test {
     VoteAllocator internal allocator;
     SuretyPool internal pool;
     DepositGate internal gate;
+    MockSavingsRate internal smusd;
+    SavingsAdapter internal savings;
 
     function setUp() public virtual {
         vm.warp(START_TIME);
@@ -291,6 +297,26 @@ abstract contract SuretyFixture is Test {
         _curate(abi.encodeCall(IVaultV2.addAdapter, (address(line))));
         _setCaps(LineIds.adapterIdData(address(line)), LINE_CAP);
         _setCaps(LineIds.collateralIdData(address(ve)), LINE_CAP);
+    }
+
+    /// @notice Deploys a mock sMUSD and a SavingsAdapter on it, adds the adapter to the vault with SAVINGS_CAP and a
+    /// 100% relative cap, and gives it the force-deallocate penalty of the other adapters.
+    function _deploySavings() internal {
+        smusd = new MockSavingsRate(musd);
+        savings = new SavingsAdapter(address(vault), smusd);
+        vm.label(address(smusd), "sMUSD");
+        vm.label(address(savings), "SavingsAdapter");
+
+        _curate(abi.encodeCall(IVaultV2.addAdapter, (address(savings))));
+        _setCaps(LineIds.adapterIdData(address(savings)), SAVINGS_CAP);
+        _curate(abi.encodeCall(IVaultV2.setForceDeallocatePenalty, (address(savings), FORCE_DEALLOCATE_PENALTY)));
+    }
+
+    /// @notice Pays `amount` MUSD of yield to every sMUSD holder, as Mezo's PCV does.
+    function _smusdYield(uint256 amount) internal {
+        musd.mint(address(this), amount);
+        musd.approve(address(smusd), amount);
+        smusd.receiveProtocolYield(amount);
     }
 
     /* Vault administration */
