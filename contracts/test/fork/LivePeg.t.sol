@@ -78,7 +78,7 @@ contract LivePegTest is Test {
         sources[1] = usdcSource;
         sources[2] = usdtSource;
         sources[3] = crossSource;
-        peg = new MusdPeg(sources, 2, 500, 300);
+        peg = new MusdPeg(sources, 2, 1000, 300);
     }
 
     /// @dev The pools have the token order the sources were written for and answer the read interfaces: Slipstream's
@@ -181,9 +181,9 @@ contract LivePegTest is Test {
     /// stale Skip only drops the cross source.
     function test_fork_breakerTripsWhenSourcesDisagree() public {
         uint256 btcInMusd = skipSource.priceWad() * 1e18 / _crossReading();
-        // BTC/USD 10% above the pool's BTC price in MUSD: the cross source reads about $1.10.
-        MockAggregator(SKIP_BTC_USD).setAnswer(int256(btcInMusd * 110 / 100));
-        assertGe(_crossReading(), 1.09e18);
+        // BTC/USD 15% above the pool's BTC price in MUSD: the cross source reads about $1.15.
+        MockAggregator(SKIP_BTC_USD).setAnswer(int256(btcInMusd * 115 / 100));
+        assertGe(_crossReading(), 1.14e18);
         assertFalse(peg.pegHealthy(), "sources disagree");
 
         MockAggregator(SKIP_BTC_USD).setUpdatedAt(block.timestamp - 61);

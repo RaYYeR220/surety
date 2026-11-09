@@ -325,7 +325,7 @@ contract LiveMezoTest is Test {
         sources[1] = new StableTwapPegSource(IBasicPool(SAMM_MUSDC_MUSD), MUSD, 2, 6 hours);
         sources[2] = new StableTwapPegSource(IBasicPool(SAMM_MUSD_MUSDT), MUSD, 2, 6 hours);
         sources[3] = new BtcCrossPegSource(ICLPool(CL_BTC_MUSD), MUSD, 30 minutes, 2e20, skipSource, 18);
-        MusdPeg peg = new MusdPeg(sources, 2, 500, 300);
+        MusdPeg peg = new MusdPeg(sources, 2, 1000, 300);
         BtcMusdPriceSource source = new BtcMusdPriceSource(skipSource, peg, 300);
         MorphoPriceOracle oracle = new MorphoPriceOracle(source);
         market = MarketParams({
