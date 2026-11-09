@@ -6,8 +6,9 @@ import {IOracle} from "morpho-blue/interfaces/IOracle.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 
 /// @title MorphoPriceOracle
-/// @notice Morpho Blue oracle for BTC-collateral / MUSD-loan markets, with MUSD valued at exactly $1.
-/// @dev Morpho expects the price of one collateral unit in loan units scaled by
+/// @notice Morpho Blue oracle for BTC-collateral / MUSD-loan markets: the source's BTC price in MUSD, rescaled.
+/// @dev Production hands it BtcMusdPriceSource (BTC/USD over the MUSD peg); a bare SkipPriceSource values MUSD at
+/// exactly $1. Morpho expects the price of one collateral unit in loan units scaled by
 /// 1e36 * 10^loanDecimals / 10^collateralDecimals. Both tokens have 18 decimals, so price = priceWad * 1e18.
 /// Reverts from the source propagate, which blocks borrows and liquidations while the feed is unusable.
 contract MorphoPriceOracle is IOracle {
