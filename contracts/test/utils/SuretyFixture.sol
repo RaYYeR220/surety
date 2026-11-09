@@ -104,6 +104,8 @@ abstract contract SuretyFixture is Test {
     uint16 internal constant KEEPER_SHARE = 5000;
     uint256 internal constant PEG_MAX_SPREAD = 500;
     uint256 internal constant PEG_BAND = 300;
+    /// @dev Largest MUSD premium BtcMusdPriceSource divides by (the mainnet value).
+    uint16 internal constant PEG_MAX_PREMIUM = 300;
 
     /// @dev Epoch length used by Surety contracts and `_warpEpochs`. Assign before `super.setUp()` to change it.
     uint256 internal EPOCH_LENGTH = 1 weeks;
@@ -187,7 +189,7 @@ abstract contract SuretyFixture is Test {
         IPegSource[] memory pegSources = new IPegSource[](1);
         pegSources[0] = pegSource;
         peg = new MusdPeg(pegSources, 1, PEG_MAX_SPREAD, PEG_BAND);
-        lineSource = new BtcMusdPriceSource(stressedSource, peg);
+        lineSource = new BtcMusdPriceSource(stressedSource, peg, PEG_MAX_PREMIUM);
         vm.label(address(aggregator), "SkipAggregator");
         vm.label(address(stressedSource), "StressedPriceSource");
         vm.label(address(morphoOracle), "MorphoPriceOracle");

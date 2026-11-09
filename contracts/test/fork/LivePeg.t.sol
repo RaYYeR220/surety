@@ -167,8 +167,10 @@ contract LivePegTest is Test {
         console2.log("median", median, "healthy", peg.pegHealthy());
         assertGe(median, 0.97e18);
         assertLe(median, 1.03e18);
-        BtcMusdPriceSource btcMusd = new BtcMusdPriceSource(skipSource, peg);
-        uint256 expected = median > 1e18 ? skipSource.priceWad() * 1e18 / median : skipSource.priceWad();
+        BtcMusdPriceSource btcMusd = new BtcMusdPriceSource(skipSource, peg, 300);
+        uint256 divisor = median > 1.03e18 ? 1.03e18 : median;
+        uint256 expected =
+            peg.pegHealthy() && median > 1e18 ? skipSource.priceWad() * 1e18 / divisor : skipSource.priceWad();
         assertEq(btcMusd.priceWad(), expected);
         if (block.number != PEG_BLOCK || vm.envOr("SURETY_FORK_BTC_USD", BTC_USD) != BTC_USD) return;
         assertApproxEqAbs(median, CL_READING, 1);
