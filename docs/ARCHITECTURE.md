@@ -240,10 +240,10 @@ Each source implements `read() returns (bool ok, uint256 musdUsdWad)`, never rev
 
 | Deployment | Sources | `minSources` | `maxSpreadBps` | `bandBps` |
 | --- | --- | --- | --- | --- |
-| Mainnet (v2, planned) | CL mUSDC/MUSD, basic mUSDC/MUSD, basic MUSD/mUSDT, BTC cross | 2 | 1000 | 300 |
+| Mainnet (v2), `0x0777…9a5F` | CL mUSDC/MUSD, basic mUSDC/MUSD, basic MUSD/mUSDT, BTC cross | 2 | 1000 | 300 |
 | Testnet (v2) | StressedPegSource (testnet has no usable MUSD pool) | 1 | 1000 | 300 |
 
-The mainnet values come from 672 half-hour samples of the live pools between 2026-10-26 and 2026-11-09; the reasoning is in [`MusdPeg.sol`](../contracts/src/oracles/peg/MusdPeg.sol). On a fork of mainnet at block 13,100,532 the sources read 0.99144 (CL mUSDC/MUSD), 0.99125 (basic mUSDC/MUSD) and 1.00246 (BTC cross), with basic MUSD/mUSDT past its freshness bound; the median is 0.99144 and the peg healthy (`LivePeg` fork suite).
+The mainnet values come from 672 half-hour samples of the live pools between 2026-10-26 and 2026-11-09; the reasoning is in [`MusdPeg.sol`](../contracts/src/oracles/peg/MusdPeg.sol). On a fork of mainnet at block 13,100,532 the sources read 0.99144 (CL mUSDC/MUSD), 0.99125 (basic mUSDC/MUSD) and 1.00246 (BTC cross), with basic MUSD/mUSDT past its freshness bound; the median is 0.99144 and the peg healthy (`LivePeg` fork suite). The deployed mainnet peg first read at block 13,118,945, right after the deployment: 0.995138 and healthy, the mean of basic mUSDC/MUSD and the BTC cross, with CL mUSDC/MUSD under its liquidity floor and basic MUSD/mUSDT past its freshness bound ([PROOF.md](PROOF.md#the-mainnet-musd-peg-at-launch)).
 
 ### BtcMusdPriceSource and the clamp
 
@@ -378,10 +378,10 @@ Failing closed on Skip blocks liquidations during an outage too; that trade-off 
 
 ## Vault configuration as deployed
 
-| Setting | v2 testnet (31611) | v2 mainnet (31612, planned from the dry run) |
+| Setting | v2 testnet (31611) | v2 mainnet (31612) |
 | --- | --- | --- |
 | Name and symbol | Surety MUSD, srMUSD | same |
-| Owner, curator, sentinel | deployer key | deployer key at launch; to move to a multisig and timelock |
+| Owner, curator, sentinel | deployer key | deployer key; to move to a multisig and timelock |
 | Allocator | VoteAllocator only | same |
 | Performance fee | 10%, to the SuretyPool | same |
 | Management fee | 0.20% a year, to the treasury | same |
@@ -401,9 +401,11 @@ Failing closed on Skip blocks liquidations during an outage too; that trade-off 
 | Epoch length | 1 hour | 1 week |
 | Price source of the lines | BtcMusdPriceSource over StressedPriceSource (over SkipPriceSource) and MusdPeg | BtcMusdPriceSource over SkipPriceSource and MusdPeg |
 | MusdPeg | StressedPegSource; 1 of 1, spread 1000 bps, band 300 bps; premium cap 300 bps | Four pool sources; 2 of 4, spread 1000 bps, band 300 bps; premium cap 300 bps |
-| Morpho Blue and IRM | Mezo's testnet Morpho Blue `0xCe1d…5a73` and AdaptiveCurveIrm `0x0c97…7441`, LLTV 77% | Mezo's `0x5658…A311` and `0x3760…C1e7`, LLTV 86% |
+| Morpho Blue and IRM | Mezo's testnet Morpho Blue `0xCe1d…5a73` and AdaptiveCurveIrm `0x0c97…7441`, LLTV 77% | Mezo's `0x5658…A311` and `0x3760…C1e7`, market `0x4bff…30b8`, LLTV 86% |
 | Treasury | deployer key | deployer key, until a multisig takes over |
 | Sponsor | 5 kits funded (0.006 BTC, 300 MUSD), relayer `0x030E…7DdC` | none |
+
+The mainnet column is the deployment in [`contracts/deployments/31612.json`](../contracts/deployments/31612.json) (vault `0xFB12…7bE1`), read on chain on 2026-11-09; every call is listed in [PROOF.md](PROOF.md#configuration-on-chain-v2-mainnet).
 
 The 17 timelocked vault functions are `addAdapter`, `removeAdapter`, `increaseAbsoluteCap`, `increaseRelativeCap`, `setIsAllocator`, `setPerformanceFee`, `setPerformanceFeeRecipient`, `setManagementFee`, `setManagementFeeRecipient`, `setForceDeallocatePenalty`, `setAdapterRegistry`, `setReceiveSharesGate`, `setSendSharesGate`, `setReceiveAssetsGate`, `setSendAssetsGate`, `abdicate` and `increaseTimelock`. VaultV2's owner functions (owner, curator, sentinels, name, symbol) and the sentinel's risk-reducing actions (deallocate, decrease caps, revoke pending actions) have no timelock by VaultV2's design.
 
