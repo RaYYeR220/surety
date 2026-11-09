@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import {IMusdPeg} from "../../src/interfaces/IMusdPeg.sol";
 import {IPriceSource} from "../../src/interfaces/IPriceSource.sol";
 import {IVeBTC} from "../../src/interfaces/IVeBTC.sol";
 import {LineIds} from "../../src/libraries/LineIds.sol";
@@ -129,7 +130,8 @@ contract VeBTCCreditLineTest is LineFixture {
         assertFalse(line.isEscrow(borrower));
         assertEq(line.borrowerOfEscrow(borrower), address(0));
 
-        assertEq(musd.balanceOf(borrower), 30_000e18);
+        assertEq(musd.balanceOf(borrower), _afterFee(30_000e18));
+        assertEq(musd.balanceOf(treasury), 30_000e18 - _afterFee(30_000e18));
         assertEq(line.cash(), 70_000e18);
         assertEq(line.debtOf(loanId), 30_000e18);
         assertEq(line.totalDebt(), 30_000e18);
@@ -377,7 +379,12 @@ contract VeBTCCreditLineTest is LineFixture {
         uint256 debt = line.debtOf(loanId);
         uint256 before = line.interestEarnedTotal();
         _bid(bidder, loanId);
-        assertEq(line.interestEarnedTotal(), before + debt * LIQ_FEE / BPS, "liquidation fee is income");
+        uint256 fee = debt * LIQ_FEE / BPS;
+        assertEq(
+            line.interestEarnedTotal(),
+            before + fee - fee * PROTOCOL_SHARE / BPS,
+            "the lenders' part of the fee is income"
+        );
         _shock(6000);
         line.startAuction(loan2);
         before = line.interestEarnedTotal();
@@ -448,7 +455,7 @@ contract VeBTCCreditLineTest is LineFixture {
         emit VeBTCCreditLine.Borrowed(loanId, room);
         vm.prank(borrower);
         line.borrowMore(loanId, room);
-        assertEq(musd.balanceOf(borrower), 20_000e18 + room);
+        assertEq(musd.balanceOf(borrower), _afterFee(20_000e18) + _afterFee(room));
 
         // Close to maturity no more credit is extended.
         _repay(keeper, loanId, 20_000e18);
@@ -510,7 +517,7 @@ contract VeBTCCreditLineTest is LineFixture {
         // The extra collateral is borrowable.
         vm.prank(borrower);
         line.borrowMore(loanId, 20_000e18);
-        assertEq(musd.balanceOf(borrower), 60_000e18);
+        assertEq(musd.balanceOf(borrower), _afterFee(40_000e18) + _afterFee(20_000e18));
     }
 
     function test_pause_blocksOpenAndBorrowMoreOnly() public {
@@ -556,7 +563,7 @@ contract VeBTCCreditLineTest is LineFixture {
         assertGe(ltv, LIQ_LTV);
 
         vm.expectEmit(address(line));
-        emit VeBTCCreditLine.AuctionStarted(loanId, 0);
+        emit VeBTCCreditLine.AuctionStarted(loanId, 0, keeper);
         vm.prank(keeper);
         line.startAuction(loanId);
 
@@ -582,7 +589,7 @@ contract VeBTCCreditLineTest is LineFixture {
 
         _warp(1);
         vm.expectEmit(address(line));
-        emit VeBTCCreditLine.AuctionStarted(loanId, 1);
+        emit VeBTCCreditLine.AuctionStarted(loanId, 1, address(this));
         line.startAuction(loanId);
         assertEq(uint8(line.loan(loanId).state), uint8(VeBTCCreditLine.LoanState.Auction));
     }
@@ -590,7 +597,7 @@ contract VeBTCCreditLineTest is LineFixture {
     function test_startAuction_revertsWhenHealthy() public {
         _fundLine(100_000e18);
         (uint256 loanId,) = _openTimed(borrower, 1e18, 40_000e18);
-        // 50% LTV / 0.8 = 62.5%, under the 70% liquidation LTV.
+        // 50% LTV / 0.8 = 62.5%, under the 65% liquidation LTV.
         _shock(2000);
         vm.expectRevert(VeBTCCreditLine.NotLiquidatable.selector);
         line.startAuction(loanId);
@@ -613,14 +620,15 @@ contract VeBTCCreditLineTest is LineFixture {
         uint256 shocked = _value(1e18) * 5500 / BPS;
         assertEq(line.auctionPrice(loanId), shocked);
 
+        // From 100% to the 85% floor over 6 hours: 2.5 points an hour.
         _warp(1 hours);
-        assertApproxEqAbs(line.auctionPrice(loanId), shocked * 9500 / BPS, 1);
+        assertApproxEqAbs(line.auctionPrice(loanId), shocked * 9750 / BPS, 1);
 
         // The 2-hour shock has lapsed: the price follows the live collateral value.
         _warp(2 hours);
         (, uint256 value) = line.healthOf(loanId);
         assertEq(value, _value(1e18));
-        assertApproxEqAbs(line.auctionPrice(loanId), value * 8500 / BPS, 1);
+        assertApproxEqAbs(line.auctionPrice(loanId), value * 9250 / BPS, 1);
 
         _warp(3 hours);
         assertEq(line.auctionPrice(loanId), value * FLOOR / BPS);
@@ -644,6 +652,11 @@ contract VeBTCCreditLineTest is LineFixture {
         uint256 cashBefore = line.cash();
         uint256 assetsBefore = line.realAssets();
 
+        uint256 fee = owed - debt;
+        uint256 protocolPart = fee * PROTOCOL_SHARE / BPS;
+        uint256 toKeeper = protocolPart * KEEPER_SHARE / BPS;
+        uint256 treasuryBefore = musd.balanceOf(treasury);
+
         musd.mint(bidder, price);
         vm.startPrank(bidder);
         musd.approve(address(line), price);
@@ -651,16 +664,23 @@ contract VeBTCCreditLineTest is LineFixture {
         line.bid(loanId, price - 1);
         vm.expectEmit(address(line));
         emit VeBTCCreditLine.Bid(loanId, bidder, price, debt, 0, price - owed);
+        vm.expectEmit(address(line));
+        emit VeBTCCreditLine.LiquidationFeePaid(
+            loanId, address(this), fee - protocolPart, protocolPart - toKeeper, toKeeper
+        );
         line.bid(loanId, price);
         vm.stopPrank();
 
         assertEq(ve.ownerOf(tokenId), bidder);
         assertEq(musd.balanceOf(bidder), 0);
-        assertEq(musd.balanceOf(borrower), 40_000e18 + price - owed);
-        assertEq(line.cash(), cashBefore + owed);
+        assertEq(musd.balanceOf(borrower), _afterFee(40_000e18) + price - owed);
+        // The test contract started the auction: it is the keeper.
+        assertEq(musd.balanceOf(address(this)), toKeeper);
+        assertEq(musd.balanceOf(treasury) - treasuryBefore, protocolPart - toKeeper);
+        assertEq(line.cash(), cashBefore + owed - protocolPart);
         assertEq(line.totalDebt(), 0);
-        // The liquidation fee is income for lenders.
-        assertEq(line.realAssets(), assetsBefore + owed - debt);
+        // The lenders' part of the liquidation fee is income for lenders.
+        assertEq(line.realAssets(), assetsBefore + fee - protocolPart);
         assertEq(line.badDebtTotal(), 0);
         VeBTCCreditLine.Loan memory l = line.loan(loanId);
         assertEq(uint8(l.state), uint8(VeBTCCreditLine.LoanState.Liquidated));
@@ -688,7 +708,7 @@ contract VeBTCCreditLineTest is LineFixture {
         assertEq(line.badDebtTotal(), shortfall);
         assertEq(assetsBefore - line.realAssets(), shortfall);
         assertEq(line.totalDebt(), 0);
-        assertEq(musd.balanceOf(borrower), 40_000e18);
+        assertEq(musd.balanceOf(borrower), _afterFee(40_000e18));
         assertEq(ve.ownerOf(tokenId), bidder);
         // Every vault asset sits in the line, so the vault marks the loss straight away.
         assertEq(vault.totalAssets(), line.realAssets());
@@ -711,6 +731,275 @@ contract VeBTCCreditLineTest is LineFixture {
         vm.expectRevert(VeBTCCreditLine.NoAuction.selector);
         vm.prank(bidder);
         line.bid(loanId, type(uint256).max);
+    }
+
+    /* v2 parameters */
+
+    function test_constructor_requiresFloorAboveDebtPlusFeeAtTrigger() public {
+        VeBTCCreditLine.Params memory p = _lineParams();
+        // 65% * 1.03 = 66.95%: a floor there would only just cover debt and fee at the trigger.
+        p.floorBps = 6695;
+        vm.expectRevert(VeBTCCreditLine.BadParams.selector);
+        this.deployLine(p, musd);
+        p.floorBps = 6696;
+        assertEq(this.deployLine(p, musd).params().floorBps, 6696);
+
+        // The v1 parameters (trigger 70%, floor 70%) no longer deploy.
+        p = _lineParams();
+        p.liqLtvBps = 7000;
+        p.floorBps = 7000;
+        vm.expectRevert(VeBTCCreditLine.BadParams.selector);
+        this.deployLine(p, musd);
+    }
+
+    function test_constructor_capsFees_andRequiresPegAndTreasury() public {
+        VeBTCCreditLine.Params memory p = _lineParams();
+        p.originationFeeBps = 101;
+        vm.expectRevert(VeBTCCreditLine.BadParams.selector);
+        this.deployLine(p, musd);
+        p = _lineParams();
+        p.protocolShareBps = 5001;
+        vm.expectRevert(VeBTCCreditLine.BadParams.selector);
+        this.deployLine(p, musd);
+        p = _lineParams();
+        p.keeperShareBps = 10_001;
+        vm.expectRevert(VeBTCCreditLine.BadParams.selector);
+        this.deployLine(p, musd);
+        p.originationFeeBps = 100;
+        p.protocolShareBps = 5000;
+        p.keeperShareBps = 10_000;
+        assertEq(this.deployLine(p, musd).params().keeperShareBps, 10_000, "the caps themselves deploy");
+
+        vm.expectRevert(VeBTCCreditLine.ZeroAddress.selector);
+        this.deployLineWith(IMusdPeg(address(0)), treasury);
+        vm.expectRevert(VeBTCCreditLine.ZeroAddress.selector);
+        this.deployLineWith(peg, address(0));
+
+        VeBTCCreditLine.Params memory got = line.params();
+        assertEq(got.liqLtvBps, 6500);
+        assertEq(got.floorBps, 8500);
+        assertEq(got.originationFeeBps, 25);
+        assertEq(got.protocolShareBps, 2000);
+        assertEq(got.keeperShareBps, 5000);
+        assertEq(address(line.peg()), address(peg));
+        assertEq(line.treasury(), treasury);
+    }
+
+    /* Depeg breaker */
+
+    /// @dev Regression: a MUSD depeg (or a peg outage) stops new borrowing only. Repayment, collateral top-ups,
+    /// escrow actions, auctions and bids all keep working, and they price BTC at BTC/USD.
+    function test_pegBreaker_blocksBorrowing_notRepayAuctionsOrEscrow() public {
+        _fundLine(200_000e18);
+        (uint256 loanA, uint256 tokenA) = _openTimed(borrower, 1e18, 40_000e18);
+        (uint256 loanB, uint256 tokenB) = _openTimed(other, 1e18, 40_000e18);
+        uint256 fresh = _lockVeBTC(carol, 1e18, 28 days);
+        vm.prank(carol);
+        ve.approve(address(line), fresh);
+
+        // MUSD at $0.96: 400 bps under the peg, outside the 300 bps band.
+        pegSource.set(true, 0.96e18);
+        assertFalse(peg.pegHealthy());
+        vm.expectRevert(VeBTCCreditLine.PegUnhealthy.selector);
+        vm.prank(carol);
+        line.open(fresh, 1_000e18);
+        vm.expectRevert(VeBTCCreditLine.PegUnhealthy.selector);
+        vm.prank(borrower);
+        line.borrowMore(loanA, 1e18);
+
+        assertEq(_repay(keeper, loanA, 1_000e18), 1_000e18);
+        btc.mint(borrower, 0.1e18);
+        vm.startPrank(borrower);
+        btc.approve(address(line), 0.1e18);
+        line.addCollateral(loanA, 0.1e18);
+        line.escrowClaimRebase(loanA);
+        line.escrowClaim(loanA, new address[](0), new address[][](0));
+        vm.stopPrank();
+
+        // A MUSD below $1 does not move the BTC price, so the auction prices at BTC/USD.
+        _shock(4500);
+        line.startAuction(loanA);
+        (, uint256 value) = line.healthOf(loanA);
+        assertEq(value, _value(1.1e18) * 5500 / BPS);
+        _bid(bidder, loanA);
+        assertEq(ve.ownerOf(tokenA), bidder);
+
+        // An outage is unhealthy too, and the price source falls back to $1 per MUSD.
+        pegSource.set(false, 0);
+        assertFalse(peg.pegHealthy());
+        vm.expectRevert(VeBTCCreditLine.PegUnhealthy.selector);
+        vm.prank(carol);
+        line.open(fresh, 1_000e18);
+        line.startAuction(loanB);
+        _repay(keeper, loanB, type(uint256).max);
+        assertEq(ve.ownerOf(tokenB), other);
+
+        // Borrowing resumes once the peg is back in the band.
+        pegSource.set(true, 0.975e18);
+        vm.prank(carol);
+        line.open(fresh, 1_000e18);
+    }
+
+    /// @dev MUSD above $1 lowers the BTC price in MUSD: a loan that is safe at $1 can reach the trigger.
+    function test_musdPremium_lowersCollateralValue() public {
+        _fundLine(100_000e18);
+        (uint256 loanId,) = _openTimed(borrower, 1e18, 40_000e18);
+        pegSource.set(true, 1.03e18);
+        assertTrue(peg.pegHealthy(), "300 bps over is inside the band");
+        (, uint256 value) = line.healthOf(loanId);
+        assertEq(value, uint256(BTC_USD) * 1e18 / 1.03e18);
+
+        // 49% LTV after a 23% drop: 63.7% at $1, 65.6% with MUSD at $1.03.
+        _shock(2300);
+        pegSource.set(true, 1e18);
+        vm.expectRevert(VeBTCCreditLine.NotLiquidatable.selector);
+        line.startAuction(loanId);
+        pegSource.set(true, 1.03e18);
+        line.startAuction(loanId);
+        assertEq(uint8(line.loan(loanId).state), uint8(VeBTCCreditLine.LoanState.Auction));
+    }
+
+    /* Origination fee */
+
+    /// @dev Regression: the borrower receives the amount less 25 bps and owes all of it; the treasury gets the fee
+    /// and the lenders' books do not see it.
+    function test_originationFee_paidToTreasury_debtIsFullAmount() public {
+        _fundLine(100_000e18);
+        uint256 tokenId = _lockVeBTC(borrower, 1e18, 28 days);
+        vm.startPrank(borrower);
+        ve.approve(address(line), tokenId);
+        vm.expectEmit(address(line));
+        emit VeBTCCreditLine.Opened(1, borrower, tokenId, 30_000e18);
+        vm.expectEmit(address(line));
+        emit VeBTCCreditLine.OriginationFeePaid(1, 75e18);
+        uint256 loanId = line.open(tokenId, 30_000e18);
+        vm.stopPrank();
+
+        assertEq(musd.balanceOf(borrower), 29_925e18);
+        assertEq(musd.balanceOf(treasury), 75e18);
+        assertEq(line.debtOf(loanId), 30_000e18);
+        assertEq(line.cash(), 70_000e18);
+        assertEq(line.realAssets(), 100_000e18);
+        assertEq(line.interestEarnedTotal(), 0, "the fee is not lenders' income");
+        assertEq(musd.balanceOf(address(line)), line.cash());
+
+        vm.expectEmit(address(line));
+        emit VeBTCCreditLine.Borrowed(loanId, 10_000e18);
+        vm.expectEmit(address(line));
+        emit VeBTCCreditLine.OriginationFeePaid(loanId, 25e18);
+        vm.prank(borrower);
+        line.borrowMore(loanId, 10_000e18);
+        assertEq(musd.balanceOf(borrower), 29_925e18 + 9_975e18);
+        assertEq(musd.balanceOf(treasury), 100e18);
+        assertEq(line.debtOf(loanId), 40_000e18);
+
+        // Repaying costs the full debt; the fee is not refunded.
+        assertEq(_repay(keeper, loanId, type(uint256).max), 40_000e18);
+        assertEq(line.realAssets(), 100_000e18);
+        assertEq(line.cash(), 100_000e18);
+        assertEq(musd.balanceOf(treasury), 100e18);
+    }
+
+    /// @dev Borrower plus treasury receive exactly the amount, the debt is the amount, and realAssets is unmoved.
+    function testFuzz_originationFee_conserves(uint256 amount) public {
+        _fundLine(1_000_000e18);
+        uint256 tokenId = _lockVeBTC(borrower, 30e18, 28 days);
+        amount = bound(amount, 1, line.maxBorrow(tokenId));
+        uint256 loanId = _open(borrower, tokenId, amount);
+        assertEq(musd.balanceOf(borrower) + musd.balanceOf(treasury), amount);
+        assertEq(musd.balanceOf(treasury), amount * ORIGINATION_FEE / BPS);
+        assertEq(line.debtOf(loanId), amount);
+        assertEq(line.realAssets(), 1_000_000e18);
+        assertEq(musd.balanceOf(address(line)), line.cash());
+    }
+
+    /* Liquidation fee split */
+
+    /// @dev A price between the debt and debt plus fee leaves a partial fee, split the same way; a price below the
+    /// debt is a shortfall and pays no fee to anyone.
+    function test_liquidationFee_partialFeeSplit_andShortfallPaysNoFee() public {
+        _fundLine(100_000e18);
+        (uint256 loanA,) = _openTimed(borrower, 1e18, 40_000e18);
+        (uint256 loanB,) = _openTimed(other, 1e18, 40_000e18);
+        // Collateral at about 41,000 MUSD: 2.5% above the debt, under the 3% fee.
+        _shock(4973);
+        vm.prank(keeper);
+        line.startAuction(loanA);
+        vm.prank(liquidator);
+        line.startAuction(loanB);
+        assertEq(line.loan(loanA).keeper, keeper);
+        assertEq(line.loan(loanB).keeper, liquidator);
+
+        uint256 debt = line.debtOf(loanA);
+        uint256 price = line.auctionPrice(loanA);
+        assertGt(price, debt);
+        assertLt(price, debt + debt * LIQ_FEE / BPS);
+        uint256 cashBefore = line.cash();
+        uint256 earnedBefore = line.interestEarnedTotal();
+        uint256 treasuryBefore = musd.balanceOf(treasury);
+        _bid(bidder, loanA);
+        uint256 fee = price - debt;
+        uint256 protocolPart = fee * PROTOCOL_SHARE / BPS;
+        uint256 toKeeper = protocolPart * KEEPER_SHARE / BPS;
+        assertGt(toKeeper, 0);
+        assertEq(musd.balanceOf(keeper), toKeeper);
+        assertEq(musd.balanceOf(treasury) - treasuryBefore, protocolPart - toKeeper);
+        assertEq(line.cash(), cashBefore + price - protocolPart);
+        assertEq(line.interestEarnedTotal(), earnedBefore + fee - protocolPart);
+        assertEq(musd.balanceOf(borrower), _afterFee(40_000e18), "no surplus");
+        assertEq(line.badDebtTotal(), 0);
+
+        // Three hours in (the shock renewed), loan B sells below its debt.
+        _warp(3 hours);
+        _shock(4973);
+        debt = line.debtOf(loanB);
+        treasuryBefore = musd.balanceOf(treasury);
+        earnedBefore = line.interestEarnedTotal();
+        price = _bid(bidder, loanB);
+        assertLt(price, debt);
+        assertEq(line.badDebtTotal(), debt - price);
+        assertEq(musd.balanceOf(liquidator), 0);
+        assertEq(musd.balanceOf(treasury), treasuryBefore);
+        assertEq(line.interestEarnedTotal(), earnedBefore);
+    }
+
+    /// @dev Any shock and any bid time: the fee the line keeps splits exactly into lenders, treasury and keeper,
+    /// shortfall and surplus are exact, and the line's cash grows by the debt part plus the lenders' part.
+    function testFuzz_bid_splitsFeeExactly(uint256 shockBps, uint256 wait, uint256 btcAmount) public {
+        _fundLine(1_000_000e18);
+        btcAmount = bound(btcAmount, 0.01e18, 10e18);
+        uint256 tokenId = _lockVeBTC(borrower, btcAmount, 28 days);
+        uint256 loanId = _open(borrower, tokenId, line.maxBorrow(tokenId));
+        // At a 50% LTV, any drop above 23.1% reaches the 65% trigger.
+        uint16 shockAt = uint16(bound(shockBps, 2400, 9000));
+        _shock(shockAt);
+        vm.prank(keeper);
+        line.startAuction(loanId);
+        _warp(bound(wait, 1, 8 hours));
+        _shock(shockAt);
+
+        uint256 debt = line.debtOf(loanId);
+        uint256 price = line.auctionPrice(loanId);
+        uint256 owed = debt + debt * LIQ_FEE / BPS;
+        uint256 toLine = price < owed ? price : owed;
+        uint256 kept = toLine > debt ? toLine - debt : 0;
+        uint256 protocolPart = kept * PROTOCOL_SHARE / BPS;
+        uint256 toKeeper = protocolPart * KEEPER_SHARE / BPS;
+
+        uint256 cashBefore = line.cash();
+        uint256 earnedBefore = line.interestEarnedTotal();
+        uint256 borrowerBefore = musd.balanceOf(borrower);
+        uint256 treasuryBefore = musd.balanceOf(treasury);
+        _bid(bidder, loanId);
+
+        assertEq(musd.balanceOf(keeper), toKeeper, "keeper");
+        assertEq(musd.balanceOf(treasury) - treasuryBefore, protocolPart - toKeeper, "treasury");
+        assertEq(line.interestEarnedTotal() - earnedBefore, kept - protocolPart, "lenders");
+        assertEq(musd.balanceOf(borrower) - borrowerBefore, price - toLine, "surplus");
+        assertEq(line.badDebtTotal(), price < debt ? debt - price : 0, "shortfall");
+        assertEq(line.cash() - cashBefore, toLine - protocolPart, "cash");
+        assertEq(line.realAssets(), line.cash() + line.totalDebt());
+        assertGe(musd.balanceOf(address(line)), line.cash());
     }
 
     /* Cover */
@@ -864,9 +1153,36 @@ contract VeBTCCreditLineTest is LineFixture {
     }
 
     /// @dev External so `expectRevert` sees the constructor revert at a lower call depth.
+    function deployLineWith(IMusdPeg peg_, address treasury_) external returns (VeBTCCreditLine) {
+        return new VeBTCCreditLine(
+            address(vault),
+            musd,
+            ve,
+            poolsVoter,
+            distributor,
+            lineSource,
+            peg_,
+            lineIrm,
+            _lineParams(),
+            treasury_,
+            admin
+        );
+    }
+
+    /// @dev External so `expectRevert` sees the constructor revert at a lower call depth.
     function deployLine(VeBTCCreditLine.Params memory p, MockERC20 asset) external returns (VeBTCCreditLine) {
         return new VeBTCCreditLine(
-            address(vault), IERC20(address(asset)), ve, poolsVoter, distributor, stressedSource, lineIrm, p, admin
+            address(vault),
+            IERC20(address(asset)),
+            ve,
+            poolsVoter,
+            distributor,
+            lineSource,
+            peg,
+            lineIrm,
+            p,
+            treasury,
+            admin
         );
     }
 }

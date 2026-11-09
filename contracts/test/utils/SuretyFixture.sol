@@ -18,18 +18,22 @@ import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "../../src/interfaces/IEscrowRegistry.sol";
+import {IPegSource} from "../../src/interfaces/IPegSource.sol";
 import {IVeBTC} from "../../src/interfaces/IVeBTC.sol";
 import {EpochLib} from "../../src/libraries/EpochLib.sol";
 import {LineIds} from "../../src/libraries/LineIds.sol";
 import {LinearKinkIrm} from "../../src/lines/LinearKinkIrm.sol";
 import {LoanEscrow} from "../../src/lines/LoanEscrow.sol";
 import {VeBTCCreditLine} from "../../src/lines/VeBTCCreditLine.sol";
+import {BtcMusdPriceSource} from "../../src/oracles/BtcMusdPriceSource.sol";
 import {MorphoPriceOracle} from "../../src/oracles/MorphoPriceOracle.sol";
 import {SkipPriceSource} from "../../src/oracles/SkipPriceSource.sol";
 import {StressedPriceSource} from "../../src/oracles/StressedPriceSource.sol";
+import {MusdPeg} from "../../src/oracles/peg/MusdPeg.sol";
 import {MockAggregator} from "../mocks/MockAggregator.sol";
 import {MockDistributor} from "../mocks/MockDistributor.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockPegSource} from "../mocks/MockPegSource.sol";
 import {MockPoolsVoter} from "../mocks/MockPoolsVoter.sol";
 import {MockVeBTC} from "../mocks/MockVeBTC.sol";
 
@@ -42,7 +46,8 @@ import {MockVeBTC} from "../mocks/MockVeBTC.sol";
 /// - The vault has the Morpho adapter with absolute caps of MORPHO_CAP and relative caps of 100% on its three ids
 ///   (adapter, BTC collateral, market), and `maxRate = MAX_MAX_RATE` so interest is recognised.
 /// - The Morpho market and the veBTC line price BTC through `stressedSource`, so `_shock` can push positions
-///   underwater. The mock Skip feed reports `updatedAt = block.timestamp` unless pinned, so warps alone never make
+///   underwater. The line reads it through `lineSource` (BtcMusdPriceSource), whose MUSD peg `peg` has the single
+///   settable source `pegSource`, at $1 unless a test moves it. The mock Skip feed reports `updatedAt = block.timestamp` unless pinned, so warps alone never make
 ///   it stale.
 /// - `_deploySurety()` (last step of `setUp`) deploys and wires the whole system the way production does:
 ///   VeBTCCreditLine (adapter + caps), CreditVoter with lines MORPHO_LINE (BTC Morpho market) and VE_LINE (veBTC
@@ -82,11 +87,16 @@ abstract contract SuretyFixture is Test {
 
     uint16 internal constant MAX_LTV_TIMED = 5000;
     uint16 internal constant MAX_LTV_PERMANENT = 4000;
-    uint16 internal constant LIQ_LTV = 7000;
+    uint16 internal constant LIQ_LTV = 6500;
     uint16 internal constant LIQ_FEE = 300;
-    uint16 internal constant FLOOR = 7000;
+    uint16 internal constant FLOOR = 8500;
     uint32 internal constant AUCTION_DURATION = 6 hours;
     uint32 internal constant MIN_TERM = 3 days;
+    uint16 internal constant ORIGINATION_FEE = 25;
+    uint16 internal constant PROTOCOL_SHARE = 2000;
+    uint16 internal constant KEEPER_SHARE = 5000;
+    uint256 internal constant PEG_MAX_SPREAD = 500;
+    uint256 internal constant PEG_BAND = 300;
 
     /// @dev Epoch length used by Surety contracts and `_warpEpochs`. Assign before `super.setUp()` to change it.
     uint256 internal EPOCH_LENGTH = 1 weeks;
@@ -103,6 +113,7 @@ abstract contract SuretyFixture is Test {
     address internal carol = makeAddr("carol");
     address internal liquidator = makeAddr("liquidator");
     address internal morphoBorrower = makeAddr("morphoBorrower");
+    address internal treasury = makeAddr("treasury");
 
     MockERC20 internal musd;
     MockERC20 internal btc;
@@ -111,6 +122,9 @@ abstract contract SuretyFixture is Test {
     SkipPriceSource internal skipSource;
     StressedPriceSource internal stressedSource;
     MorphoPriceOracle internal morphoOracle;
+    MockPegSource internal pegSource;
+    MusdPeg internal peg;
+    BtcMusdPriceSource internal lineSource;
 
     IMorpho internal morpho;
     address internal irm;
@@ -158,9 +172,16 @@ abstract contract SuretyFixture is Test {
         skipSource = new SkipPriceSource(IAggregatorV3(address(aggregator)), ORACLE_MAX_AGE, 18);
         stressedSource = new StressedPriceSource(skipSource);
         morphoOracle = new MorphoPriceOracle(stressedSource);
+        pegSource = new MockPegSource(1e18);
+        IPegSource[] memory pegSources = new IPegSource[](1);
+        pegSources[0] = pegSource;
+        peg = new MusdPeg(pegSources, 1, PEG_MAX_SPREAD, PEG_BAND);
+        lineSource = new BtcMusdPriceSource(stressedSource, peg);
         vm.label(address(aggregator), "SkipAggregator");
         vm.label(address(stressedSource), "StressedPriceSource");
         vm.label(address(morphoOracle), "MorphoPriceOracle");
+        vm.label(address(peg), "MusdPeg");
+        vm.label(address(lineSource), "BtcMusdPriceSource");
     }
 
     function _deployMorpho() internal {
@@ -274,16 +295,19 @@ abstract contract SuretyFixture is Test {
             liqFeeBps: LIQ_FEE,
             floorBps: FLOOR,
             auctionDuration: AUCTION_DURATION,
-            minTerm: MIN_TERM
+            minTerm: MIN_TERM,
+            originationFeeBps: ORIGINATION_FEE,
+            protocolShareBps: PROTOCOL_SHARE,
+            keeperShareBps: KEEPER_SHARE
         });
     }
 
-    /// @notice Deploys the VeBTCCreditLine (priced by `stressedSource`), adds it as a vault adapter and gives its two
-    /// ids (adapter, veBTC collateral) LINE_CAP absolute caps and 100% relative caps.
+    /// @notice Deploys the VeBTCCreditLine (priced by `lineSource`, gated by `peg`, fees to `treasury`), adds it as a
+    /// vault adapter and gives its two ids (adapter, veBTC collateral) LINE_CAP absolute caps and 100% relative caps.
     function _deployLine() internal {
         lineIrm = new LinearKinkIrm(0.02e18, 0.08e18, 0.6e18, 0.8e18);
         line = new VeBTCCreditLine(
-            address(vault), musd, ve, poolsVoter, distributor, stressedSource, lineIrm, _lineParams(), admin
+            address(vault), musd, ve, poolsVoter, distributor, lineSource, peg, lineIrm, _lineParams(), treasury, admin
         );
         vm.label(address(line), "VeBTCCreditLine");
         vm.label(address(lineIrm), "LinearKinkIrm");
@@ -406,6 +430,11 @@ abstract contract SuretyFixture is Test {
     {
         tokenId = _lockPermanent(user, btcAmount);
         loanId = _open(user, tokenId, amount);
+    }
+
+    /// @notice What a borrower receives for borrowing `amount`: the amount less the origination fee.
+    function _afterFee(uint256 amount) internal pure returns (uint256) {
+        return amount - amount * ORIGINATION_FEE / BPS;
     }
 
     /// @notice Mints MUSD to `payer` and repays up to `amount` of `loanId`.

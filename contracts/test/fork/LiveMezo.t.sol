@@ -17,14 +17,22 @@ import {VoteAllocator} from "../../src/VoteAllocator.sol";
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
 import {ICreditVoter} from "../../src/interfaces/ICreditVoter.sol";
 import {IEscrowRegistry} from "../../src/interfaces/IEscrowRegistry.sol";
+import {IPegSource} from "../../src/interfaces/IPegSource.sol";
 import {IPoolsVoter} from "../../src/interfaces/IPoolsVoter.sol";
 import {IRewardsDistributor} from "../../src/interfaces/IRewardsDistributor.sol";
+import {IBasicPool, ICLPool} from "../../src/interfaces/ITigrisPools.sol";
 import {IVeBTC} from "../../src/interfaces/IVeBTC.sol";
 import {LineIds} from "../../src/libraries/LineIds.sol";
+import {TickPrice} from "../../src/libraries/TickPrice.sol";
 import {LinearKinkIrm} from "../../src/lines/LinearKinkIrm.sol";
 import {VeBTCCreditLine} from "../../src/lines/VeBTCCreditLine.sol";
+import {BtcMusdPriceSource} from "../../src/oracles/BtcMusdPriceSource.sol";
 import {MorphoPriceOracle} from "../../src/oracles/MorphoPriceOracle.sol";
 import {SkipPriceSource} from "../../src/oracles/SkipPriceSource.sol";
+import {BtcCrossPegSource} from "../../src/oracles/peg/BtcCrossPegSource.sol";
+import {ClTwapPegSource} from "../../src/oracles/peg/ClTwapPegSource.sol";
+import {MusdPeg} from "../../src/oracles/peg/MusdPeg.sol";
+import {StableTwapPegSource} from "../../src/oracles/peg/StableTwapPegSource.sol";
 import {MockAggregator} from "../mocks/MockAggregator.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 
@@ -33,7 +41,8 @@ import {MockERC20} from "../mocks/MockERC20.sol";
 /// `mezo_mainnet` in foundry.toml); otherwise, or when no RPC answers, every test is skipped.
 /// Mezo's BTC token and Skip BTC/USD feed are chain precompiles that a local fork cannot execute, so mock code is
 /// etched at their addresses: an ERC-20 for BTC (balances start empty) and the settable aggregator for Skip, primed
-/// with a recent BTC price. Everything else is the deployed bytecode and storage. The veBTC NFT used is picked at
+/// with `SURETY_FORK_BTC_USD` if set, else with the CL BTC/MUSD pool's 30-minute TWAP taken at $1 per MUSD.
+/// Everything else is the deployed bytecode and storage, including the MUSD pools the peg reads. The veBTC NFT used is picked at
 /// run time from known live candidates (`SURETY_FORK_TOKEN` overrides): NORMAL, no grant manager, power at the
 /// current epoch start, owned by an EOA, and a lock that outlives the line's minimum term.
 contract LiveMezoTest is Test {
@@ -52,8 +61,10 @@ contract LiveMezoTest is Test {
     uint256 internal constant SEASON = 4;
     uint256 internal constant IDLE_BUFFER_BPS = 1000;
     uint256 internal constant BPS = 10_000;
-    /// @dev BTC/USD read from the Skip feed on 2026-10-23 (block 12,712,942).
-    int256 internal constant BTC_USD = 81_350.23247e18;
+    address internal constant CL_MUSDC_MUSD = 0xCC372B7E15535aB225fe17c1075831D38ef7aC1a;
+    address internal constant CL_BTC_MUSD = 0x9CBc1537d255768b431488305b1C7EFc2ac95022;
+    address internal constant SAMM_MUSDC_MUSD = 0xEd812AEc0Fecc8fD882Ac3eccC43f3aA80A6c356;
+    address internal constant SAMM_MUSD_MUSDT = 0x10906a9E9215939561597b4C8e4b98F93c02031A;
     uint256 internal constant DEPOSIT = 10_000e18;
     string internal constant FALLBACK_RPC = "https://mezo.drpc.org";
 
@@ -137,9 +148,10 @@ contract LiveMezoTest is Test {
         vm.prank(keeper);
         allocator.rebalance();
         uint256 half = DEPOSIT * (BPS - IDLE_BUFFER_BPS) / BPS / 2;
-        assertApproxEqAbs(allocator.lineAssets(0), half, 2, "half to Mezo's Morpho");
-        assertApproxEqAbs(allocator.lineAssets(1), half, 1, "half to the veBTC line");
-        assertEq(morpho.market(market.id()).totalSupplyAssets, half);
+        // The split follows the NFT's per-line vote weights, which round differently at different blocks.
+        assertApproxEqRel(allocator.lineAssets(0), half, 1e3, "half to Mezo's Morpho");
+        assertApproxEqRel(allocator.lineAssets(1), half, 1e3, "half to the veBTC line");
+        assertApproxEqAbs(morpho.market(market.id()).totalSupplyAssets, allocator.lineAssets(0), 2);
 
         // A BTC borrower on Mezo's Morpho (BTC from the etched token).
         MockERC20(BTC).mint(btcBorrower, 0.1e18);
@@ -160,6 +172,7 @@ contract LiveMezoTest is Test {
         address escrow = line.loan(loanId).escrow;
         assertEq(ve.ownerOf(tokenId), escrow);
         assertTrue(line.isEscrow(escrow));
+        assertEq(musd.balanceOf(admin), amount * 25 / BPS, "origination fee to the treasury");
 
         vm.warp(block.timestamp + 1 days);
         vm.roll(block.number + 28_800);
@@ -211,8 +224,8 @@ contract LiveMezoTest is Test {
     /// @dev Replaces the BTC and Skip precompiles with mock code; their storage at those addresses starts empty.
     function _etchPrecompiles() internal {
         vm.etch(BTC, address(new MockERC20("Bitcoin", "BTC", 18)).code);
-        vm.etch(SKIP_BTC_USD, address(new MockAggregator(BTC_USD)).code);
-        MockAggregator(SKIP_BTC_USD).setAnswer(BTC_USD);
+        vm.etch(SKIP_BTC_USD, address(new MockAggregator(1)).code);
+        MockAggregator(SKIP_BTC_USD).setAnswer(vm.envOr("SURETY_FORK_BTC_USD", _poolBtcUsd()));
         vm.label(BTC, "BTC (etched)");
         vm.label(SKIP_BTC_USD, "Skip BTC/USD (etched)");
         vm.label(VEBTC, "veBTC");
@@ -238,9 +251,27 @@ contract LiveMezoTest is Test {
         return 0;
     }
 
-    /// @dev The mainnet wiring of Deploy.s.sol on Mezo's Morpho (timelocks left at 0).
+    /// @dev BTC price in MUSD from the CL BTC/MUSD pool's 30-minute mean tick (BTC is token0, both 18 decimals).
+    function _poolBtcUsd() internal view returns (int256) {
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = 30 minutes;
+        (int56[] memory cumulatives,) = ICLPool(CL_BTC_MUSD).observe(secondsAgos);
+        // Below 2**255 for any tick of a live pool.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return int256(TickPrice.priceWad(TickPrice.meanTick(cumulatives[0], cumulatives[1], 30 minutes), 18, 18));
+    }
+
+    /// @dev The mainnet v2 wiring on Mezo's Morpho (timelocks left at 0): BTC priced in MUSD through the peg built
+    /// from the four live MUSD pools.
     function _deploy() internal {
-        SkipPriceSource source = new SkipPriceSource(IAggregatorV3(SKIP_BTC_USD), 60, 18);
+        SkipPriceSource skipSource = new SkipPriceSource(IAggregatorV3(SKIP_BTC_USD), 60, 18);
+        IPegSource[] memory sources = new IPegSource[](4);
+        sources[0] = new ClTwapPegSource(ICLPool(CL_MUSDC_MUSD), MUSD, 30 minutes);
+        sources[1] = new StableTwapPegSource(IBasicPool(SAMM_MUSDC_MUSD), MUSD, 2);
+        sources[2] = new StableTwapPegSource(IBasicPool(SAMM_MUSD_MUSDT), MUSD, 2);
+        sources[3] = new BtcCrossPegSource(ICLPool(CL_BTC_MUSD), MUSD, 30 minutes, skipSource, 18);
+        MusdPeg peg = new MusdPeg(sources, 2, 500, 300);
+        BtcMusdPriceSource source = new BtcMusdPriceSource(skipSource, peg);
         MorphoPriceOracle oracle = new MorphoPriceOracle(source);
         market = MarketParams({
             loanToken: MUSD, collateralToken: BTC, oracle: address(oracle), irm: ADAPTIVE_CURVE_IRM, lltv: LLTV
@@ -257,16 +288,21 @@ contract LiveMezoTest is Test {
             IPoolsVoter(POOLS_VOTER),
             IRewardsDistributor(REWARDS_DISTRIBUTOR),
             source,
+            peg,
             irm,
             VeBTCCreditLine.Params({
                 maxLtvTimedBps: 5000,
                 maxLtvPermanentBps: 4000,
-                liqLtvBps: 7000,
+                liqLtvBps: 6500,
                 liqFeeBps: 300,
-                floorBps: 7000,
+                floorBps: 8500,
                 auctionDuration: 6 hours,
-                minTerm: 3 days
+                minTerm: 3 days,
+                originationFeeBps: 25,
+                protocolShareBps: 2000,
+                keeperShareBps: 5000
             }),
+            admin,
             admin
         );
         voter = new CreditVoter(ve, EPOCH_LENGTH, admin, vault, address(morphoAdapter), 1 days);
