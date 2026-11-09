@@ -32,6 +32,15 @@ const FOUNDER_MAINNET_WALLET: Address | null = null;
 export const TEAM_WALLETS: TeamWallet[] = [
   { address: "0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282", label: "Deployer and keeper" },
   { address: "0x030E00FE424e98327332BC4f946975C4927c7DdC", label: "Starter-kit relayer" },
+  // Role wallets of the v2 lifecycle run on testnet.
+  { address: "0x38c4F040E1A6b76AB5F6d56A45612a79C565604c", label: "Lifecycle lender" },
+  { address: "0x5EbAD5e82EC5FE57792708741Fb7CAeCb5a7296C", label: "Lifecycle borrower" },
+  { address: "0x525f12EFb63D9373d7fd03E6eD93625C24930922", label: "Lifecycle voter" },
+  { address: "0xa102BF713aD35F0B9A5b20CB75192F2f4a43274c", label: "Lifecycle sponsor" },
+  { address: "0xE5D77eAa62c9E11345d308A2F0388a33e81592d7", label: "Lifecycle bidder" },
+  { address: "0xDB3cDA1EE42010fA2eb230fbD6d97E4409A56f4d", label: "Lifecycle share buyer" },
+  { address: "0xc69cb7b6d6238DDdF47323B0BC57E99BF040A87E", label: "Lifecycle keeper" },
+  { address: "0x7e87dc50afA869D03444cD3304A2FE28cCf5759a", label: "Lifecycle starter-kit wallet" },
   ...(FOUNDER_MAINNET_WALLET ? [{ address: FOUNDER_MAINNET_WALLET, label: "Founder (mainnet)" }] : []),
   ...parseTeamEnv(process.env.NEXT_PUBLIC_TEAM_WALLETS),
 ];
