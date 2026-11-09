@@ -43,6 +43,13 @@ contract LivePegTest is Test {
     uint256 internal constant USDC_POOL_READING = 0.991246e18;
     uint256 internal constant USDT_POOL_READING = 0.986043e18;
     uint256 internal constant CROSS_READING = 1002464759360299236;
+    /// @dev Mainnet source parameters (see ClTwapPegSource, BtcCrossPegSource and StableTwapPegSource).
+    uint128 internal constant CL_USDC_MIN_LIQUIDITY = 1e19;
+    uint128 internal constant CL_BTC_MIN_LIQUIDITY = 2e20;
+    uint32 internal constant STABLE_MAX_AGE = 6 hours;
+    /// @dev Seconds since each stable pool's latest observation at PEG_BLOCK.
+    uint256 internal constant USDC_POOL_AGE = 15_604;
+    uint256 internal constant USDT_POOL_AGE = 50_000;
 
     SkipPriceSource internal skipSource;
     ClTwapPegSource internal clSource;
@@ -61,10 +68,11 @@ contract LivePegTest is Test {
         MockAggregator(SKIP_BTC_USD).setAnswer(vm.envOr("SURETY_FORK_BTC_USD", BTC_USD));
 
         skipSource = new SkipPriceSource(IAggregatorV3(SKIP_BTC_USD), 60, 18);
-        clSource = new ClTwapPegSource(ICLPool(CL_MUSDC_MUSD), MUSD, 30 minutes);
-        usdcSource = new StableTwapPegSource(IBasicPool(SAMM_MUSDC_MUSD), MUSD, 2);
-        usdtSource = new StableTwapPegSource(IBasicPool(SAMM_MUSD_MUSDT), MUSD, 2);
-        crossSource = new BtcCrossPegSource(ICLPool(CL_BTC_MUSD), MUSD, 30 minutes, skipSource, 18);
+        clSource = new ClTwapPegSource(ICLPool(CL_MUSDC_MUSD), MUSD, 30 minutes, CL_USDC_MIN_LIQUIDITY);
+        usdcSource = new StableTwapPegSource(IBasicPool(SAMM_MUSDC_MUSD), MUSD, 2, STABLE_MAX_AGE);
+        usdtSource = new StableTwapPegSource(IBasicPool(SAMM_MUSD_MUSDT), MUSD, 2, STABLE_MAX_AGE);
+        crossSource =
+            new BtcCrossPegSource(ICLPool(CL_BTC_MUSD), MUSD, 30 minutes, CL_BTC_MIN_LIQUIDITY, skipSource, 18);
         IPegSource[] memory sources = new IPegSource[](4);
         sources[0] = clSource;
         sources[1] = usdcSource;
@@ -106,29 +114,52 @@ contract LivePegTest is Test {
         }
     }
 
-    function test_fork_sourcesReadTheLivePools() public view {
+    /// @dev Every source reads its live pool near $1, except a stable pool whose latest observation is older than
+    /// the freshness bound (MUSD/mUSDT at PEG_BLOCK, 13.9 hours); a permissionless `sync` brings it back.
+    function test_fork_sourcesReadTheLivePools() public {
         IPegSource[4] memory sources = [IPegSource(clSource), usdcSource, usdtSource, crossSource];
         string[4] memory names = ["CL mUSDC/MUSD", "sAMM mUSDC/MUSD", "sAMM MUSD/mUSDT", "BTC cross"];
         for (uint256 i; i < 4; ++i) {
+            if (_stale(sources[i])) {
+                (bool stale,) = sources[i].read();
+                assertFalse(stale, names[i]);
+                _sync(address(StableTwapPegSource(address(sources[i])).pool()));
+            }
             (bool ok, uint256 price) = sources[i].read();
             console2.log(names[i], ok, price);
             assertTrue(ok, names[i]);
             assertGe(price, 0.95e18, names[i]);
             assertLe(price, 1.05e18, names[i]);
         }
+    }
+
+    /// @dev The readings at PEG_BLOCK match the off-chain cross-checks, and both CL pools held far more than their
+    /// floors in range over the window.
+    function test_fork_readingsMatchTheCrossChecks() public {
         if (block.number != PEG_BLOCK || vm.envOr("SURETY_FORK_BTC_USD", BTC_USD) != BTC_USD) return;
         (, uint256 cl) = clSource.read();
         assertApproxEqAbs(cl, CL_READING, 1);
         (, uint256 usdc) = usdcSource.read();
         assertEq(usdc, USDC_POOL_READING);
-        (, uint256 usdt) = usdtSource.read();
-        assertEq(usdt, USDT_POOL_READING);
         (, uint256 cross) = crossSource.read();
         assertApproxEqAbs(cross, CROSS_READING, 1);
+        (, uint256 usdcAge) = usdcSource.lastObservationAge();
+        assertEq(usdcAge, USDC_POOL_AGE);
+        (, uint256 usdtAge) = usdtSource.lastObservationAge();
+        assertEq(usdtAge, USDT_POOL_AGE);
+        (bool ok, uint256 usdt) = new StableTwapPegSource(IBasicPool(SAMM_MUSD_MUSDT), MUSD, 2, 7 days).read();
+        assertTrue(ok);
+        assertEq(usdt, USDT_POOL_READING);
+
+        (, uint256 clLiquidity) = clSource.windowLiquidity();
+        (, uint256 crossLiquidity) = crossSource.windowLiquidity();
+        console2.log("window liquidity CL mUSDC/MUSD", clLiquidity, "CL BTC/MUSD", crossLiquidity);
+        assertGt(clLiquidity, 20 * uint256(CL_USDC_MIN_LIQUIDITY));
+        assertGt(crossLiquidity, 20 * uint256(CL_BTC_MIN_LIQUIDITY));
     }
 
-    /// @dev Median of four is the mean of the middle two; at PEG_BLOCK MUSD sits 87 bps under $1 with a 166 bps
-    /// spread, so borrowing is open and BtcMusdPriceSource prices BTC at BTC/USD.
+    /// @dev At PEG_BLOCK the MUSD/mUSDT pool is past the freshness bound, so the median is the middle of three: MUSD
+    /// sits 86 bps under $1 with a 111 bps spread, so borrowing is open and BtcMusdPriceSource prices BTC at BTC/USD.
     function test_fork_pegAggregatesTheLiveReadings() public {
         MusdPeg.Reading[] memory r = peg.readings();
         assertEq(r.length, 4);
@@ -140,7 +171,7 @@ contract LivePegTest is Test {
         uint256 expected = median > 1e18 ? skipSource.priceWad() * 1e18 / median : skipSource.priceWad();
         assertEq(btcMusd.priceWad(), expected);
         if (block.number != PEG_BLOCK || vm.envOr("SURETY_FORK_BTC_USD", BTC_USD) != BTC_USD) return;
-        assertApproxEqAbs(median, (USDC_POOL_READING + CL_READING) / 2, 1);
+        assertApproxEqAbs(median, CL_READING, 1);
         assertTrue(peg.pegHealthy());
     }
 
@@ -157,17 +188,32 @@ contract LivePegTest is Test {
         (bool ok,) = crossSource.read();
         assertFalse(ok, "stale Skip");
         assertGt(peg.musdUsdWad(), 0);
-        if (block.number == PEG_BLOCK) assertTrue(peg.pegHealthy(), "the three stable sources agree");
+        if (block.number == PEG_BLOCK) assertTrue(peg.pegHealthy(), "the two fresh stablecoin sources agree");
     }
 
     /// @dev The longest windows the deployment could pick still find history in every pool.
     function test_fork_longWindowsHaveHistory() public {
-        (bool ok,) = new ClTwapPegSource(ICLPool(CL_MUSDC_MUSD), MUSD, 1 days).read();
+        (bool ok,) = new ClTwapPegSource(ICLPool(CL_MUSDC_MUSD), MUSD, 1 days, CL_USDC_MIN_LIQUIDITY).read();
         assertTrue(ok);
-        (ok,) = new BtcCrossPegSource(ICLPool(CL_BTC_MUSD), MUSD, 1 days, skipSource, 18).read();
+        (ok,) = new BtcCrossPegSource(ICLPool(CL_BTC_MUSD), MUSD, 1 days, CL_BTC_MIN_LIQUIDITY, skipSource, 18).read();
         assertTrue(ok);
-        (ok,) = new StableTwapPegSource(IBasicPool(SAMM_MUSD_MUSDT), MUSD, 48).read();
+        (ok,) = new StableTwapPegSource(IBasicPool(SAMM_MUSD_MUSDT), MUSD, 48, 7 days).read();
         assertTrue(ok);
+    }
+
+    /// @dev Whether `source` is a stable-pool source whose pool has not written an observation within its bound.
+    function _stale(IPegSource source) internal view returns (bool) {
+        if (source != usdcSource && source != usdtSource) return false;
+        StableTwapPegSource stable = StableTwapPegSource(address(source));
+        (, uint256 age) = stable.lastObservationAge();
+        return age > stable.maxAge();
+    }
+
+    /// @dev `sync()` on a basic pool, which anyone (the keeper) can call: it writes an observation once the last is
+    /// older than a period.
+    function _sync(address pool) internal {
+        (bool ok,) = pool.call(abi.encodeWithSignature("sync()"));
+        assertTrue(ok, "sync");
     }
 
     function _crossReading() internal view returns (uint256 price) {

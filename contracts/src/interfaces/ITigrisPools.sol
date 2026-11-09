@@ -13,7 +13,9 @@ interface ICLPool {
     function liquidity() external view returns (uint128);
 
     /// @notice Cumulative tick and seconds-per-liquidity values `secondsAgos[i]` seconds ago. Reverts when the
-    /// oldest stored observation is younger than the largest age asked for.
+    /// oldest stored observation is younger than the largest age asked for. The seconds-per-liquidity accumulator
+    /// grows by `seconds * 2^128 / liquidity` (by `seconds * 2^128` while no liquidity is in range) and wraps at
+    /// 2^160.
     function observe(uint32[] calldata secondsAgos)
         external
         view
@@ -23,9 +25,20 @@ interface ICLPool {
 /// @title IBasicPool
 /// @notice The subset of a Tigris basic pool (Velodrome v2 `Pool`) that the peg sources read.
 interface IBasicPool {
+    /// @notice A stored observation: the pool appends one on the first swap, mint, burn or `sync` more than
+    /// `periodSize()` (30 minutes) after the previous one, with the reserve accumulators at that moment.
+    struct Observation {
+        uint256 timestamp;
+        uint256 reserve0Cumulative;
+        uint256 reserve1Cumulative;
+    }
+
     function token0() external view returns (address);
 
     function token1() external view returns (address);
+
+    /// @notice The most recent stored observation.
+    function lastObservation() external view returns (Observation memory);
 
     /// @notice Output for `amountIn` of `tokenIn` at the reserves averaged over each of the last `granularity`
     /// observation periods (without the swap fee), averaged. Reverts when fewer periods are stored.
