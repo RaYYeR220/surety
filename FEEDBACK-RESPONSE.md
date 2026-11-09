@@ -6,7 +6,7 @@ Surety v2 is a redeployment built around the Wave 1 review. This page takes the 
 >
 > — Wave 1 review
 
-The v2 deployment on Mezo testnet is [`contracts/deployments/31611.json`](contracts/deployments/31611.json) (block 16,667,109, 2026-11-09); v1 is kept in [`contracts/deployments/v1/`](contracts/deployments/v1/). Every transaction below is also listed in [docs/PROOF.md](docs/PROOF.md), and every claim is graded in [docs/CLAIMS.md](docs/CLAIMS.md). App pages are on [surety-credit.vercel.app](https://surety-credit.vercel.app).
+The v2 deployment on Mezo mainnet is [`contracts/deployments/31612.json`](contracts/deployments/31612.json) (blocks 13,118,781 to 13,118,934, 2026-11-09), and on Mezo testnet [`contracts/deployments/31611.json`](contracts/deployments/31611.json) (block 16,667,109, 2026-11-09); v1 is kept in [`contracts/deployments/v1/`](contracts/deployments/v1/). Every transaction below is also listed in [docs/PROOF.md](docs/PROOF.md), and every claim is graded in [docs/CLAIMS.md](docs/CLAIMS.md). App pages are on [surety-credit.vercel.app](https://surety-credit.vercel.app).
 
 The v2 app is live at [surety-credit.vercel.app](https://surety-credit.vercel.app) since 2026-11-09, with the pages named below (`/app/try`, `/app/peg`, `/app/ledger`, `/app/business`, `/app/market`, `/app/review`).
 
@@ -15,9 +15,9 @@ The v2 app is live at [surety-credit.vercel.app](https://surety-credit.vercel.ap
 | Wave 1 review point | Status on 2026-11-09 |
 | --- | --- |
 | [Escrow vote, fee/bribe and rebase claims on chain](#1-escrow-vote-feebribe-and-rebase-claims) | Escrow votes and bribes on chain on v1 and v2 testnet; the claims follow the Mezo epoch flip on 2026-11-12 |
-| [Real MUSD through the mainnet vault on Mezo's Morpho Blue](#2-real-musd-through-the-mainnet-vault-on-mezos-morpho-blue) | v2 testnet runs on Mezo's own testnet Morpho Blue; v2 mainnet and real MUSD pending |
+| [Real MUSD through the mainnet vault on Mezo's Morpho Blue](#2-real-musd-through-the-mainnet-vault-on-mezos-morpho-blue) | v2 deployed on Mezo mainnet on Mezo's own Morpho Blue (market `0x4bff…30b8`, LLTV 86%), every contract verified; v2 testnet runs on Mezo's testnet Morpho Blue; real MUSD through the mainnet vault pending |
 | [Outside users borrowing against veBTC](#3-outside-users-borrowing-against-vebtc) | Starter kits, Try it and the users ledger built and run on chain; no outside users yet |
-| [MUSD/USD price or depeg check](#4-a-musdusd-price-instead-of-1) | Done: MusdPeg, BtcMusdPriceSource, borrow breaker; a `PegUnhealthy` revert on chain |
+| [MUSD/USD price or depeg check](#4-a-musdusd-price-instead-of-1) | Done: MusdPeg, BtcMusdPriceSource, borrow breaker; a `PegUnhealthy` revert on testnet; the mainnet MusdPeg live on Mezo's pools and healthy |
 | [Gap between auction trigger and floor](#5-the-gap-between-the-auction-trigger-and-the-floor) | Done: trigger 65% LTV, floor 85% (was 70% and 70%); an auction with no shortfall on chain |
 | [Who pays the team, how the protocol sustains itself](#6-who-pays-the-team-and-how-the-protocol-sustains-itself) | Done: four protocol fees to a treasury, each exercised on chain; [docs/BUSINESS.md](docs/BUSINESS.md) |
 | [The live app loads quickly](#7-the-live-app-loads-quickly) | Done: live since 2026-11-09, measured in headless Chrome with the RPCs up and blocked |
@@ -67,20 +67,21 @@ Pending — the fee/bribe claim (`escrowClaim`) and the rebase claim (`escrowCla
 
 - v2 deploys on Mezo's own Morpho Blue on both chains ([`contracts/script/Deploy.s.sol`](contracts/script/Deploy.s.sol), `fd1f8c7`). On testnet that is Mezo's testnet Morpho Blue [`0xCe1d…5a73`](https://explorer.test.mezo.org/address/0xCe1da828cA15cb1FDAfa84C366A53C8106655a73) and AdaptiveCurveIrm [`0x0c97…7441`](https://explorer.test.mezo.org/address/0x0c97Fe017628636649ff374aD499529F91167441), both verified on Mezo's explorer, with a new BTC/MUSD market (`0xf0bb…e3ff`) at LLTV 77%, the LLTV it enables. The Morpho Blue that v1 deployed from pinned sources is no longer used. On mainnet, v1 already uses Mezo's Morpho Blue [`0x5658…A311`](https://explorer.mezo.org/address/0x565834cE7E40b8987BC20EbF83E2159467bDA311), and v2 keeps it.
 - The v2 testnet deployment (`9a6f096`) and its run (`a5c35ea`, `f297265`).
+- The v2 mainnet deployment (`233591f`), bundled in the SDK (`21d038c`).
 
 **On chain**
 
+- v2 on Mezo mainnet, 2026-11-09: 124 transactions in blocks 13,118,781 to 13,118,934, all successful, for 0.0000482 BTC of gas ([`run-latest.json`](contracts/broadcast/Deploy.s.sol/31612/run-latest.json)). It opens a BTC/MUSD market on Mezo's Morpho Blue `0x5658…A311`, id `0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8`, at LLTV 86%, priced by Surety's MorphoPriceOracle with Mezo's AdaptiveCurveIrm. Mezo's sMUSD [`0xb4D4…51CC`](https://explorer.mezo.org/address/0xb4D498029af77680cD1eF828b967f010d06C51CC) is the vault's liquidity adapter, and the Morpho line and the veBTC line are capped at 2,000 MUSD each. All 19 Surety contracts are an exact match on Sourcify (the LoanEscrow implementation, created by the line's constructor, on runtime bytecode); the addresses are in the [README](README.md#deployments) and in [`contracts/deployments/31612.json`](contracts/deployments/31612.json), the configuration read on chain in [docs/PROOF.md](docs/PROOF.md#configuration-on-chain-v2-mainnet).
 - The first v2 rebalance takes 108 MUSD out of sMUSD and supplies 32.40 MUSD of it to the market on Mezo's testnet Morpho Blue: [0x5fe4…c5b2](https://explorer.test.mezo.org/tx/0x5fe4a449d6793cba4e511c7a1cd579e9220851c61be8f15a08d685afddbfc5b2).
 - A borrower posts 0.001 BTC there and borrows 25 MUSD: [0xf9eb…589c](https://explorer.test.mezo.org/tx/0xf9eb091db4014a1cfb9f525e54ae5d2a9dec853cc27b33d72b1281ef4021589c), [0xcbb9…470c](https://explorer.test.mezo.org/tx/0xcbb985778ed1d8e71c4d7893dc172650048b30c31bbc755d852c35d69f4d470c).
 
-Pending — v2 on Mezo mainnet, on Mezo's Morpho Blue `0x5658…A311`, before 2026-11-15. The dry run of that deployment is [`contracts/deployments/dry-run/31612.json`](contracts/deployments/dry-run/31612.json).
-
-Pending — real MUSD through the mainnet vault, right after the v2 mainnet deployment and before 2026-11-15: a deposit, the rebalance that supplies the Morpho market and funds the veBTC line, and a veBTC loan. These use the team's own MUSD and veBTC, in small amounts under the 2,000 MUSD caps, signed through the app.
+Pending — real MUSD through the mainnet vault, before 2026-11-15: a deposit, the rebalance that supplies Mezo's Morpho market and funds the veBTC line, and a veBTC loan whose escrow votes on Mezo. These use the team's own MUSD and veBTC, in small amounts under the 2,000 MUSD caps, signed through the app.
 
 **Check it yourself**
 
-- The market's parameters: `marketParams` of line 0 in [`contracts/deployments/31611.json`](contracts/deployments/31611.json) name Mezo's testnet Morpho Blue and IRM.
-- The v1 mainnet vault today: `cast call 0x632d627b66F2b11C8d0Fc61790422B0931D145de "totalAssets()(uint256)" --rpc-url https://mezo.drpc.org` returns 0. Once v2 is on mainnet, the same call on the v2 vault shows the deposit.
+- The mainnet market on Mezo's Morpho Blue: `cast call 0x565834cE7E40b8987BC20EbF83E2159467bDA311 "idToMarketParams(bytes32)(address,address,address,address,uint256)" 0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8 --rpc-url https://mezo.drpc.org` returns MUSD, BTC, Surety's MorphoPriceOracle `0xE3C7…bb51`, Mezo's AdaptiveCurveIrm `0x3760…C1e7` and an LLTV of 0.86e18.
+- The testnet market: `marketParams` of line 0 in [`contracts/deployments/31611.json`](contracts/deployments/31611.json) name Mezo's testnet Morpho Blue and IRM.
+- The v2 mainnet vault: `cast call 0xFB1226A2C58168044d457b226528236a1F847bE1 "totalAssets()(uint256)" --rpc-url https://mezo.drpc.org` returns 0 until the first deposit, then shows it.
 
 ## 3. Outside users borrowing against veBTC
 
@@ -148,12 +149,30 @@ Mezo's Skip precompile serves BTC/USD only and Mezo has no live MUSD/USD feed, s
 | BTC cross (CL BTC/MUSD and Skip) | 1.00246 |
 | Median | 0.99144: healthy, so borrowing is open; under $1, so BTC is priced at BTC/USD |
 
-Pending — the mainnet MusdPeg, with the v2 mainnet deployment before 2026-11-15.
+**On mainnet, live**
+
+The mainnet MusdPeg, [`0x0777…9a5F`](https://repo.sourcify.dev/31612/0x07777966126dBf0f3919E217D0A2247156879a5F) on Sourcify, went live with the v2 deployment on 2026-11-09, with 4 sources, 2 needed, a 1000 bps spread and a 300 bps band. Read at block 13,118,945, eleven blocks after the deployment's last transaction:
+
+| Source | Reading |
+| --- | --- |
+| CL mUSDC/MUSD | not counted: the pool's in-range liquidity over the window, about 3.1e17, is under the 1e19 floor |
+| Basic mUSDC/MUSD | 0.991271 |
+| Basic MUSD/mUSDT | not counted: its latest observation was 13.8 hours old, past the 6-hour bound |
+| BTC cross (CL BTC/MUSD and Skip) | 0.999005 |
+| `musdUsdWad()` | 0.995137812070612232, the mean of the two sources that read |
+| `pegHealthy()` | `true`: 2 sources, the minimum, 78 bps apart and 49 bps under $1, so borrowing is open |
+| `BtcMusdPriceSource.priceWad()` | 75,150.1 MUSD per BTC, Skip's BTC/USD itself: under $1 the clamp divides by exactly $1 |
+
+Every source and its pool: [docs/PROOF.md](docs/PROOF.md#the-mainnet-musd-peg-at-launch).
 
 **Check it yourself**
 
 - `/app/peg`: every source's reading, the median, health and the allocator's gate; on testnet, a control to push MUSD off its peg for a few minutes.
-- `cast call 0xd54D93aa56B080df424847142A1aaac59bB760AB "pegHealthy()(bool)" --rpc-url https://rpc.test.mezo.org`
+- The mainnet peg, today's reading; add `--block 13118945` for the values above:
+  `cast call 0x07777966126dBf0f3919E217D0A2247156879a5F "pegHealthy()(bool)" --rpc-url https://mezo.drpc.org`
+  `cast call 0x07777966126dBf0f3919E217D0A2247156879a5F "musdUsdWad()(uint256)" --rpc-url https://mezo.drpc.org`
+  `cast call 0x6C97a90B2D49D6a6D67177F2D250942A2B4e1279 "priceWad()(uint256)" --rpc-url https://mezo.drpc.org`
+- The testnet peg: `cast call 0xd54D93aa56B080df424847142A1aaac59bB760AB "pegHealthy()(bool)" --rpc-url https://rpc.test.mezo.org`
 - Tests: `forge test --match-contract 'PegTest|OraclesTest|AuditV2'` in `contracts/`, and the fork test above.
 
 ## 5. The gap between the auction trigger and the floor
@@ -289,7 +308,7 @@ Each finding with its impact, fix, regression tests and the risks that remain: [
 
 ### Verification
 
-All 18 Surety contracts of the v2 testnet deployment are an exact match on Sourcify (runtime bytecode); links in the [README](README.md#deployments). Mezo's Blockscout verifier currently lists no Solidity compiler versions (`GET https://api.explorer.test.mezo.org/api/v2/smart-contracts/verification/config` returns `"solidity_compiler_versions":[]`, and the same on mainnet), so contracts cannot be verified there for now; Sourcify is where the sources are.
+All 19 Surety contracts of the v2 mainnet deployment are an exact match on Sourcify, creation and runtime bytecode (the LoanEscrow implementation, created by the line's constructor, on runtime bytecode), and so are all 18 of the v2 testnet deployment (runtime bytecode); links in the [README](README.md#deployments). Mezo's Blockscout verifier currently lists no Solidity compiler versions (`GET https://api.explorer.test.mezo.org/api/v2/smart-contracts/verification/config` returns `"solidity_compiler_versions":[]`, and the same on mainnet), so contracts cannot be verified there for now; Sourcify is where the sources are.
 
 ### Tests
 
