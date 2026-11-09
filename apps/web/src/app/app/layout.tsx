@@ -1,23 +1,15 @@
-import { Suspense, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { AppProviders } from "@/components/shell/AppProviders";
 import { AppShell } from "@/components/shell/AppShell";
-import { PageSkeleton } from "@/components/shell/EnvGate";
-import { ShellFallback } from "@/components/shell/ShellFallback";
+import { appRoutes } from "@/lib/routes.server";
+import { loadChainSnapshots } from "@/lib/snapshot.server";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  // The app reads ?demo from the URL, which a static export resolves in the browser.
+  // The build snapshot seeds the app, so the static HTML of every page already carries real figures.
   return (
-    <Suspense
-      fallback={
-        <ShellFallback>
-          <PageSkeleton />
-        </ShellFallback>
-      }
-    >
-      <AppProviders>
-        <AppShell>{children}</AppShell>
-      </AppProviders>
-    </Suspense>
+    <AppProviders snapshots={loadChainSnapshots()}>
+      <AppShell routes={appRoutes()}>{children}</AppShell>
+    </AppProviders>
   );
 }
