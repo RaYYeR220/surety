@@ -18,7 +18,8 @@ export function ProofPage() {
   return <EnvGate>{(env) => <ProofView env={env} />}</EnvGate>;
 }
 
-const SURETY: Record<keyof SuretyContracts, string> = {
+// The treasury is an account, not a verified contract; it is not listed here.
+const SURETY: Record<Exclude<keyof SuretyContracts, "treasury">, string> = {
   vault: "Surety vault (Morpho VaultV2, shares = srMUSD)",
   depositGate: "DepositGate: holds new srMUSD while a loss or its cover is pending",
   creditVoter: "CreditVoter: veBTC ballots per line and epoch, timelocked listing",
@@ -33,6 +34,13 @@ const SURETY: Record<keyof SuretyContracts, string> = {
   priceSource: "Price source the lines value BTC with",
   skipSource: "Skip BTC/USD source (staleness-checked)",
   morphoOracle: "Morpho oracle over the price source",
+  btcMusdSource: "BtcMusdPriceSource: BTC in MUSD through the peg",
+  btcUsdSource: "BTC/USD source under it",
+  musdPeg: "MusdPeg: MUSD/USD median of Mezo's pools",
+  stressedPegSource: "StressedPegSource (testnet depeg switch)",
+  savingsAdapter: "SavingsAdapter: idle MUSD parked in sMUSD",
+  shareMarket: "ShareMarket: srMUSD sold at a discount",
+  sponsor: "Sponsor: testnet starter kits",
 };
 
 const EXTERNAL: Record<keyof ExternalContracts, string> = {
@@ -42,6 +50,7 @@ const EXTERNAL: Record<keyof ExternalContracts, string> = {
   poolsVoter: "Mezo PoolsVoter",
   rewardsDistributor: "Mezo rewards distributor",
   skipAggregator: "Skip price oracle (precompile)",
+  smusd: "Mezo MUSD Savings Rate (sMUSD)",
 };
 
 interface Row {
@@ -75,15 +84,14 @@ function ProofView({ env }: { env: ReadyEnv }) {
         },
       ];
   // Older deployments have no gate: list only what this one has.
-  const surety: Row[] = (Object.keys(SURETY) as (keyof SuretyContracts)[]).flatMap((k) => {
+  const surety: Row[] = (Object.keys(SURETY) as (keyof typeof SURETY)[]).flatMap((k) => {
     const address = d.contracts[k];
     return address ? [{ key: k, role: SURETY[k], address }] : [];
   });
-  const external: Row[] = (Object.keys(EXTERNAL) as (keyof ExternalContracts)[]).map((k) => ({
-    key: k,
-    role: EXTERNAL[k],
-    address: d.external[k],
-  }));
+  const external: Row[] = (Object.keys(EXTERNAL) as (keyof ExternalContracts)[]).flatMap((k) => {
+    const address = d.external[k];
+    return address ? [{ key: k, role: EXTERNAL[k], address }] : [];
+  });
   const txs = d.proof.txs.map((t, i) => ({ ...t, n: i + 1 }));
 
   return (

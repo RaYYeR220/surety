@@ -96,6 +96,7 @@ const REASONS: Record<BorrowIneligibility, string> = {
   "no-liquidity": "The line has no MUSD free to lend right now. It refills at the next rebalance if votes send it more.",
   "line-paused": "The line is paused for new loans. Repaying existing loans still works.",
   "above-max": "That is more than this veBTC can borrow now. Lower the amount.",
+  "peg-unhealthy": "MUSD is off its peg, so the line takes no new loans until it recovers. Repaying still works.",
 };
 
 function OpenLoan({ env }: { env: ReadyEnv }) {
