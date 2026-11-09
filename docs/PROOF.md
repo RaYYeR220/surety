@@ -84,9 +84,123 @@ Deployed 2026-10-25 from `contracts/deployments/v1/31612.json` (block 12755630);
 
 Check it yourself: `cast call 0x7B6673dEbB5E2480798ff3e11680182F37aF2f4f "LINE_TIMELOCK()(uint256)" --rpc-url https://mezo.drpc.org` returns 86400, `bootstrapEnded()` returns true, and the vault's `receiveSharesGate()` is the DepositGate.
 
+## Live lifecycle on testnet, v2
+
+`keeper/scripts/testnet-cycle-v2.ts` ran Surety v2 end to end on the current testnet deployment ([`contracts/deployments/31611.json`](../contracts/deployments/31611.json)) on 2026-11-09, from 06:42 to 07:00 UTC. Each role sends from its own account and the deployer only funds them. Every account below belongs to the team:
+
+| Role | Account |
+| --- | --- |
+| Lender | [`0x38c4F040E1A6b76AB5F6d56A45612a79C565604c`](https://explorer.test.mezo.org/address/0x38c4F040E1A6b76AB5F6d56A45612a79C565604c) |
+| Borrower | [`0x5EbAD5e82EC5FE57792708741Fb7CAeCb5a7296C`](https://explorer.test.mezo.org/address/0x5EbAD5e82EC5FE57792708741Fb7CAeCb5a7296C) |
+| Voter (veBTC #1711) | [`0x525f12EFb63D9373d7fd03E6eD93625C24930922`](https://explorer.test.mezo.org/address/0x525f12EFb63D9373d7fd03E6eD93625C24930922) |
+| Sponsor (incentives, bribe) | [`0xa102BF713aD35F0B9A5b20CB75192F2f4a43274c`](https://explorer.test.mezo.org/address/0xa102BF713aD35F0B9A5b20CB75192F2f4a43274c) |
+| Bidder | [`0xE5D77eAa62c9E11345d308A2F0388a33e81592d7`](https://explorer.test.mezo.org/address/0xE5D77eAa62c9E11345d308A2F0388a33e81592d7) |
+| Share buyer | [`0xDB3cDA1EE42010fA2eb230fbD6d97E4409A56f4d`](https://explorer.test.mezo.org/address/0xDB3cDA1EE42010fA2eb230fbD6d97E4409A56f4d) |
+| Keeper wallet (rebalance, stresses, auction start) | [`0xc69cb7b6d6238DDdF47323B0BC57E99BF040A87E`](https://explorer.test.mezo.org/address/0xc69cb7b6d6238DDdF47323B0BC57E99BF040A87E) |
+| Starter-kit relayer | [`0x030E00FE424e98327332BC4f946975C4927c7DdC`](https://explorer.test.mezo.org/address/0x030E00FE424e98327332BC4f946975C4927c7DdC) |
+| Starter-kit test wallet | [`0x7e87dc50afA869D03444cD3304A2FE28cCf5759a`](https://explorer.test.mezo.org/address/0x7e87dc50afA869D03444cD3304A2FE28cCf5759a) |
+
+Key steps:
+
+<!-- proof:key-steps-v2:start -->
+- Lender deposit parks in sMUSD through the liquidity adapter: [0xe25a…51f8](https://explorer.test.mezo.org/tx/0xe25a1e53b909718a19de0b74823a81c6ad68a66b596f950c1f4006f49c8d51f8)
+- Rebalance moves the capital from sMUSD to the lines by the votes: [0x5fe4…c5b2](https://explorer.test.mezo.org/tx/0x5fe4a449d6793cba4e511c7a1cd579e9220851c61be8f15a08d685afddbfc5b2)
+- veBTC loan opened, origination fee to the treasury (`OriginationFeePaid`): [0x9f8d…99f9](https://explorer.test.mezo.org/tx/0x9f8decd8a5fa3e6944f3186d0d7f59f915627ee569558e4425da8858e2ea99f9)
+- The loan's escrow votes the NFT on Mezo's PoolsVoter: [0x1a50…0430](https://explorer.test.mezo.org/tx/0x1a50ee48bfa2a189fab44bbdccf936f6f630c4fe994766e0ce4d575529720430)
+- Depeg breaker: a borrow sent while MUSD reads $0.94 reverts on chain with `PegUnhealthy`: [0x6438…8e16](https://explorer.test.mezo.org/tx/0x6438e38d8cd1dfb4f522a6c72c25cf987e97e98201d2838d2f7a7942633f8e16)
+- Auction bid above debt + fee: no shortfall, fee split to lenders, treasury and keeper (`LiquidationFeePaid`): [0x69ba…aae1](https://explorer.test.mezo.org/tx/0x69ba998d4a6071942e0c77873dd5f554ec04f2415ad806ff0ce720cc9652aae1)
+- ShareMarket fill: a lender sells srMUSD at a discount, 10 bps to the treasury: [0x741e…de8a](https://explorer.test.mezo.org/tx/0x741e1b596a09c35b382c5ef245c16a168ea6eb725f86e09b2ceb2088ecbfde8a)
+- Starter kit through the Sponsor's relayer (team test wallet): [0x823f…1477](https://explorer.test.mezo.org/tx/0x823f99fc7d1e6efb55facc06676708f48fc994ee111de45259847107e5321477)
+- Auto-repay: the escrow's bribes and fees harvested into repayment after the Mezo flip: PENDING (not recorded yet)
+
+<!-- proof:key-steps-v2:end -->
+
+<!-- proof:lifecycle-v2:start -->
+Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`: 51 transactions recorded, 1 steps PENDING.
+
+| # | Phase | Step | Transaction | Block |
+| --- | --- | --- | --- | --- |
+| 1 | fund | fund lender: 100 MUSD | [0x83f1…4863](https://explorer.test.mezo.org/tx/0x83f16f71df7203cc740b0782ec245b8ed6b380d42683de1b3743d7bdef994863) | 16667566 |
+| 2 | fund | fund lender: 0.00002 BTC for gas | [0x5580…b629](https://explorer.test.mezo.org/tx/0x5580f91e2f376ebe5c7f64731eecee84ccf744ca5235d15c755fd341d243b629) | 16667568 |
+| 3 | fund | fund borrower: 0.00502 BTC for two veBTC locks, Morpho collateral and gas | [0xc107…e719](https://explorer.test.mezo.org/tx/0xc107f7d774194b2595c668a53d526e7f47c1f451abef754c9002ca10bb8de719) | 16667570 |
+| 4 | fund | fund voter: veBTC #1711 | [0xed09…041c](https://explorer.test.mezo.org/tx/0xed09c4b2f35de49243e43f15e48eaa4d5f48d99a4b4c702efd6c2cab3128041c) | 16667573 |
+| 5 | fund | fund voter: 0.00002 BTC for gas | [0xb002…311d](https://explorer.test.mezo.org/tx/0xb0020759bc78b3cb6a6ae3ddbf82a25df778dd94bb52841a2744825e9c84311d) | 16667576 |
+| 6 | fund | fund sponsor: 40 MUSD | [0x41c4…cf2e](https://explorer.test.mezo.org/tx/0x41c46f8edd8edd7cc47dcad65aeb88ff166c1cdc8b2eb735295f5472fe99cf2e) | 16667579 |
+| 7 | fund | fund sponsor: 0.00002 BTC for gas | [0xe46e…6c7a](https://explorer.test.mezo.org/tx/0xe46e124eb99125b020bdb4f47799ece38366a53035cdd8788f60f97bf06d6c7a) | 16667580 |
+| 8 | fund | fund bidder: 55 MUSD | [0xd607…81c1](https://explorer.test.mezo.org/tx/0xd6077343bcf64ecf0b96f55a99c3c728788823dec563d5d81c167ab6107281c1) | 16667582 |
+| 9 | fund | fund bidder: 0.00002 BTC for gas | [0x228d…be89](https://explorer.test.mezo.org/tx/0x228db119fa9959e57fef6e755188a895248003f3f70be656e9f255b028e8be89) | 16667585 |
+| 10 | fund | fund share buyer: 12 MUSD | [0x7002…2c2c](https://explorer.test.mezo.org/tx/0x700230bccbe8304ac079b3ec8936c436173f92221921e436c6010fc1034f2c2c) | 16667587 |
+| 11 | fund | fund share buyer: 0.00002 BTC for gas | [0xd400…d428](https://explorer.test.mezo.org/tx/0xd4005ff473e6b0c99535d27bfc3b850f03bfdd76f0f5c9b45d63bae8e020d428) | 16667589 |
+| 12 | fund | fund keeper wallet: 0.00002 BTC for gas | [0x210f…7b32](https://explorer.test.mezo.org/tx/0x210f1ed7a0d10edb89cd410224e148528ffc9066c46fbcc2e89b34e6dd997b32) | 16667592 |
+| 13 | fund | fund starter-kit relayer: 0.00002 BTC for gas | [0x40bf…6854](https://explorer.test.mezo.org/tx/0x40bfc25e9144e41d55592e0f1f20b55b6be1eac8a2dc015fb7a1f64a4fc76854) | 16667594 |
+| 14 | lend | lender: approve 100 MUSD to vault | [0x28a5…abcf](https://explorer.test.mezo.org/tx/0x28a5712021d7ff12e231414d47017e52547754ea1292b9508c542a95c0b1abcf) | 16667600 |
+| 15 | lend | **lender: deposit 100 MUSD, parked in sMUSD** | [0xe25a…51f8](https://explorer.test.mezo.org/tx/0xe25a1e53b909718a19de0b74823a81c6ad68a66b596f950c1f4006f49c8d51f8) | 16667603 |
+| 16 | vote | voter: vote #1711 30/70 (line 0 Morpho / line 1 veBTC) | [0xebb5…bab7](https://explorer.test.mezo.org/tx/0xebb5dac8dd85a29d509c91fd35b30168a660afc40cb22d038c35c11ddafcbab7) | 16667606 |
+| 17 | vote | sponsor: approve 20 MUSD to SuretyPool | [0x0a68…de9d](https://explorer.test.mezo.org/tx/0x0a6853aaeab3d0aedcf23478c25eee36eb6800da92bd1fbee65bc5c584b5de9d) | 16667607 |
+| 18 | vote | sponsor: incentive 10 MUSD to line 0 (BTC / MUSD (Morpho)) | [0xb192…a970](https://explorer.test.mezo.org/tx/0xb1925359eff8823ed6f0960bf4d15f0891feaa9791a823c7ce94071243d4a970) | 16667608 |
+| 19 | vote | sponsor: incentive 10 MUSD to line 1 (veBTC credit line) | [0xca1f…fb84](https://explorer.test.mezo.org/tx/0xca1f20814f509079277fff556a676514cadb5c63dfa2641d1e7df8ff63cefb84) | 16667609 |
+| 20 | vote | **keeper wallet: rebalance (epoch 06:00 UTC): sMUSD to the lines by the votes** | [0x5fe4…c5b2](https://explorer.test.mezo.org/tx/0x5fe4a449d6793cba4e511c7a1cd579e9220851c61be8f15a08d685afddbfc5b2) | 16667612 |
+| 21 | loan | borrower: approve 0.003 BTC to veBTC | [0xb052…559d](https://explorer.test.mezo.org/tx/0xb052c1417edeb41e53932425c3abbbdee040063df0410eb4d1fad2b1b723559d) | 16667617 |
+| 22 | loan | borrower: veBTC lock #1732 created (0.003 BTC, 28 days) for the escrow-vote loan | [0x61cc…7ef7](https://explorer.test.mezo.org/tx/0x61cc80cffd99e5c55b211345ebd0d5c564b1a1bf8dac737c5d3f6861eb797ef7) | 16667620 |
+| 23 | loan | borrower: approve veBTC #1732 to credit line | [0x684f…8f27](https://explorer.test.mezo.org/tx/0x684f2cbcb302c2db8b3be88e6b0c55e5c2013d3bd0ee4d955897225635118f27) | 16667622 |
+| 24 | loan | **borrower: veBTC loan #1 opened on #1732 (25 MUSD, LTV 11.26%; 0.0625 MUSD origination fee to the treasury)** | [0x9f8d…99f9](https://explorer.test.mezo.org/tx/0x9f8decd8a5fa3e6944f3186d0d7f59f915627ee569558e4425da8858e2ea99f9) | 16667626 |
+| 25 | loan | borrower: auto-repay on for loan #1 (anyone may harvest its rewards into repayment) | [0x30a8…fc41](https://explorer.test.mezo.org/tx/0x30a85874117863e547421a90056a812bea381561e7200b8b8a87ddbf3e3efc41) | 16667628 |
+| 26 | escrow | **borrower: escrow vote loan #1 (veBTC #1732) 100% on MUSD/mUSDC stable pool** | [0x1a50…0430](https://explorer.test.mezo.org/tx/0x1a50ee48bfa2a189fab44bbdccf936f6f630c4fe994766e0ce4d575529720430) | 16667636 |
+| 27 | escrow | sponsor: approve 20 MUSD to MUSD/mUSDC bribe | [0x8461…58ca](https://explorer.test.mezo.org/tx/0x8461748b9ee875bd66163a8fa6159935edbde0ba39df1c3a72113a531b1158ca) | 16667640 |
+| 28 | escrow | sponsor: bribe 20 MUSD on MUSD/mUSDC gauge (Mezo epoch 2026-11-05) | [0x203f…ad0f](https://explorer.test.mezo.org/tx/0x203fd6fb5dfb44df73c952b5e99dbb6dc7330876861018df679d445e0594ad0f) | 16667642 |
+| 29 | morpho | borrower: approve 0.001 BTC to Morpho | [0x4890…8c44](https://explorer.test.mezo.org/tx/0x489064e85a4d42afa6a6667abbe0cd0749bbfdf2b5cd078c6dd11885bceb8c44) | 16667644 |
+| 30 | morpho | borrower: Morpho supplyCollateral 0.001 BTC | [0xf9eb…589c](https://explorer.test.mezo.org/tx/0xf9eb091db4014a1cfb9f525e54ae5d2a9dec853cc27b33d72b1281ef4021589c) | 16667646 |
+| 31 | morpho | borrower: Morpho borrow 25 MUSD (LTV 33.74%, LLTV 77.00%) | [0xcbb9…470c](https://explorer.test.mezo.org/tx/0xcbb985778ed1d8e71c4d7893dc172650048b30c31bbc755d852c35d69f4d470c) | 16667648 |
+| 32 | peg | keeper wallet: peg override, MUSD at $0.94 for 10 min (StressedPegSource) | [0xbed9…e316](https://explorer.test.mezo.org/tx/0xbed9c4b242677a105923c898d371f34afe68777a660bee7df665a1ae770be316) | 16667653 |
+| 33 | peg | **borrower: borrowMore 1 MUSD on loan #1 while MUSD is off its peg (refused on chain: PegUnhealthy) [reverted on chain]** | [0x6438…8e16](https://explorer.test.mezo.org/tx/0x6438e38d8cd1dfb4f522a6c72c25cf987e97e98201d2838d2f7a7942633f8e16) | 16667654 |
+| 34 | peg | keeper wallet: peg override cleared, MUSD back at $1 | [0x2bd2…ac38](https://explorer.test.mezo.org/tx/0x2bd278fb0737d24b7684c9e7fd95df097984843630b3e17e8aa7e9997f7bac38) | 16667659 |
+| 35 | liquidate | borrower: approve 0.001 BTC to veBTC | [0x0128…e673](https://explorer.test.mezo.org/tx/0x012893223f7c5ffde511dbc6d7f699aa5e3e1cbb56c46a7af655d981ddcae673) | 16667666 |
+| 36 | liquidate | borrower: veBTC lock #1733 created (0.001 BTC, 28 days) for the auction loan | [0x0939…5077](https://explorer.test.mezo.org/tx/0x09396f68ea5c2758a2353ff63374abc7bfbb5113a576ae61be20a8b1de1a5077) | 16667671 |
+| 37 | liquidate | borrower: approve veBTC #1733 to credit line | [0xb67d…c21d](https://explorer.test.mezo.org/tx/0xb67ded0cd14edf1fd28cf2076d8871a51e57167acf27e2a564655f7c7b8cc21d) | 16667675 |
+| 38 | liquidate | borrower: veBTC loan #2 opened on #1733 (35 MUSD, LTV 47.20%; 0.0875 MUSD origination fee to the treasury), the loan the shock sends to auction | [0x539f…3265](https://explorer.test.mezo.org/tx/0x539f2e7a9d331870bc41cd1c99d86ea14d22b3fe18f52aeff8702e2317c03265) | 16667678 |
+| 39 | liquidate | keeper wallet: shock −32.59% for 20 min (StressedPriceSource) | [0xb206…d00f](https://explorer.test.mezo.org/tx/0xb2066af885c361d1c7bbd1a378bef126eed673254386871c129c4cbcbde4d00f) | 16667696 |
+| 40 | liquidate | keeper wallet: veBTC auction started (loan #2, LTV 69.95% at the shocked price) | [0x14d3…4643](https://explorer.test.mezo.org/tx/0x14d39883aa93586a82b2867b3bb4bdf51f5146361dc0c4092ee236a4a4344643) | 16667702 |
+| 41 | liquidate | bidder: approve MUSD to credit line (bid) | [0xc6cc…4653](https://explorer.test.mezo.org/tx/0xc6cc327a2ddf8ea9f18c3aaa35e2f9bb2da7950f1616387e08a2a5ccddcf4653) | 16667776 |
+| 42 | liquidate | **bidder: veBTC auction bid on loan #2 at 92.50% of collateral, above debt + fee (no shortfall)** | [0x69ba…aae1](https://explorer.test.mezo.org/tx/0x69ba998d4a6071942e0c77873dd5f554ec04f2415ad806ff0ce720cc9652aae1) | 16667778 |
+| 43 | liquidate | keeper wallet: shock cleared (BTC back at its Skip price) | [0xb017…a632](https://explorer.test.mezo.org/tx/0xb0170f4d32937e189a191eddb15e8344d811daeca38d4acc603a7807baf1a632) | 16667781 |
+| 44 | market | lender: approve 20 srMUSD to ShareMarket | [0xc2fd…dca2](https://explorer.test.mezo.org/tx/0xc2fdf55efc8de9b96c794b33fc9d7a34db60b887cf937a24d22c37d9f9f6dca2) | 16667789 |
+| 45 | market | lender: list 20 srMUSD at 1.00% below the share price (listing #1) | [0x7021…af2f](https://explorer.test.mezo.org/tx/0x70219e3e4abba568bfbb11780a873b52207aca822593858c283c09002c23af2f) | 16667793 |
+| 46 | market | share buyer: approve 9.9103 MUSD to ShareMarket | [0x6dee…a3b4](https://explorer.test.mezo.org/tx/0x6deed3b821447fe75e9201fdf1be19f6f39f2ddeafcb6c7a619efa253cf7a3b4) | 16667799 |
+| 47 | market | **share buyer: fill 10 srMUSD of listing #1 for 9.9004 MUSD (fee 0.0099 MUSD to the treasury)** | [0x741e…de8a](https://explorer.test.mezo.org/tx/0x741e1b596a09c35b382c5ef245c16a168ea6eb725f86e09b2ceb2088ecbfde8a) | 16667801 |
+| 48 | market | lender: cancel listing #1 (10 srMUSD back) | [0x9995…e828](https://explorer.test.mezo.org/tx/0x99951f4ae7ce88ea016493bc872c908eea30f51c11930cd20b4ee86b3a4ee828) | 16667807 |
+| 49 | kit | **starter-kit relayer: starter kit #1 for team test wallet 0x7e87…759a (not an outside user)** | [0x823f…1477](https://explorer.test.mezo.org/tx/0x823f99fc7d1e6efb55facc06676708f48fc994ee111de45259847107e5321477) | 16667811 |
+| 50 | epoch | Surety keeper: poke #1711 (epoch 07:00 UTC) | [0xc69a…fea1](https://explorer.test.mezo.org/tx/0xc69a97efa5e8874c166b0c1011a82f6e563266bf99e21922ba5514c2d78cfea1) | 16667830 |
+| 51 | epoch | Surety keeper: rebalance (epoch 07:00 UTC) on the 06:00 tally: 0.84 MUSD of line interest, the lenders' part of the liquidation fee included, attributed to cohort 06:00 | [0x98e8…9301](https://explorer.test.mezo.org/tx/0x98e8c8207a98d16212b75c61013721707cd47b0847cdd5741797b296e3519301) | 16667832 |
+| 52 | harvest | **harvest after the Mezo flip (Thu 2026-11-12 00:00 UTC) (not recorded yet)** | PENDING | — |
+
+<!-- proof:lifecycle-v2:end -->
+
+What the run shows, from its events:
+
+- **lend.** The 100 MUSD deposit goes straight to sMUSD: VaultV2 allocates it to the SavingsAdapter, the vault's liquidity adapter, and leaves no idle MUSD.
+- **vote.** #1711 (voting power 0.001045) votes 30% for line 0 (BTC / MUSD on Morpho) and 70% for line 1 (veBTC line); the sponsor posts 10 MUSD of incentives on each. The rebalance takes 108 MUSD (90% of 120) out of sMUSD: 32.40 to the Morpho market and 75.60 to the veBTC line. The 12.00 MUSD buffer stays parked in sMUSD.
+- **loan.** 25 MUSD against a 0.003 BTC lock (221.86 MUSD at 73,953 MUSD/BTC), LTV 11.26%. `OriginationFeePaid` shows 0.0625 MUSD (25 bps) going to the treasury: the borrower receives 24.9375 and owes 25. Auto-repay is then switched on.
+- **escrow.** The loan's escrow votes veBTC #1732 100% on the MUSD/mUSDC stable pool of Mezo's PoolsVoter, and the sponsor posts a 20 MUSD bribe on that gauge for the Mezo epoch of 2026-11-05. The escrow holds 0.41% of the gauge's votes, about 0.17 MUSD of the epoch's 40 MUSD of bribes at today's shares, claimable from the flip on 2026-11-12 00:00 UTC (the PENDING harvest row).
+- **morpho.** 0.001 BTC posted on Mezo's own testnet Morpho (market `0xf0bb…e3ff`, LLTV 77%) and 25 MUSD borrowed at 33.7% LTV.
+- **peg.** The stressed peg source reads $0.94: `pegHealthy()` turns false and the allocator's gate shuts, while BTC stays priced at BTC/USD (an unhealthy peg prices MUSD at exactly $1). A `borrowMore` sent anyway, with an explicit 500,000 gas limit, reverts on chain with `PegUnhealthy`. The override is then cleared and the peg reads healthy again.
+- **liquidate.** A second loan of 35 MUSD at 47.2% LTV on a 0.001 BTC lock. The keeper wallet shocks BTC/USD by 32.59% (74,167 to 50,032), which puts this loan at 69.95% (the line auctions from 65%) while loan #1 only goes to 16.7% and the Morpho position to 50.0%, and starts the auction. After 300 s of decay the bidder pays 46.13 MUSD, about 92% of the 50.08 MUSD collateral, for a debt of 35.00: no shortfall, 10.08 MUSD of surplus to the borrower, and the 1.05 MUSD fee (3% of the debt) split by `LiquidationFeePaid` into 0.84 for lenders, 0.105 for the treasury and 0.105 for the keeper wallet that started the auction. The floor, 42.57 MUSD, would still have covered debt and fee (36.05): at the trigger the 85% floor keeps a fresh loan whole. Bad debt stays at zero, so deposits never paused.
+- **market.** The lender lists 20 srMUSD at 1% below the share price. The share buyer fills 10 for 9.9004 MUSD (worth 10.0004): 9.8905 to the lender, 0.0099 (10 bps) to the treasury. The lender cancels the other 10.
+- **savings.** No harvest was sent: testnet sMUSD paid no yield during the run (its yield index did not move), so the adapter had nothing to claim.
+- **kit.** The Sponsor's relayer hands a team test wallet its starter kit: veBTC #1734 (0.001 BTC), 0.00005 BTC for gas and 50 MUSD. It is labelled as a team wallet, not an outside user.
+- **epoch.** At the 07:00 UTC flip the keeper pokes #1711's ballot and rebalances on the closed 06:00 tally. The 0.84 MUSD the veBTC line earned, almost all of it the lenders' part of the liquidation fee, is attributed to cohort 06:00 (`InterestAttributed`, `FeesDistributed`).
+- **harvest** (after 2026-11-12 00:00 UTC). With auto-repay on, anyone may `harvest` loan #1: the bribe MUSD repays the loan and the veBTC rebase compounds into the lock. The keeper harvests auto-repay loans as soon as their rewards are claimable; `--phase harvest` records that transaction, or sends the harvest itself.
+
+Reproduce, from the repository root (the two `.env` files hold the keys; keep them outside the repository):
+
+```sh
+pnpm --filter @surety/keeper build:scripts
+node keeper/dist/scripts/testnet-cycle-v2.js --phase all --env-file <.env> --roles-file <roles .env> [--dry-run]
+node keeper/dist/scripts/testnet-cycle-v2.js --phase harvest --env-file <.env> --roles-file <roles .env>   # after the bribe's Mezo epoch
+```
+
 ## Live lifecycle on testnet
 
-`keeper/scripts/testnet-cycle.ts` ran Surety's whole lifecycle on the current testnet deployment from the deployer account [`0x37D5…C282`](https://explorer.test.mezo.org/address/0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282), with its veBTC NFTs #1711 and #1712. Every mined transaction is appended to `proof.txs` in the deployment file as `{ label, hash, block }`, and the table below is rendered from that file by [`docs/proof-table.mjs`](proof-table.mjs). Rows marked PENDING are steps the run has not recorded yet; re-render with `node docs/proof-table.mjs --write` once it has.
+`keeper/scripts/testnet-cycle.ts` ran Surety's whole lifecycle on the v1 testnet deployment ([`contracts/deployments/v1/31611.json`](../contracts/deployments/v1/31611.json)) from the deployer account [`0x37D5…C282`](https://explorer.test.mezo.org/address/0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282), with its veBTC NFTs #1711 and #1712. Every mined transaction is appended to `proof.txs` in the deployment file as `{ label, hash, block }`, and the table below is rendered from that file by [`docs/proof-table.mjs`](proof-table.mjs). Rows marked PENDING are steps the run has not recorded yet; re-render with `node docs/proof-table.mjs --write` once it has.
 
 <!-- proof:lifecycle:start -->
 Rendered by `node docs/proof-table.mjs` from `contracts/deployments/v1/31611.json`: 35 transactions recorded, 0 steps PENDING.

@@ -110,6 +110,264 @@
     }
   ],
   "proof": {
-    "txs": []
+    "txs": [
+      {
+        "label": "fund lender: 100 MUSD",
+        "hash": "0x83f16f71df7203cc740b0782ec245b8ed6b380d42683de1b3743d7bdef994863",
+        "block": 16667566
+      },
+      {
+        "label": "fund lender: 0.00002 BTC for gas",
+        "hash": "0x5580f91e2f376ebe5c7f64731eecee84ccf744ca5235d15c755fd341d243b629",
+        "block": 16667568
+      },
+      {
+        "label": "fund borrower: 0.00502 BTC for two veBTC locks, Morpho collateral and gas",
+        "hash": "0xc107f7d774194b2595c668a53d526e7f47c1f451abef754c9002ca10bb8de719",
+        "block": 16667570
+      },
+      {
+        "label": "fund voter: veBTC #1711",
+        "hash": "0xed09c4b2f35de49243e43f15e48eaa4d5f48d99a4b4c702efd6c2cab3128041c",
+        "block": 16667573
+      },
+      {
+        "label": "fund voter: 0.00002 BTC for gas",
+        "hash": "0xb0020759bc78b3cb6a6ae3ddbf82a25df778dd94bb52841a2744825e9c84311d",
+        "block": 16667576
+      },
+      {
+        "label": "fund sponsor: 40 MUSD",
+        "hash": "0x41c46f8edd8edd7cc47dcad65aeb88ff166c1cdc8b2eb735295f5472fe99cf2e",
+        "block": 16667579
+      },
+      {
+        "label": "fund sponsor: 0.00002 BTC for gas",
+        "hash": "0xe46e124eb99125b020bdb4f47799ece38366a53035cdd8788f60f97bf06d6c7a",
+        "block": 16667580
+      },
+      {
+        "label": "fund bidder: 55 MUSD",
+        "hash": "0xd6077343bcf64ecf0b96f55a99c3c728788823dec563d5d81c167ab6107281c1",
+        "block": 16667582
+      },
+      {
+        "label": "fund bidder: 0.00002 BTC for gas",
+        "hash": "0x228db119fa9959e57fef6e755188a895248003f3f70be656e9f255b028e8be89",
+        "block": 16667585
+      },
+      {
+        "label": "fund share buyer: 12 MUSD",
+        "hash": "0x700230bccbe8304ac079b3ec8936c436173f92221921e436c6010fc1034f2c2c",
+        "block": 16667587
+      },
+      {
+        "label": "fund share buyer: 0.00002 BTC for gas",
+        "hash": "0xd4005ff473e6b0c99535d27bfc3b850f03bfdd76f0f5c9b45d63bae8e020d428",
+        "block": 16667589
+      },
+      {
+        "label": "fund keeper wallet: 0.00002 BTC for gas",
+        "hash": "0x210f1ed7a0d10edb89cd410224e148528ffc9066c46fbcc2e89b34e6dd997b32",
+        "block": 16667592
+      },
+      {
+        "label": "fund starter-kit relayer: 0.00002 BTC for gas",
+        "hash": "0x40bfc25e9144e41d55592e0f1f20b55b6be1eac8a2dc015fb7a1f64a4fc76854",
+        "block": 16667594
+      },
+      {
+        "label": "lender: approve 100 MUSD to vault",
+        "hash": "0x28a5712021d7ff12e231414d47017e52547754ea1292b9508c542a95c0b1abcf",
+        "block": 16667600
+      },
+      {
+        "label": "lender: deposit 100 MUSD, parked in sMUSD",
+        "hash": "0xe25a1e53b909718a19de0b74823a81c6ad68a66b596f950c1f4006f49c8d51f8",
+        "block": 16667603
+      },
+      {
+        "label": "voter: vote #1711 30/70 (line 0 Morpho / line 1 veBTC)",
+        "hash": "0xebb5dac8dd85a29d509c91fd35b30168a660afc40cb22d038c35c11ddafcbab7",
+        "block": 16667606
+      },
+      {
+        "label": "sponsor: approve 20 MUSD to SuretyPool",
+        "hash": "0x0a6853aaeab3d0aedcf23478c25eee36eb6800da92bd1fbee65bc5c584b5de9d",
+        "block": 16667607
+      },
+      {
+        "label": "sponsor: incentive 10 MUSD to line 0 (BTC / MUSD (Morpho))",
+        "hash": "0xb1925359eff8823ed6f0960bf4d15f0891feaa9791a823c7ce94071243d4a970",
+        "block": 16667608
+      },
+      {
+        "label": "sponsor: incentive 10 MUSD to line 1 (veBTC credit line)",
+        "hash": "0xca1f20814f509079277fff556a676514cadb5c63dfa2641d1e7df8ff63cefb84",
+        "block": 16667609
+      },
+      {
+        "label": "keeper wallet: rebalance (epoch 06:00 UTC): sMUSD to the lines by the votes",
+        "hash": "0x5fe4a449d6793cba4e511c7a1cd579e9220851c61be8f15a08d685afddbfc5b2",
+        "block": 16667612
+      },
+      {
+        "label": "borrower: approve 0.003 BTC to veBTC",
+        "hash": "0xb052c1417edeb41e53932425c3abbbdee040063df0410eb4d1fad2b1b723559d",
+        "block": 16667617
+      },
+      {
+        "label": "borrower: veBTC lock #1732 created (0.003 BTC, 28 days) for the escrow-vote loan",
+        "hash": "0x61cc80cffd99e5c55b211345ebd0d5c564b1a1bf8dac737c5d3f6861eb797ef7",
+        "block": 16667620
+      },
+      {
+        "label": "borrower: approve veBTC #1732 to credit line",
+        "hash": "0x684f2cbcb302c2db8b3be88e6b0c55e5c2013d3bd0ee4d955897225635118f27",
+        "block": 16667622
+      },
+      {
+        "label": "borrower: veBTC loan #1 opened on #1732 (25 MUSD, LTV 11.26%; 0.0625 MUSD origination fee to the treasury)",
+        "hash": "0x9f8decd8a5fa3e6944f3186d0d7f59f915627ee569558e4425da8858e2ea99f9",
+        "block": 16667626
+      },
+      {
+        "label": "borrower: auto-repay on for loan #1 (anyone may harvest its rewards into repayment)",
+        "hash": "0x30a85874117863e547421a90056a812bea381561e7200b8b8a87ddbf3e3efc41",
+        "block": 16667628
+      },
+      {
+        "label": "borrower: escrow vote loan #1 (veBTC #1732) 100% on MUSD/mUSDC stable pool",
+        "hash": "0x1a50ee48bfa2a189fab44bbdccf936f6f630c4fe994766e0ce4d575529720430",
+        "block": 16667636
+      },
+      {
+        "label": "sponsor: approve 20 MUSD to MUSD/mUSDC bribe",
+        "hash": "0x8461748b9ee875bd66163a8fa6159935edbde0ba39df1c3a72113a531b1158ca",
+        "block": 16667640
+      },
+      {
+        "label": "sponsor: bribe 20 MUSD on MUSD/mUSDC gauge (Mezo epoch 2026-11-05)",
+        "hash": "0x203fd6fb5dfb44df73c952b5e99dbb6dc7330876861018df679d445e0594ad0f",
+        "block": 16667642
+      },
+      {
+        "label": "borrower: approve 0.001 BTC to Morpho",
+        "hash": "0x489064e85a4d42afa6a6667abbe0cd0749bbfdf2b5cd078c6dd11885bceb8c44",
+        "block": 16667644
+      },
+      {
+        "label": "borrower: Morpho supplyCollateral 0.001 BTC",
+        "hash": "0xf9eb091db4014a1cfb9f525e54ae5d2a9dec853cc27b33d72b1281ef4021589c",
+        "block": 16667646
+      },
+      {
+        "label": "borrower: Morpho borrow 25 MUSD (LTV 33.74%, LLTV 77.00%)",
+        "hash": "0xcbb985778ed1d8e71c4d7893dc172650048b30c31bbc755d852c35d69f4d470c",
+        "block": 16667648
+      },
+      {
+        "label": "keeper wallet: peg override, MUSD at $0.94 for 10 min (StressedPegSource)",
+        "hash": "0xbed9c4b242677a105923c898d371f34afe68777a660bee7df665a1ae770be316",
+        "block": 16667653
+      },
+      {
+        "label": "borrower: borrowMore 1 MUSD on loan #1 while MUSD is off its peg (refused on chain: PegUnhealthy)",
+        "hash": "0x6438e38d8cd1dfb4f522a6c72c25cf987e97e98201d2838d2f7a7942633f8e16",
+        "block": 16667654,
+        "status": "reverted",
+        "reason": "PegUnhealthy"
+      },
+      {
+        "label": "keeper wallet: peg override cleared, MUSD back at $1",
+        "hash": "0x2bd278fb0737d24b7684c9e7fd95df097984843630b3e17e8aa7e9997f7bac38",
+        "block": 16667659
+      },
+      {
+        "label": "borrower: approve 0.001 BTC to veBTC",
+        "hash": "0x012893223f7c5ffde511dbc6d7f699aa5e3e1cbb56c46a7af655d981ddcae673",
+        "block": 16667666
+      },
+      {
+        "label": "borrower: veBTC lock #1733 created (0.001 BTC, 28 days) for the auction loan",
+        "hash": "0x09396f68ea5c2758a2353ff63374abc7bfbb5113a576ae61be20a8b1de1a5077",
+        "block": 16667671
+      },
+      {
+        "label": "borrower: approve veBTC #1733 to credit line",
+        "hash": "0xb67ded0cd14edf1fd28cf2076d8871a51e57167acf27e2a564655f7c7b8cc21d",
+        "block": 16667675
+      },
+      {
+        "label": "borrower: veBTC loan #2 opened on #1733 (35 MUSD, LTV 47.20%; 0.0875 MUSD origination fee to the treasury), the loan the shock sends to auction",
+        "hash": "0x539f2e7a9d331870bc41cd1c99d86ea14d22b3fe18f52aeff8702e2317c03265",
+        "block": 16667678
+      },
+      {
+        "label": "keeper wallet: shock \u221232.59% for 20 min (StressedPriceSource)",
+        "hash": "0xb2066af885c361d1c7bbd1a378bef126eed673254386871c129c4cbcbde4d00f",
+        "block": 16667696
+      },
+      {
+        "label": "keeper wallet: veBTC auction started (loan #2, LTV 69.95% at the shocked price)",
+        "hash": "0x14d39883aa93586a82b2867b3bb4bdf51f5146361dc0c4092ee236a4a4344643",
+        "block": 16667702
+      },
+      {
+        "label": "bidder: approve MUSD to credit line (bid)",
+        "hash": "0xc6cc327a2ddf8ea9f18c3aaa35e2f9bb2da7950f1616387e08a2a5ccddcf4653",
+        "block": 16667776
+      },
+      {
+        "label": "bidder: veBTC auction bid on loan #2 at 92.50% of collateral, above debt + fee (no shortfall)",
+        "hash": "0x69ba998d4a6071942e0c77873dd5f554ec04f2415ad806ff0ce720cc9652aae1",
+        "block": 16667778
+      },
+      {
+        "label": "keeper wallet: shock cleared (BTC back at its Skip price)",
+        "hash": "0xb0170f4d32937e189a191eddb15e8344d811daeca38d4acc603a7807baf1a632",
+        "block": 16667781
+      },
+      {
+        "label": "lender: approve 20 srMUSD to ShareMarket",
+        "hash": "0xc2fdf55efc8de9b96c794b33fc9d7a34db60b887cf937a24d22c37d9f9f6dca2",
+        "block": 16667789
+      },
+      {
+        "label": "lender: list 20 srMUSD at 1.00% below the share price (listing #1)",
+        "hash": "0x70219e3e4abba568bfbb11780a873b52207aca822593858c283c09002c23af2f",
+        "block": 16667793
+      },
+      {
+        "label": "share buyer: approve 9.9103 MUSD to ShareMarket",
+        "hash": "0x6deed3b821447fe75e9201fdf1be19f6f39f2ddeafcb6c7a619efa253cf7a3b4",
+        "block": 16667799
+      },
+      {
+        "label": "share buyer: fill 10 srMUSD of listing #1 for 9.9004 MUSD (fee 0.0099 MUSD to the treasury)",
+        "hash": "0x741e1b596a09c35b382c5ef245c16a168ea6eb725f86e09b2ceb2088ecbfde8a",
+        "block": 16667801
+      },
+      {
+        "label": "lender: cancel listing #1 (10 srMUSD back)",
+        "hash": "0x99951f4ae7ce88ea016493bc872c908eea30f51c11930cd20b4ee86b3a4ee828",
+        "block": 16667807
+      },
+      {
+        "label": "starter-kit relayer: starter kit #1 for team test wallet 0x7e87\u2026759a (not an outside user)",
+        "hash": "0x823f99fc7d1e6efb55facc06676708f48fc994ee111de45259847107e5321477",
+        "block": 16667811
+      },
+      {
+        "label": "Surety keeper: poke #1711 (epoch 07:00 UTC)",
+        "hash": "0xc69a97efa5e8874c166b0c1011a82f6e563266bf99e21922ba5514c2d78cfea1",
+        "block": 16667830
+      },
+      {
+        "label": "Surety keeper: rebalance (epoch 07:00 UTC) on the 06:00 tally: 0.84 MUSD of line interest, the lenders' part of the liquidation fee included, attributed to cohort 06:00",
+        "hash": "0x98e8c8207a98d16212b75c61013721707cd47b0847cdd5741797b296e3519301",
+        "block": 16667832
+      }
+    ]
   }
 }
