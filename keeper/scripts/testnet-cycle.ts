@@ -778,7 +778,7 @@ const USAGE = `Usage: node keeper/dist/scripts/testnet-cycle.js --phase <setup|s
 Options:
   --phase <name>        setup | stress | settle | epoch (required)
   --env-file <path>     .env file holding DEPLOYER_PRIVATE_KEY (keep it outside the repository)
-  --deployment <path>   deployment JSON to read and record proof into (default contracts/deployments/31611.json)
+  --deployment <path>   deployment JSON to read and record proof into (default contracts/deployments/v1/31611.json)
   --rpc <url>           RPC URL (default ${RPC})
   --wait                epoch: if this epoch's rebalance already ran, wait for the next flip
   --dry-run             simulate each step, send nothing

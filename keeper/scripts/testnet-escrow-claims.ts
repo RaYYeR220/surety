@@ -222,7 +222,7 @@ credit line's escrowClaim and escrowClaimRebase, and prints what the borrower re
 
 Options:
   --env-file <path>     .env file holding DEPLOYER_PRIVATE_KEY (keep it outside the repository)
-  --deployment <path>   deployment JSON to read and record proof into (default contracts/deployments/31611.json)
+  --deployment <path>   deployment JSON to read and record proof into (default contracts/deployments/v1/31611.json)
   --rpc <url>           RPC URL (default https://rpc.test.mezo.org)
   --loan-id <id>        loan to claim for (default: the loan testnet-escrow-vote opened)
   --pool <address>      claim this pool's gauge rewards (default: every pool the NFT votes on)

@@ -2,7 +2,8 @@
 // Renders the live-lifecycle proof from a deployment file's `proof.txs` (written by
 // keeper/scripts/testnet-cycle.ts) as Markdown.
 //
-//   node docs/proof-table.mjs                     print both blocks for contracts/deployments/31611.json
+//   node docs/proof-table.mjs                     print both blocks for contracts/deployments/v1/31611.json
+//                                                 (the v1 testnet deployment and its lifecycle proof)
 //   node docs/proof-table.mjs <deployment.json>   same, for another deployment file
 //   node docs/proof-table.mjs [file] --write      also replace the rendered blocks in README.md and docs/PROOF.md
 //
@@ -133,7 +134,7 @@ function splice(path, [start, end], body) {
 
 const args = process.argv.slice(2);
 const write = args.includes("--write");
-const file = args.find((a) => !a.startsWith("--")) ?? join(ROOT, "contracts/deployments/31611.json");
+const file = args.find((a) => !a.startsWith("--")) ?? join(ROOT, "contracts/deployments/v1/31611.json");
 const src = load(file);
 const rows = plan(src);
 const shown = relative(ROOT, file).replaceAll("\\", "/");

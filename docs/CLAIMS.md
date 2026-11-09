@@ -46,7 +46,7 @@ A claim can carry two tiers when both kinds of evidence exist.
 | --- | --- | --- | --- |
 | 20 | The vault is Morpho VaultV2 with MorphoMarketV1AdapterV2, vendored unmodified, from the same sources as Mezo's VaultV2 on mainnet. | VERIFIED-LIVE | File-by-file comparison with Mezo's verified contracts ([PROOF.md](PROOF.md#same-sources-as-mezo-mainnet)); submodule commit `97bcce9` |
 | 21 | Prices come from Mezo's Skip BTC/USD precompile. | VERIFIED-LIVE | Verified source of the [SkipPriceSource](https://repo.sourcify.dev/31611/0x5b2889271154adD90BC4b33EaE3Bb5dDC09d6BFC) and its `aggregator()` = `0x7b7c…0015` |
-| 22 | Surety uses Mezo's real testnet MUSD, veBTC, PoolsVoter and RewardsDistributor. | VERIFIED-LIVE | `external` in `contracts/deployments/31611.json`; the line's `musd()`, `ve()`, `voter()` and `distributor()` |
+| 22 | Surety uses Mezo's real testnet MUSD, veBTC, PoolsVoter and RewardsDistributor. | VERIFIED-LIVE | `external` in `contracts/deployments/v1/31611.json`; the line's `musd()`, `ve()`, `voter()` and `distributor()` |
 | 23 | Weekly epochs flip on Thursday 00:00 UTC, like Mezo's. | REPRODUCIBLE | `EpochLibTest.test_start_weekAlignsToThursday` |
 | 24 | The BTC / MUSD Morpho market uses LLTV 86% and AdaptiveCurveIrm, as Mezo's Morpho Blue enables. | VERIFIED-LIVE | `marketParams` in the deployment file; Morpho Blue and AdaptiveCurveIrm verified on Sourcify |
 

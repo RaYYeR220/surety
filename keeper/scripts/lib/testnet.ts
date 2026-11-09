@@ -44,8 +44,11 @@ export const RPC = "https://rpc.test.mezo.org";
 export const WAD = 10n ** 18n;
 export const BPS = 10_000n;
 
-/** The testnet deployment file, resolved from the built script in keeper/dist/scripts. */
-export const DEFAULT_DEPLOYMENT = fileURLToPath(new URL("../../../contracts/deployments/31611.json", import.meta.url));
+/**
+ * The v1 testnet deployment file, resolved from the built script in keeper/dist/scripts: the deployment these
+ * scripts' recorded runs belong to. Pass --deployment contracts/deployments/31611.json for the current one.
+ */
+export const DEFAULT_DEPLOYMENT = fileURLToPath(new URL("../../../contracts/deployments/v1/31611.json", import.meta.url));
 
 /* Output */
 

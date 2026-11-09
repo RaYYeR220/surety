@@ -387,7 +387,7 @@ PoolsVoter pool and posts a MUSD bribe on that pool's gauge. Testnet (${CHAIN_ID
 
 Options:
   --env-file <path>     .env file holding DEPLOYER_PRIVATE_KEY (keep it outside the repository)
-  --deployment <path>   deployment JSON to read and record proof into (default contracts/deployments/31611.json)
+  --deployment <path>   deployment JSON to read and record proof into (default contracts/deployments/v1/31611.json)
   --rpc <url>           RPC URL (default https://rpc.test.mezo.org)
   --pool <address>      PoolsVoter pool to vote and bribe (default ${DEFAULT_POOL}, MUSD/mUSDC stable)
   --token-id <id>       use this veBTC NFT (held by the sender, or already in its loan) instead of a new lock

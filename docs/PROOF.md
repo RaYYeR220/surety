@@ -6,7 +6,7 @@ Every public claim about Surety points to something that can be checked: a verif
 
 ### Mezo testnet (31611)
 
-All 14 contracts in [`contracts/deployments/31611.json`](../contracts/deployments/31611.json) are verified on Sourcify with an exact match (metadata and bytecode). Checked on 2026-10-24.
+All 14 contracts in [`contracts/deployments/v1/31611.json`](../contracts/deployments/v1/31611.json) are verified on Sourcify with an exact match (metadata and bytecode). Checked on 2026-10-24.
 
 | Contract | Address | Sourcify | Explorer |
 | --- | --- | --- | --- |
@@ -66,7 +66,7 @@ The deployed bytecode differs from Mezo's because Surety compiles with its own s
 
 ### Mezo mainnet (31612)
 
-Deployed 2026-10-25 from `contracts/deployments/31612.json` (block 12755630); every contract below is an exact match on Sourcify (creation and runtime bytecode; the LoanEscrow implementation is runtime-only because it is created by the line's constructor). Morpho Blue and AdaptiveCurveIrm are Mezo's own deployments.
+Deployed 2026-10-25 from `contracts/deployments/v1/31612.json` (block 12755630); every contract below is an exact match on Sourcify (creation and runtime bytecode; the LoanEscrow implementation is runtime-only because it is created by the line's constructor). Morpho Blue and AdaptiveCurveIrm are Mezo's own deployments.
 
 | Contract | Address | Sourcify |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ Check it yourself: `cast call 0x7B6673dEbB5E2480798ff3e11680182F37aF2f4f "LINE_T
 `keeper/scripts/testnet-cycle.ts` ran Surety's whole lifecycle on the current testnet deployment from the deployer account [`0x37D5…C282`](https://explorer.test.mezo.org/address/0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282), with its veBTC NFTs #1711 and #1712. Every mined transaction is appended to `proof.txs` in the deployment file as `{ label, hash, block }`, and the table below is rendered from that file by [`docs/proof-table.mjs`](proof-table.mjs). Rows marked PENDING are steps the run has not recorded yet; re-render with `node docs/proof-table.mjs --write` once it has.
 
 <!-- proof:lifecycle:start -->
-Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`: 28 transactions recorded, 0 steps PENDING.
+Rendered by `node docs/proof-table.mjs` from `contracts/deployments/v1/31611.json`: 35 transactions recorded, 0 steps PENDING.
 
 | # | Phase | Step | Transaction | Block |
 | --- | --- | --- | --- | --- |
@@ -121,6 +121,13 @@ Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`:
 | 26 | epoch | poke #1712 (epoch 23:00 UTC, by the keeper) | [0xe8e7…c4ad](https://explorer.test.mezo.org/tx/0xe8e74db83517ef391fe9b69a73d877b5103e10a99e6eadad7457c43e224fc4ad) | 16327767 |
 | 27 | epoch | **rebalance (epoch 23:00 UTC, by the keeper): fees attributed to the cohorts** | [0x8f22…622c](https://explorer.test.mezo.org/tx/0x8f22a2de4732ffc0ff32dfec7576c8fdcf2ec4a7234905cb43d98ed286b6622c) | 16327768 |
 | 28 | other | cover by the keeper: new fees in the reserve pay down the lenders' share of the Morpho loss | [0x8a3f…c541](https://explorer.test.mezo.org/tx/0x8a3ff37c8d20140804aa5b9d09ff5b62cf9bfb4ec5e250164915cc571c74c541) | 16327820 |
+| 29 | other | approve 0.005 BTC to veBTC | [0xeac6…3464](https://explorer.test.mezo.org/tx/0xeac64333b00d3e22be580b23bf6e220529d1b2a38ab5b9969e9a74deb2983464) | 16664788 |
+| 30 | other | veBTC lock #1731 created (0.005 BTC, 28 days) | [0xb17f…7952](https://explorer.test.mezo.org/tx/0xb17fbd2cfe5fd41b4c6590ab2665fbb6b217ec57706872188d8d4d2f9b5e7952) | 16664789 |
+| 31 | other | approve veBTC #1731 to credit line | [0x8931…7751](https://explorer.test.mezo.org/tx/0x89311fa91f6b00a6209d7d0137d858402f836b49c17c2091f7153b59780b7751) | 16664792 |
+| 32 | other | veBTC loan opened #1731 (10 MUSD) | [0x8252…cd22](https://explorer.test.mezo.org/tx/0x8252f377de96122cbbe1a4a37e840d03a9690e86fda156a8da13a0575675cd22) | 16664793 |
+| 33 | other | escrow vote loan #2 (veBTC #1731) 100% on MUSD/mUSDC stable pool | [0x1b78…9612](https://explorer.test.mezo.org/tx/0x1b78236ede57063dedf03347ee23c1c4ccc3920f081495332b5d997f17c99612) | 16664795 |
+| 34 | other | approve 20 MUSD to MUSD/mUSDC bribe | [0x7d89…f97a](https://explorer.test.mezo.org/tx/0x7d89d72590cd317b968d1191849b6bb83c14521de704355b3c7c0ddba0e9f97a) | 16664798 |
+| 35 | other | bribe 20 MUSD on MUSD/mUSDC gauge (Mezo epoch 2026-11-05) | [0xef7a…919b](https://explorer.test.mezo.org/tx/0xef7ab6f4f99ef53b81d568de533ddd140711f8d86685113e787bb0a220a7919b) | 16664799 |
 
 <!-- proof:lifecycle:end -->
 
@@ -214,7 +221,7 @@ The lifecycle script needs a deployment made with `STRESS=true` (the shock goes 
 ```sh
 # 1. Deploy your own stress deployment (writes contracts/deployments/31611.json unless DEPLOYMENT_OUT is set)
 cd contracts
-STRESS=true DEPLOYMENT_OUT=deployments/mine.31611.json \
+STRESS=true RELAYER_ADDRESS=<starter-kit relayer> DEPLOYMENT_OUT=deployments/mine.31611.json \
   forge script script/Deploy.s.sol --rpc-url mezo_testnet --broadcast
 
 # 2. Build the script and run the phases in order, from the repository root
