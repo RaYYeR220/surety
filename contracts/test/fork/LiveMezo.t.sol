@@ -174,6 +174,15 @@ contract LiveMezoTest is Test {
         assertTrue(line.isEscrow(escrow));
         assertEq(musd.balanceOf(admin), amount * 25 / BPS, "origination fee to the treasury");
 
+        // Auto-repay on: a keeper harvests through the live PoolsVoter and RewardsDistributor (nothing owed yet).
+        vm.prank(tokenOwner);
+        line.setAutoRepay(loanId, true);
+        uint256 debtBefore = line.debtOf(loanId);
+        vm.prank(keeper);
+        assertEq(line.harvest(loanId, new address[](0), new address[][](0)), 0);
+        assertEq(line.debtOf(loanId), debtBefore);
+        assertEq(ve.ownerOf(tokenId), escrow);
+
         vm.warp(block.timestamp + 1 days);
         vm.roll(block.number + 28_800);
         uint256 morphoBefore = allocator.lineAssets(0);
