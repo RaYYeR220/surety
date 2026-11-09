@@ -13,16 +13,16 @@ import {IPegSource} from "../../interfaces/IPegSource.sol";
 /// ok with a non-zero price; a source that reverts or answers malformed data counts as not ok. With an even number of
 /// usable sources the median is the mean of the middle two.
 ///
-/// Mainnet configuration, from readings on 2026-11-09 (block 13,100,532): CL mUSDC/MUSD 30-minute TWAP 0.99144,
-/// sAMM mUSDC/MUSD 0.99083, sAMM MUSD/mUSDT 0.98604, BTC-cross on CL BTC/MUSD 0.999-1.004; 30-day market range
-/// 0.988-1.005.
+/// Mainnet configuration, from the readings at block 13,100,532 (2026-11-09 03:20 UTC; see test/fork/LivePeg.t.sol):
+/// CL mUSDC/MUSD 30-minute TWAP 0.99144, sAMM mUSDC/MUSD 0.99125, sAMM MUSD/mUSDT 0.98604, BTC-cross on CL BTC/MUSD
+/// 1.00246; median 0.99134, spread 166 bps. MUSD's 30-day market range was 0.988-1.005.
 /// - `minSources` 2 of 4: no single pool prices MUSD, and one source dropping out (a stale Skip round, a pool without
 ///   history) does not stop borrowing.
 /// - `bandBps` 300: the median sits about 90 bps under $1 and the 30-day range stays within 125 bps of it, so 300
 ///   bps leaves room for normal drift and still trips on a real depeg.
-/// - `maxSpreadBps` 500: the live spread is about 180 bps, mostly the BTC-cross source, which sets a 30-minute TWAP
-///   against spot BTC/USD and so moves with BTC inside the window. 500 bps absorbs a 3% BTC move within the window
-///   and still trips when any source is off by more than the band.
+/// - `maxSpreadBps` 500: most of the live spread is the BTC-cross source, which sets a 30-minute TWAP against spot
+///   BTC/USD and so moves with BTC inside the window. 500 bps absorbs a 3% BTC move within the window and still trips
+///   when any source is off by more than the band.
 contract MusdPeg is IMusdPeg {
     uint256 public constant MAX_SOURCES = 8;
     uint256 public constant MAX_SPREAD_BPS = 2000;
