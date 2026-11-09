@@ -15,18 +15,27 @@ import { wagmiConfig } from "@/lib/wagmi";
 import { SnapshotContext, seedSnapshots } from "./Freshness";
 import { WalletDialogProvider } from "./WalletDialog";
 
-function demoFrom(param: string | null): DemoScenario | null {
-  if (param === null || param === "0" || param === "false") return null;
-  return param === "stale" || param === "paused" ? param : "default";
-}
-
 /**
  * Reads ?demo from the URL. It sits in its own Suspense boundary, so only this empty component waits for the URL
- * in the static export; the rest of the app renders into the HTML (live mode, from the snapshot).
+ * in the static export; the rest of the app renders into the HTML (live mode, from the snapshot). Any scenario
+ * lib/demo.ts lists is taken as named, anything else as "default"; the list loads with the fixture itself, so
+ * live pages never carry it.
  */
 function DemoFromUrl({ onChange }: { onChange: (demo: DemoScenario | null) => void }) {
-  const demo = demoFrom(useSearchParams().get("demo"));
-  useEffect(() => onChange(demo), [demo, onChange]);
+  const param = useSearchParams().get("demo");
+  useEffect(() => {
+    if (param === null || param === "0" || param === "false") {
+      onChange(null);
+      return;
+    }
+    let alive = true;
+    void import("@/lib/demo").then(({ DEMO_SCENARIOS }) => {
+      if (alive) onChange(DEMO_SCENARIOS.find((s) => s === param) ?? "default");
+    });
+    return () => {
+      alive = false;
+    };
+  }, [param, onChange]);
   return null;
 }
 

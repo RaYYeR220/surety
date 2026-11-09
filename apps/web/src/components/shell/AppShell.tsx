@@ -9,6 +9,7 @@ import { useAccount, useDisconnect, useSwitchChain } from "wagmi";
 import { Container } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { BURNER_CHAIN_ID, BURNER_ID } from "@/lib/burner";
+import type { DemoScenario } from "@/lib/demo";
 import { useSurety } from "@/lib/env";
 import { shortAddress } from "@/lib/format";
 
@@ -237,6 +238,17 @@ function Header({ routes }: { routes: string[] | null }) {
   );
 }
 
+const DEMO_TEXT: Record<DemoScenario, string> = {
+  default: "Every number comes from the SDK's mocked testnet fixture. Nothing is live and nothing is sent.",
+  stale:
+    "Mocked testnet with the BTC price feed down, to show how lines fail closed. Nothing is live and nothing is sent.",
+  paused:
+    "Mocked testnet with a loss waiting for cover, to show how deposits pause. Nothing is live and nothing is sent.",
+  depeg:
+    "Mocked testnet with MUSD off its peg, to show the breaker refusing new loans and new allocations. Nothing is live and nothing is sent.",
+  v1: "Mocked testnet on the first contracts, without the peg, fees, savings or the share market. Nothing is live and nothing is sent.",
+};
+
 function DemoBanner() {
   const env = useSurety();
   const path = normalisePath(usePathname());
@@ -247,11 +259,7 @@ function DemoBanner() {
         <div className={styles.bannerInner}>
           <span className={styles.bannerText}>
             <span className={styles.bannerBadge}>Example data</span>
-            {env.demo === "stale"
-              ? "Mocked testnet with the BTC price feed down, to show how lines fail closed. Nothing is live and nothing is sent."
-              : env.demo === "paused"
-                ? "Mocked testnet with a loss waiting for cover, to show how deposits pause. Nothing is live and nothing is sent."
-                : "Every number comes from the SDK's mocked testnet fixture. Nothing is live and nothing is sent."}
+            {DEMO_TEXT[env.demo] ?? DEMO_TEXT.default}
           </span>
           <Link className={styles.bannerLink} href={path}>
             Leave example mode
