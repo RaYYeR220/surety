@@ -54,7 +54,8 @@ import {MockVeBTC} from "../mocks/MockVeBTC.sol";
 /// - `_deploySurety()` (last step of `setUp`) deploys and wires the whole system the way production does:
 ///   VeBTCCreditLine (adapter + caps), CreditVoter with lines MORPHO_LINE (BTC Morpho market) and VE_LINE (veBTC
 ///   line) and its bootstrap ended, the line as the voter's escrow registry, VoteAllocator as the vault's only
-///   allocator (no liquidity adapter), SuretyPool as the performance-fee recipient with a 10% fee, force-deallocate
+///   allocator (no liquidity adapter), SuretyPool as the performance-fee recipient with a 10% fee, the treasury as the
+///   management-fee recipient at 0.20% a year, force-deallocate
 ///   penalties on both adapters, the DepositGate as the vault's receive-shares gate, and the Morpho line's loss mark
 ///   set. Unit fixtures that assemble their own pieces override it; until
 ///   then `admin` is a vault allocator.
@@ -81,6 +82,8 @@ abstract contract SuretyFixture is Test {
     uint256 internal constant SAVINGS_CAP = 1_000_000_000e18;
     /// @dev Voter fee taken as the VaultV2 performance fee.
     uint256 internal constant VOTER_FEE = 0.1e18;
+    /// @dev VaultV2 management fee to the treasury: 0.20% a year, as WAD per second (the production setup).
+    uint256 internal constant MANAGEMENT_FEE = uint256(0.002e18) / 365 days;
     /// @dev Penalty VaultV2 charges on a permissionless `forceDeallocate`, per adapter.
     uint256 internal constant FORCE_DEALLOCATE_PENALTY = 0.01e18;
     uint256 internal constant BPS = 10_000;
@@ -284,6 +287,8 @@ abstract contract SuretyFixture is Test {
         // The recipient must be set before the fee (VaultV2 rejects a fee without a recipient).
         _curate(abi.encodeCall(IVaultV2.setPerformanceFeeRecipient, (address(pool))));
         _curate(abi.encodeCall(IVaultV2.setPerformanceFee, (VOTER_FEE)));
+        _curate(abi.encodeCall(IVaultV2.setManagementFeeRecipient, (treasury)));
+        _curate(abi.encodeCall(IVaultV2.setManagementFee, (MANAGEMENT_FEE)));
         _curate(abi.encodeCall(IVaultV2.setForceDeallocatePenalty, (address(morphoAdapter), FORCE_DEALLOCATE_PENALTY)));
         _curate(abi.encodeCall(IVaultV2.setForceDeallocatePenalty, (address(line), FORCE_DEALLOCATE_PENALTY)));
         vm.prank(admin);
@@ -294,8 +299,9 @@ abstract contract SuretyFixture is Test {
             allocator.setSavings(address(savings));
         }
 
-        // New shares wait while a loss is pending, uncovered or being re-recognised (the pool always receives).
-        gate = new DepositGate(pool);
+        // New shares wait while a loss is pending, uncovered or being re-recognised (the pool and the treasury, the
+        // two fee recipients, always receive).
+        gate = new DepositGate(pool, treasury);
         vm.label(address(gate), "DepositGate");
         _curate(abi.encodeCall(IVaultV2.setReceiveSharesGate, (address(gate))));
 

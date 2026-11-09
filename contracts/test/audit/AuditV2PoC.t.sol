@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {console2} from "forge-std/console2.sol";
 import {Test} from "forge-std/Test.sol";
 import {MarketParams, Market} from "morpho-blue/interfaces/IMorpho.sol";
 import {MarketParamsLib} from "morpho-blue/libraries/MarketParamsLib.sol";
+import {IVaultV2} from "vault-v2/interfaces/IVaultV2.sol";
+
+import {DepositGate} from "../../src/DepositGate.sol";
 
 import {IPegSource} from "../../src/interfaces/IPegSource.sol";
 import {VeBTCCreditLine} from "../../src/lines/VeBTCCreditLine.sol";
@@ -13,6 +17,8 @@ import {StableTwapPegSource} from "../../src/oracles/peg/StableTwapPegSource.sol
 import {MockBasicPool} from "../mocks/MockTigrisPools.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockPegSource} from "../mocks/MockPegSource.sol";
+import {LifecycleTest} from "../integration/Lifecycle.t.sol";
+import {SuretyPoolTest} from "../unit/SuretyPool.t.sol";
 import {LineFixture} from "../utils/LineFixture.sol";
 
 /// @notice Regression for H-01 of the v2 review on the real line and a real Morpho market. The median the reviewer's
@@ -127,5 +133,87 @@ contract AuditV2PegTest is Test {
         usdtPool.setLastObservationAt(block.timestamp - 13 hours);
         assertEq(peg.musdUsdWad(), 0.96e18);
         assertFalse(peg.pegHealthy());
+    }
+}
+
+/// @notice Regression for M-02 of the v2 review: with the management fee to the treasury, VaultV2's first accrual of
+/// a transaction asks the gate about the treasury. The gate now answers it without calling the pool, so the accrual
+/// no longer recurses through `depositsPaused` while a cover is being re-recognised. The control rebuilds the v2 gate
+/// (no treasury) on the same scene.
+contract AuditV2GateTest is SuretyPoolTest {
+    function _scene(address gateTreasury) internal {
+        assertEq(vault.managementFeeRecipient(), treasury);
+        assertEq(vault.managementFee(), MANAGEMENT_FEE);
+        DepositGate g = new DepositGate(pool, gateTreasury);
+        _curate(abi.encodeCall(IVaultV2.setReceiveSharesGate, (address(g))));
+        uint256 loanId = _sizingScene(VE_LINE);
+        _takeLoss(VE_LINE, loanId);
+        pool.cover(VE_LINE);
+        assertGt(pool.coverUnrecognised(), 0, "cover awaiting re-recognition");
+        _warp(1 hours);
+    }
+
+    function _try(bytes memory data, uint256 gas) internal returns (bool ok, uint256 used) {
+        uint256 g0 = gasleft();
+        (ok,) = address(vault).call{gas: gas}(data);
+        used = g0 - gasleft();
+    }
+
+    function test_M02_firstAccrualAfterACoverStaysCheap() public {
+        _scene(treasury);
+        (bool ok, uint256 used) = _try(abi.encodeCall(IVaultV2.accrueInterest, ()), 30_000_000);
+        console2.log("accrueInterest after a cover, gas", used);
+        assertTrue(ok);
+        assertLt(used, 300_000, "was 29.05M of 30M");
+    }
+
+    function test_M02_control_gateWithoutTheTreasuryBurnsTheGas() public {
+        _scene(address(0));
+        (, uint256 used) = _try(abi.encodeCall(IVaultV2.accrueInterest, ()), 30_000_000);
+        console2.log("v2 gate: accrueInterest after a cover, gas", used);
+        assertGt(used, 10_000_000);
+    }
+
+    function test_M02_redeemAfterACoverNeedsOrdinaryGas() public {
+        _scene(treasury);
+        uint256 shares = vault.balanceOf(lender) / 100;
+        vm.prank(lender);
+        (bool ok, uint256 used) =
+            _try(abi.encodeWithSignature("redeem(uint256,address,address)", shares, lender, lender), 300_000);
+        console2.log("redeem after a cover, gas", used);
+        assertTrue(ok, "failed at 300k and 1M before");
+    }
+}
+
+/// @notice M-02 on the integrated deployment, whose fixture now sets the production fees (performance fee to the
+/// pool, management fee to the treasury) and the gate with both: after covers on both lines the keeper's rebalance,
+/// as the block's first vault touch, fits well inside Mezo's 10M block gas limit (it ran out of gas before).
+contract AuditV2GateLifecycleTest is LifecycleTest {
+    function test_M02_rebalanceAfterCoverFitsTheBlock() public {
+        _openBook();
+        _flip();
+        _flip();
+        _shock(6000);
+        _liquidateMorpho(liquidator, morphoBorrower);
+        line.startAuction(loanId);
+        _warp(AUCTION_DURATION);
+        _shock(6000);
+        _bid(bidder, loanId);
+        vm.startPrank(keeper);
+        pool.checkpoint(MORPHO_LINE);
+        pool.checkpoint(VE_LINE);
+        pool.cover(VE_LINE);
+        pool.cover(MORPHO_LINE);
+        vm.stopPrank();
+        assertGt(pool.coverUnrecognised(), 0);
+        _warpEpochs(1);
+
+        uint256 g0 = gasleft();
+        vm.prank(keeper);
+        (bool ok,) = address(allocator).call{gas: 10_000_000}(abi.encodeWithSignature("rebalance()"));
+        uint256 used = g0 - gasleft();
+        console2.log("rebalance as the block's first vault touch, gas", used);
+        assertTrue(ok, "out of gas at 10M before");
+        assertLt(used, 2_000_000);
     }
 }
