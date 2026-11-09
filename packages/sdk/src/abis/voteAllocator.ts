@@ -192,6 +192,45 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "function",
+    "name": "parking",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "peg",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IMusdPeg"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pegGateOpen",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pendingOwner",
     "inputs": [],
     "outputs": [
@@ -219,12 +258,104 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "function",
+    "name": "savings",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "savingsLedger",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct VoteAllocator.Ledger",
+        "components": [
+          {
+            "name": "pendingInterest",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "totalSupplyAssets",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "totalSupplyShares",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "earned",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "setMaxRate",
     "inputs": [
       {
         "name": "newMaxRate",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setParking",
+    "inputs": [
+      {
+        "name": "on",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setPeg",
+    "inputs": [
+      {
+        "name": "peg_",
+        "type": "address",
+        "internalType": "contract IMusdPeg"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setSavings",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -454,6 +585,45 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "event",
+    "name": "ParkingSet",
+    "inputs": [
+      {
+        "name": "parking",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PegSet",
+    "inputs": [
+      {
+        "name": "peg",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PegUnhealthy",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Rebalanced",
     "inputs": [
       {
@@ -491,6 +661,63 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "event",
+    "name": "SavingsInterestAttributed",
+    "inputs": [
+      {
+        "name": "cohortEpoch",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "interest",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SavingsMoveFailed",
+    "inputs": [
+      {
+        "name": "allocation",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "assets",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reason",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SavingsSet",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SuretyPoolSet",
     "inputs": [
       {
@@ -510,6 +737,11 @@ export const voteAllocatorAbi = [
   {
     "type": "error",
     "name": "MaxRateTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoSavings",
     "inputs": []
   },
   {
@@ -536,6 +768,11 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "error",
+    "name": "PegAlreadySet",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -557,7 +794,22 @@ export const voteAllocatorAbi = [
   },
   {
     "type": "error",
+    "name": "SavingsAlreadySet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SavingsCapsUnset",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SuretyPoolAlreadySet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedSavings",
     "inputs": []
   },
   {

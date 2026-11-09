@@ -35,6 +35,11 @@ export const veBTCCreditLineAbi = [
         "internalType": "contract IPriceSource"
       },
       {
+        "name": "peg_",
+        "type": "address",
+        "internalType": "contract IMusdPeg"
+      },
+      {
         "name": "irm_",
         "type": "address",
         "internalType": "contract LinearKinkIrm"
@@ -78,8 +83,28 @@ export const veBTCCreditLineAbi = [
             "name": "minTerm",
             "type": "uint32",
             "internalType": "uint32"
+          },
+          {
+            "name": "originationFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "protocolShareBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "keeperShareBps",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
+      },
+      {
+        "name": "treasury_",
+        "type": "address",
+        "internalType": "address"
       },
       {
         "name": "owner_",
@@ -88,6 +113,32 @@ export const veBTCCreditLineAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "MAX_ORIGINATION_FEE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_PROTOCOL_SHARE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -501,6 +552,35 @@ export const veBTCCreditLineAbi = [
   },
   {
     "type": "function",
+    "name": "harvest",
+    "inputs": [
+      {
+        "name": "loanId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rewards",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "tokens",
+        "type": "address[][]",
+        "internalType": "address[][]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "repaid",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "healthOf",
     "inputs": [
       {
@@ -639,6 +719,16 @@ export const veBTCCreditLineAbi = [
             "name": "auctionStart",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "keeper",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "autoRepay",
+            "type": "bool",
+            "internalType": "bool"
           }
         ]
       }
@@ -803,6 +893,21 @@ export const veBTCCreditLineAbi = [
             "name": "minTerm",
             "type": "uint32",
             "internalType": "uint32"
+          },
+          {
+            "name": "originationFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "protocolShareBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "keeperShareBps",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
       }
@@ -831,6 +936,19 @@ export const veBTCCreditLineAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "peg",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IMusdPeg"
       }
     ],
     "stateMutability": "view"
@@ -903,6 +1021,24 @@ export const veBTCCreditLineAbi = [
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAutoRepay",
+    "inputs": [
+      {
+        "name": "loanId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "enabled",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -985,6 +1121,19 @@ export const veBTCCreditLineAbi = [
   },
   {
     "type": "function",
+    "name": "treasury",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "utilizationWad",
     "inputs": [],
     "outputs": [
@@ -1050,6 +1199,31 @@ export const veBTCCreditLineAbi = [
         "type": "uint8",
         "indexed": false,
         "internalType": "uint8"
+      },
+      {
+        "name": "keeper",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AutoRepaySet",
+    "inputs": [
+      {
+        "name": "loanId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "enabled",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -1182,6 +1356,43 @@ export const veBTCCreditLineAbi = [
   },
   {
     "type": "event",
+    "name": "Harvested",
+    "inputs": [
+      {
+        "name": "loanId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "caller",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "musdClaimed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "repaid",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "rebaseClaimed",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "InterestAccrued",
     "inputs": [
       {
@@ -1192,6 +1403,43 @@ export const veBTCCreditLineAbi = [
       },
       {
         "name": "interest",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LiquidationFeePaid",
+    "inputs": [
+      {
+        "name": "loanId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "keeper",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "toLenders",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toTreasury",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toKeeper",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1223,6 +1471,25 @@ export const veBTCCreditLineAbi = [
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OriginationFeePaid",
+    "inputs": [
+      {
+        "name": "loanId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1293,6 +1560,31 @@ export const veBTCCreditLineAbi = [
       },
       {
         "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RewardForwarded",
+    "inputs": [
+      {
+        "name": "loanId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -1446,6 +1738,11 @@ export const veBTCCreditLineAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "PegUnhealthy",
+    "inputs": []
   },
   {
     "type": "error",

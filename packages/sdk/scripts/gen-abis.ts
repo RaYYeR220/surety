@@ -13,7 +13,10 @@ interface AbiItem {
 interface Source {
   /** Export name, without the `Abi` suffix. */
   name: string;
-  /** Artifacts merged into one ABI, as `File.sol/Contract`. */
+  /**
+   * Artifacts merged into one ABI, as `File.sol/Contract`, or `File.sol/Contract@source/path.sol` when several
+   * sources share the file name (forge then nests one of them under a subdirectory of out/).
+   */
   artifacts: string[];
   /** Keep only these item types (default: all). */
   types?: string[];
@@ -33,18 +36,58 @@ const sources: Source[] = [
   { name: "skipPriceSource", artifacts: ["SkipPriceSource.sol/SkipPriceSource"] },
   { name: "stressedPriceSource", artifacts: ["StressedPriceSource.sol/StressedPriceSource"] },
   { name: "morphoPriceOracle", artifacts: ["MorphoPriceOracle.sol/MorphoPriceOracle"] },
+  { name: "btcMusdPriceSource", artifacts: ["BtcMusdPriceSource.sol/BtcMusdPriceSource"] },
+  { name: "musdPeg", artifacts: ["MusdPeg.sol/MusdPeg"] },
+  { name: "clTwapPegSource", artifacts: ["ClTwapPegSource.sol/ClTwapPegSource"] },
+  { name: "stableTwapPegSource", artifacts: ["StableTwapPegSource.sol/StableTwapPegSource"] },
+  { name: "btcCrossPegSource", artifacts: ["BtcCrossPegSource.sol/BtcCrossPegSource"] },
+  { name: "stressedPegSource", artifacts: ["StressedPegSource.sol/StressedPegSource"] },
+  { name: "savingsAdapter", artifacts: ["SavingsAdapter.sol/SavingsAdapter"] },
+  { name: "musdSavingsRate", artifacts: ["IMusdSavingsRate.sol/IMusdSavingsRate"] },
+  { name: "shareMarket", artifacts: ["ShareMarket.sol/ShareMarket"] },
+  { name: "sponsor", artifacts: ["Sponsor.sol/Sponsor"] },
   { name: "vaultV2", artifacts: ["VaultV2.sol/VaultV2"] },
   {
     name: "morphoMarketV1AdapterV2",
     artifacts: ["MorphoMarketV1AdapterV2.sol/MorphoMarketV1AdapterV2"],
   },
   // IMorpho has the functions; Morpho emits its events through EventsLib.
-  { name: "morpho", artifacts: ["IMorpho.sol/IMorpho", "EventsLib.sol/EventsLib"] },
+  {
+    name: "morpho",
+    artifacts: ["IMorpho.sol/IMorpho", "EventsLib.sol/EventsLib@lib/morpho-blue/src/libraries/EventsLib.sol"],
+  },
   { name: "adaptiveCurveIrm", artifacts: ["AdaptiveCurveIrm.sol/AdaptiveCurveIrm"] },
   { name: "aggregatorV3", artifacts: ["IAggregatorV3.sol/IAggregatorV3"] },
 ];
 
-function artifactPath(ref: string): string {
+/** Every `<file>/` directory under out/, at any depth. */
+function artifactDirs(file: string, dir = outDir): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const path = join(dir, entry.name);
+    if (entry.name === file) out.push(path);
+    else if (!entry.name.endsWith(".sol")) out.push(...artifactDirs(file, path));
+  }
+  return out;
+}
+
+function compilationTarget(path: string): string | undefined {
+  const json = JSON.parse(readFileSync(path, "utf8")) as { metadata?: { settings?: { compilationTarget?: object } } };
+  return Object.keys(json.metadata?.settings?.compilationTarget ?? {})[0];
+}
+
+function artifactPath(spec: string): string {
+  const [ref, source] = spec.split("@") as [string, string | undefined];
+  if (source) {
+    const [file, contract] = ref.split("/") as [string, string];
+    for (const dir of artifactDirs(file)) {
+      for (const f of readdirSync(dir).filter((x) => x.startsWith(`${contract}.`) && x.endsWith(".json"))) {
+        if (compilationTarget(join(dir, f)) === source) return join(dir, f);
+      }
+    }
+    throw new Error(`missing artifact ${ref} from ${source} (run forge build in contracts/)`);
+  }
   const [file, contract] = ref.split("/") as [string, string];
   const exact = join(outDir, file, `${contract}.json`);
   if (existsSync(exact)) return exact;
@@ -90,7 +133,10 @@ for (const source of sources) {
 const index =
   `${header}\n` +
   written.map((name) => `export { ${name}Abi } from "./${name}.js";`).join("\n") +
-  `\nexport { erc20Abi } from "./erc20.js";\nexport { veBTCAbi } from "./veBTC.js";\n`;
+  `\nexport { erc20Abi } from "./erc20.js";\n` +
+  `export { mezoPoolsVoterAbi, rewardsDistributorAbi, votingRewardAbi } from "./mezo.js";\n` +
+  `export { veBTCAbi } from "./veBTC.js";\n` +
+  `export { veBTCCreditLineV1Abi } from "./veBTCCreditLineV1.js";\n`;
 writeFileSync(join(abiDir, "index.ts"), index);
 
 console.log(`wrote ${written.length} ABIs to ${abiDir}`);
