@@ -2,17 +2,17 @@
 import type { SuretyContracts, SuretyDeployment } from "@surety/sdk";
 import type { Address } from "viem";
 
-/** Test suite size at the testnet deployment (contracts: forge test; SDK, keeper and MCP: vitest). */
+/** Test suite size at the v2 testnet deployment (contracts: forge test; SDK, keeper, MCP and web: pnpm -r test). */
 export const TEST_COUNTS = {
-  /** Foundry tests, invariants and the security review's regression tests included. */
-  foundry: 197,
-  invariants: 7,
+  /** Foundry tests, invariants and the security reviews' regression tests included. */
+  foundry: 379,
+  invariants: 15,
   /** Invariant fuzzing: 256 runs x depth 64 (contracts/foundry.toml). */
   invariantRuns: 256,
   invariantDepth: 64,
-  /** Regression tests written from the security review's proofs of concept (contracts/test/audit). */
-  regression: 9,
-  typescript: 99,
+  /** Regression tests written from the two security reviews' proofs of concept (contracts/test/audit): 9 v1 + 7 v2. */
+  regression: 16,
+  typescript: 173,
 } as const;
 
 /** Verified source on Sourcify's repository. */
