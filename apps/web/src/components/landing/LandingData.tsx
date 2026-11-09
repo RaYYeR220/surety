@@ -1,15 +1,19 @@
 "use client";
 
 // One read of the selected network for the whole landing page: the board's vote split (this epoch, else the
-// last closed one), lent / rate / cover per line, the reserve and the veBTC line's LTV limits. Without votes
-// or without a deployment every figure falls back to an illustrative set that is tagged as such; nothing on
-// the landing says "live" unless it came from chain.
+// last closed one), lent / rate / cover per line, the reserve and the veBTC line's LTV limits. The page opens with
+// the build-time snapshot of that network (scripts/snapshot.ts), labelled with its time, and swaps in live reads
+// as they arrive; a slow or unreachable RPC only means the snapshot stays up. Without votes or without a
+// deployment every figure falls back to an illustrative set that is tagged as such; nothing on the landing says
+// "live" unless it came from chain.
 import { deployedChainIds, getDeployment, type Board, type SuretyDeployment } from "@surety/sdk";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { CHAIN_NAMES, liveClient, useSelectedChain } from "@/lib/chain";
 import { lineColor } from "@/lib/lines";
-import { readLineParams, readReserve, type LineParams } from "@/lib/reads";
+import { useVisiblePoll } from "@/lib/poll";
+import { timeBox } from "@/lib/rpc";
+import { readChainSnapshot, type ChainSnapshot, type ChainSnapshots } from "@/lib/snapshot";
 
 /** Where the split comes from: this epoch's live votes, the last closed epoch's, or the illustration. */
 export type SplitSource = "current" | "closed" | "illustrative";
@@ -38,6 +42,10 @@ export interface LandingData {
   /** Deployment of the selected network, or null when Surety is not deployed there. */
   deployment: SuretyDeployment | null;
   read: "loading" | "ready" | "error" | "undeployed";
+  /** Where the figures were read: live just now, or the build-time snapshot taken at `asOf`. */
+  freshness: "live" | "snapshot" | null;
+  /** When the figures were read, ms (null without any read). */
+  asOf: number | null;
   source: SplitSource;
   lines: LandingLine[];
   /** Epoch length in seconds (from the deployment; weekly when there is none). */
@@ -49,7 +57,6 @@ export interface LandingData {
 }
 
 const WEEK = 604_800;
-const REFRESH_MS = 60_000;
 const e18 = (n: number) => BigInt(Math.round(n * 100)) * 10n ** 16n;
 
 /* ---------- Illustrative fallback ---------- */
@@ -133,20 +140,15 @@ function liveLines(board: Board): { source: SplitSource; lines: LandingLine[] } 
   };
 }
 
-interface Snapshot {
-  chainId: number;
-  board: Board;
-  reserve: bigint | null;
-  params: LineParams | null;
-  /** Chain seconds minus wall seconds when the board was read. */
-  skew: number;
-}
-
 const LandingContext = createContext<LandingData | null>(null);
 
-export function LandingDataProvider({ children }: { children: ReactNode }) {
+/** Live reads: every 60s while the tab is visible, each time-boxed so a stuck RPC never holds the next one. */
+const REFRESH_MS = 60_000;
+const LIVE_READ_MS = 6_000;
+
+export function LandingDataProvider({ snapshots, children }: { snapshots: ChainSnapshots; children: ReactNode }) {
   const chainId = useSelectedChain();
-  const [snap, setSnap] = useState<Snapshot | null>(null);
+  const [live, setLive] = useState<ChainSnapshot | null>(null);
   const [failedOn, setFailedOn] = useState<number | null>(null);
 
   let deployment: SuretyDeployment | null = null;
@@ -156,56 +158,49 @@ export function LandingDataProvider({ children }: { children: ReactNode }) {
     deployment = null;
   }
 
-  useEffect(() => {
-    if (!deployment) return;
-    const client = liveClient(chainId, deployment);
-    let alive = true;
-    const load = async () => {
+  useVisiblePoll(
+    async () => {
+      if (!deployment) return;
       try {
-        const [board, reserve, params] = await Promise.all([
-          client.getBoard(),
-          readReserve(client).then((r) => r?.assets ?? null).catch(() => null),
-          readLineParams(client).catch(() => null),
-        ]);
-        if (!alive) return;
-        setSnap({ chainId, board, reserve, params, skew: Number(board.epoch.now) - Date.now() / 1000 });
+        const snap = await timeBox(readChainSnapshot(liveClient(chainId, deployment), { peg: false }), LIVE_READ_MS);
+        setLive(snap);
         setFailedOn(null);
       } catch {
-        if (alive) setFailedOn(chainId);
+        setFailedOn(chainId);
       }
-    };
-    void load();
-    const id = window.setInterval(load, REFRESH_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(id);
-    };
-  }, [chainId, deployment]);
+    },
+    REFRESH_MS,
+    { key: chainId, enabled: !!deployment },
+  );
 
-  const current = snap && snap.chainId === chainId ? snap : null;
-  const live = current ? liveLines(current.board) : null;
+  const fromLive = live && live.chainId === chainId ? live : null;
+  const fromSnapshot = snapshots[chainId] ?? null;
+  const current = fromLive ?? (fromSnapshot && fromSnapshot.version === deployment?.version ? fromSnapshot : null);
+  const split = current ? liveLines(current.board) : null;
   const value: LandingData = {
     chainId,
     chainName: CHAIN_NAMES[chainId] ?? `Chain ${chainId}`,
     deployment,
     read: !deployment ? "undeployed" : current ? "ready" : failedOn === chainId ? "error" : "loading",
-    source: live?.source ?? "illustrative",
-    lines: live?.lines ?? illustrativeLines(namesFor(deployment)),
+    freshness: fromLive ? "live" : current ? "snapshot" : null,
+    asOf: current?.asOf ?? null,
+    source: split?.source ?? "illustrative",
+    lines: split?.lines ?? illustrativeLines(namesFor(deployment)),
     epochLength: current ? Number(current.board.epoch.epochLength) : (deployment?.epochLength ?? WEEK),
-    clockSkew: current?.skew ?? 0,
+    clockSkew: current ? Number(current.board.epoch.now) - current.asOf / 1000 : 0,
     vault:
-      live && current
+      split && current
         ? {
             total: current.board.vault.totalAssets,
             reserve: current.reserve,
             incentives: current.board.lines.reduce((a, l) => a + l.incentives.assets, 0n),
           }
         : ILLUSTRATIVE_VAULT_STATS,
-    ltv: current?.params
+    ltv: current?.lineParams
       ? {
-          maxTimedBps: current.params.maxLtvTimedBps,
-          maxPermanentBps: current.params.maxLtvPermanentBps,
-          liqBps: current.params.liqLtvBps,
+          maxTimedBps: current.lineParams.maxLtvTimedBps,
+          maxPermanentBps: current.lineParams.maxLtvPermanentBps,
+          liqBps: current.lineParams.liqLtvBps,
         }
       : DEFAULT_LTV,
   };

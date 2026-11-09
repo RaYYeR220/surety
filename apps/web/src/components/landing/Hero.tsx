@@ -3,6 +3,8 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
+import { formatAsOf } from "@/lib/snapshot";
+
 import styles from "./Hero.module.css";
 import s from "./Landing.module.css";
 import { formatFlip, formatFlipAt, periodWord, useFlip, useLanding, type LandingData } from "./LandingData";
@@ -12,15 +14,20 @@ import { Pour } from "./Pour";
 
 const delay = (d: string) => ({ "--d": d }) as CSSProperties;
 
-/** Caption under the pour: where the split comes from, said plainly. */
-export function splitStatus(d: LandingData): { live: boolean; text: string } {
+/** Caption under the pour: where the split comes from, and when it was read, said plainly. */
+export function splitStatus(d: LandingData): { live: boolean; tag: string; text: string } {
   const period = periodWord(d.epochLength);
-  if (d.source === "current") return { live: true, text: `${d.chainName} · this ${period}'s veBTC vote` };
-  if (d.source === "closed") return { live: true, text: `${d.chainName} · the last closed ${period}'s veBTC vote` };
-  if (d.read === "undeployed") return { live: false, text: `Surety is not deployed on ${d.chainName} yet` };
-  if (d.read === "loading") return { live: false, text: `Reading the vote on ${d.chainName}…` };
-  if (d.read === "error") return { live: false, text: `Could not reach ${d.chainName}; showing an example split` };
-  return { live: false, text: `No veBTC votes on ${d.chainName} yet this ${period}` };
+  // The same words before and after a live read replaces the snapshot, so the caption never reflows.
+  const when = d.asOf !== null ? ` · as of ${formatAsOf(d.asOf)}` : "";
+  const tag = "On chain";
+  if (d.source === "current") return { live: true, tag, text: `${d.chainName} · this ${period}'s veBTC vote${when}` };
+  if (d.source === "closed") {
+    return { live: true, tag, text: `${d.chainName} · the last closed ${period}'s veBTC vote${when}` };
+  }
+  if (d.read === "undeployed") return { live: false, tag: "Illustrative", text: `Surety is not deployed on ${d.chainName} yet` };
+  if (d.read === "loading") return { live: false, tag: "Illustrative", text: `Reading the vote on ${d.chainName}…` };
+  if (d.read === "error") return { live: false, tag: "Illustrative", text: `Could not reach ${d.chainName}; showing an example split` };
+  return { live: false, tag: "Illustrative", text: `No veBTC votes on ${d.chainName} yet this ${period}` };
 }
 
 function EpochChip() {
@@ -46,7 +53,7 @@ export function Hero() {
   const period = periodWord(d.epochLength);
   const whose = d.source === "closed" ? `last ${period}'s` : `this ${period}'s`;
   const label =
-    `${status.live ? "Live" : "Illustrative"}: the vault's MUSD poured into ${d.lines.length} credit lines, ` +
+    `${status.tag}: the vault's MUSD poured into ${d.lines.length} credit lines, ` +
     `each lane as wide as its share of ${whose} veBTC vote. ` +
     d.lines.map((l) => `${l.name} ${Math.round(l.share)} percent`).join(", ") +
     ".";
@@ -89,7 +96,7 @@ export function Hero() {
             label={label}
           />
           <figcaption className={styles.caption}>
-            <span className={`${s.tag} ${status.live ? s.tagLive : ""}`}>{status.live ? "Live" : "Illustrative"}</span>
+            <span className={`${s.tag} ${status.live ? s.tagLive : ""}`}>{status.tag}</span>
             <span>{status.text}</span>
           </figcaption>
         </figure>

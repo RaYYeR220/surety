@@ -1,5 +1,8 @@
 // The landing page (V14+ "Ledge"): one claim, one focal object driven by the live vote, then six sections,
-// each with its own ground and shape. Data comes from one read of the selected network (LandingData).
+// each with its own ground and shape. Data comes from one read of the selected network (LandingData), which
+// opens with the build-time snapshot so the static page already carries real figures.
+import { loadChainSnapshots } from "@/lib/snapshot.server";
+
 import { BoardPreview } from "./BoardPreview";
 import { BorrowBand } from "./BorrowBand";
 import { BuiltOnMezo } from "./BuiltOnMezo";
@@ -19,7 +22,7 @@ export function Landing() {
       <a href="#how" className="skip-link">
         Skip to content
       </a>
-      <LandingDataProvider>
+      <LandingDataProvider snapshots={loadChainSnapshots()}>
         <Nav />
         <Hero />
         <main>
