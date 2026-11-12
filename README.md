@@ -2,7 +2,7 @@
 
 Lending gauges for MUSD on Mezo: veBTC holders decide where a MUSD lending vault lends, and their own rewards are the first loss when a line they backed goes bad.
 
-[App](https://surety-credit.vercel.app) · [Demo video](https://youtu.be/dHxYqFmqjEg) · [Deck](https://surety-credit.vercel.app/surety-deck.pdf) · [What changed since Wave 1](FEEDBACK-RESPONSE.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Proof](docs/PROOF.md) · [Claims](docs/CLAIMS.md) · [Business](docs/BUSINESS.md)
+[App](https://surety-credit.vercel.app) · [Demo video](https://youtu.be/6GFWaNuHvXo) ([Wave 1 cut](https://youtu.be/dHxYqFmqjEg)) · [Deck](https://surety-credit.vercel.app/surety-deck.pdf) · [What changed since Wave 1](FEEDBACK-RESPONSE.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Proof](docs/PROOF.md) · [Claims](docs/CLAIMS.md) · [Business](docs/BUSINESS.md)
 
 Borrow MUSD against your veBTC without unlocking it, and let the NFT's own fees and bribes pay the loan down. Or lend MUSD, knowing the veBTC holders who steer your money stand in front of you when a loan goes bad: in the v1 run on testnet, a −60% BTC shock left 157.16 MUSD of bad debt, and the voters' rewards covered 120.18 MUSD of it (76%); lenders bore the rest.
 

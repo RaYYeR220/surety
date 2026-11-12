@@ -51,7 +51,7 @@ export function Footer() {
               </a>
             </li>
             <li>
-              <a href="https://youtu.be/dHxYqFmqjEg" {...EXT}>
+              <a href="https://youtu.be/6GFWaNuHvXo" {...EXT}>
                 Demo video
               </a>
             </li>
