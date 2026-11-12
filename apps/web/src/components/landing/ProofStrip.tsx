@@ -56,7 +56,9 @@ export function ProofStrip() {
         <div className={`${styles.receipt} ${s.io}`} style={{ "--d": ".1s" } as CSSProperties}>
           <div>
             <span className={styles.k}>Contracts</span>
-            <span className={styles.v}>{shown ? `${contracts.length} verified on Sourcify` : "Verified on Sourcify"}</span>
+            <span className={styles.v}>
+              {shown ? `${contracts.length + (shown.pegSources?.length ?? 0)} verified on Sourcify` : "Verified on Sourcify"}
+            </span>
             <span className={`${s.tag} ${shown ? s.tagLive : ""} ${styles.tag}`}>{shown ? "Exact match" : "Pending"}</span>
           </div>
           <div>
@@ -91,13 +93,11 @@ export function ProofStrip() {
             <span className={`${s.tag} ${mainnet ? s.tagLive : ""} ${styles.tag}`}>{mainnet ? "Deployed" : "Pending"}</span>
           </div>
           <div>
-            <span className={styles.k}>Security review</span>
-            <span className={styles.v}>
-              {review.critical} critical · {review.high} high
-            </span>
+            <span className={styles.k}>Security reviews</span>
+            <span className={styles.v}>0 open critical · 0 open high</span>
             <span className={styles.sub}>
-              An independent review found {review.medium} medium and {review.low} low issues, all addressed before
-              mainnet. Full report in the repository.
+              Two independent reviews. v1: {review.medium} medium and {review.low} low, all addressed before mainnet.
+              v2: 1 high, 2 medium and 2 low, all fixed with regression tests. Full reports in the repository.
             </span>
             <span className={`${s.tag} ${styles.tag}`}>Not a formal audit</span>
           </div>

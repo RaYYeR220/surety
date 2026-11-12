@@ -40,6 +40,8 @@ export const TEAM_WALLETS: TeamWallet[] = [
   { address: "0xDB3cDA1EE42010fA2eb230fbD6d97E4409A56f4d", label: "Lifecycle share buyer" },
   { address: "0xc69cb7b6d6238DDdF47323B0BC57E99BF040A87E", label: "Lifecycle keeper" },
   { address: "0x7e87dc50afA869D03444cD3304A2FE28cCf5759a", label: "Lifecycle starter-kit wallet" },
+  { address: "0xd37CD499AB29049c7F30Ba7024216d8c9D2c6516", label: "Demo recording key" },
+  { address: "0x12a36FA596CF97b604FcaE11b142fa28482de98A", label: "Demo recording key" },
   ...parseTeamEnv(process.env.NEXT_PUBLIC_TEAM_WALLETS),
 ];
 
