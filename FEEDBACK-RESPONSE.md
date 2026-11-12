@@ -12,10 +12,10 @@ The v2 app is live at [surety-credit.vercel.app](https://surety-credit.vercel.ap
 
 ## At a glance
 
-| Wave 1 review point | Status on 2026-11-09 |
+| Wave 1 review point | Status on 2026-11-12 |
 | --- | --- |
-| [Escrow vote, fee/bribe and rebase claims on chain](#1-escrow-vote-feebribe-and-rebase-claims) | Escrow votes and bribes on chain on v1 and v2 testnet; the claims follow the Mezo epoch flip on 2026-11-12 |
-| [Real MUSD through the mainnet vault on Mezo's Morpho Blue](#2-real-musd-through-the-mainnet-vault-on-mezos-morpho-blue) | v2 deployed on Mezo mainnet on Mezo's own Morpho Blue (market `0x4bff…30b8`, LLTV 86%), every contract verified; v2 testnet runs on Mezo's testnet Morpho Blue; real MUSD through the mainnet vault pending |
+| [Escrow vote, fee/bribe and rebase claims on chain](#1-escrow-vote-feebribe-and-rebase-claims) | Done on testnet: escrow votes, bribes, the fee/bribe claim, the rebase claim and an auto-repay harvest that repaid a loan. On mainnet a loan's escrow votes on Mezo; its first harvest follows the Mezo flip on 2026-11-19 |
+| [Real MUSD through the mainnet vault on Mezo's Morpho Blue](#2-real-musd-through-the-mainnet-vault-on-mezos-morpho-blue) | Done: 2.5 MUSD in the v2 mainnet vault, 1.125 MUSD of it supplied to Surety's market on Mezo's Morpho Blue (1 MUSD borrowed there) and 1 MUSD lent against veBTC; every contract verified |
 | [Outside users borrowing against veBTC](#3-outside-users-borrowing-against-vebtc) | Starter kits, Try it and the users ledger built and run on chain; no outside users yet |
 | [MUSD/USD price or depeg check](#4-a-musdusd-price-instead-of-1) | Done: MusdPeg, BtcMusdPriceSource, borrow breaker; a `PegUnhealthy` revert on testnet; the mainnet MusdPeg live on Mezo's pools and healthy |
 | [Gap between auction trigger and floor](#5-the-gap-between-the-auction-trigger-and-the-floor) | Done: trigger 65% LTV, floor 85% (was 70% and 70%); an auction with no shortfall on chain |
@@ -36,24 +36,33 @@ The v2 app is live at [surety-credit.vercel.app](https://surety-credit.vercel.ap
 
 **On chain**
 
-Mezo pays an epoch's fees and bribes only after the epoch has ended, so the claims follow the votes by one Mezo epoch. Both runs voted and bribed in the Mezo epoch that started on 2026-11-05, on the MUSD/mUSDC stable pool's gauge.
+Mezo pays an epoch's fees and bribes only after the epoch has ended, so the claims follow the votes by one Mezo epoch. Both testnet runs voted and bribed in the Mezo epoch that started on 2026-11-05, on the MUSD/mUSDC stable pool's gauge, and claimed after the flip on 2026-11-12 00:00 UTC. The mainnet loan's escrow voted in the epoch that started on 2026-11-12, so its rewards are paid from the flip on 2026-11-19.
 
 | Deployment and loan | Step | Transaction |
 | --- | --- | --- |
 | v1 testnet, loan #2 (veBTC #1731, escrow [`0x6d3E…66dE`](https://explorer.test.mezo.org/address/0x6d3E19D4612b059B05aC9E1Bc5F6BC0270f266dE)) | Escrow votes the NFT 100% on MUSD/mUSDC | [0x1b78…9612](https://explorer.test.mezo.org/tx/0x1b78236ede57063dedf03347ee23c1c4ccc3920f081495332b5d997f17c99612) |
 | | 20 MUSD bribe on that gauge | [0xef7a…919b](https://explorer.test.mezo.org/tx/0xef7ab6f4f99ef53b81d568de533ddd140711f8d86685113e787bb0a220a7919b) |
+| | Fee/bribe claim (`escrowClaim`): 0.28029 MUSD of bribe and 0.00070 of fees, 0.28099 MUSD forwarded to the borrower | [0x4c69…057a](https://explorer.test.mezo.org/tx/0x4c69cd096ea6a5123de7357268541bb0bfd7ffaa9ac1565db00cf899cc3d057a) |
+| | Rebase claim (`escrowClaimRebase`): 9.69e-10 BTC compounded into lock #1731 | [0x5fd3…76d0](https://explorer.test.mezo.org/tx/0x5fd3f2f9e1d7ef3a6ad70b6151bc94b98dcdf9f0fef89c3a0c639172c29e76d0) |
 | v2 testnet, loan #1 (veBTC #1732, escrow [`0xaC0B…9dC8`](https://explorer.test.mezo.org/address/0xaC0BB1C4afD4863e936A4aa9d15DB0f45f849dC8)) | Auto-repay on | [0x30a8…fc41](https://explorer.test.mezo.org/tx/0x30a85874117863e547421a90056a812bea381561e7200b8b8a87ddbf3e3efc41) |
 | | Escrow votes the NFT 100% on MUSD/mUSDC | [0x1a50…0430](https://explorer.test.mezo.org/tx/0x1a50ee48bfa2a189fab44bbdccf936f6f630c4fe994766e0ce4d575529720430) |
 | | 20 MUSD bribe on that gauge | [0x203f…ad0f](https://explorer.test.mezo.org/tx/0x203fd6fb5dfb44df73c952b5e99dbb6dc7330876861018df679d445e0594ad0f) |
+| | Auto-repay `harvest` by the keeper, in the first minute after the flip: 0.16722 MUSD of bribe and 0.00042 of fees, all 0.16764 MUSD used to repay the loan (`Harvested`) | [0x04be…09e6](https://explorer.test.mezo.org/tx/0x04bef77906dbad8690ea3a6a2a9d2dfa1b8ce5ff782236280976dcc4b36509e6) |
+| v2 mainnet, loan #1 (veBTC #6178, escrow [`0xe991…Dc6c`](https://explorer.mezo.org/address/0xe9911556cF6AdFF73EeFD949530eFc6bC0B3Dc6c)), the team's own wallet | Auto-repay on | [0x7374…89cf](https://explorer.mezo.org/tx/0x7374c42dd721688d57472b285659d6823b3ea6817267372e87a1d250e28e89cf) |
+| | Escrow votes the NFT 100% on Mezo's CL mUSDC/MUSD pool | [0x2706…1574](https://explorer.mezo.org/tx/0x2706f059e6e99d9c2fc19c1b7ebf6972ba067f581e9f9fff486d9e333bfc1574) |
 
-Pending — the fee/bribe claim (`escrowClaim`) and the rebase claim (`escrowClaimRebase`) on v1 loan #2, and the auto-repay `harvest` of v2 loan #1, from the Mezo epoch flip on Thu 2026-11-12 00:00 UTC. Mezo's RewardsDistributor refuses rebase claims until it has booked the week, so the rebase claim may land later that day.
+Recorded in the deployment files in `01119a3` (testnet) and `0a46ca8` (mainnet).
+
+Pending — mainnet harvest after 19 Nov: the auto-repay `harvest` of mainnet loan #1, from the Mezo epoch flip on Thu 2026-11-19 00:00 UTC. With auto-repay on, anyone may send it.
 
 **Check it yourself**
 
 - The escrows' votes on Mezo's PoolsVoter (non-zero; use 1731 for the v1 loan):
   `cast call 0x263F1Fd5fB7F866881e1B6cD7d5d6c40Fd985F0D "votes(uint256,address)(uint256)" 1732 0x525F049A4494dA0a6c87E3C4df55f9929765Dc3e --rpc-url https://rpc.test.mezo.org`
-- What the NFT has earned from the gauge's bribe contract: zero until the flip, the claimable MUSD after it:
+- What the NFT has earned from the gauge's bribe contract; zero again since the harvest claimed it:
   `cast call 0xAD0a02013fb65C2bc6cAeb86aeDF16F1c5DCd95E "earned(address,uint256)(uint256)" 0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503 1732 --rpc-url https://rpc.test.mezo.org`
+- The mainnet escrow's vote on Mezo's PoolsVoter, the CL mUSDC/MUSD pool:
+  `cast call 0x48233cCC97B87Ba93bCA212cbEe48e3210211f03 "poolVote(uint256,uint256)(address)" 6178 0 --rpc-url https://mezo.drpc.org`
 - In the app: `/app/borrow` on testnet, the loan's escrow panel lists its votes, what it has earned and the harvest a call would make.
 - Tests: `forge test --match-contract 'HarvestTest|LoanEscrowTest'` in `contracts/`.
 
@@ -68,6 +77,7 @@ Pending — the fee/bribe claim (`escrowClaim`) and the rebase claim (`escrowCla
 - v2 deploys on Mezo's own Morpho Blue on both chains ([`contracts/script/Deploy.s.sol`](contracts/script/Deploy.s.sol), `fd1f8c7`). On testnet that is Mezo's testnet Morpho Blue [`0xCe1d…5a73`](https://explorer.test.mezo.org/address/0xCe1da828cA15cb1FDAfa84C366A53C8106655a73) and AdaptiveCurveIrm [`0x0c97…7441`](https://explorer.test.mezo.org/address/0x0c97Fe017628636649ff374aD499529F91167441), both verified on Mezo's explorer, with a new BTC/MUSD market (`0xf0bb…e3ff`) at LLTV 77%, the LLTV it enables. The Morpho Blue that v1 deployed from pinned sources is no longer used. On mainnet, v1 already uses Mezo's Morpho Blue [`0x5658…A311`](https://explorer.mezo.org/address/0x565834cE7E40b8987BC20EbF83E2159467bDA311), and v2 keeps it.
 - The v2 testnet deployment (`9a6f096`) and its run (`a5c35ea`, `f297265`).
 - The v2 mainnet deployment (`233591f`), bundled in the SDK (`21d038c`).
+- Its first real MUSD, recorded in [`contracts/deployments/31612.json`](contracts/deployments/31612.json) (`0a46ca8`) and rendered in [docs/PROOF.md](docs/PROOF.md#live-on-mainnet-v2) (`7448002`).
 
 **On chain**
 
@@ -75,13 +85,29 @@ Pending — the fee/bribe claim (`escrowClaim`) and the rebase claim (`escrowCla
 - The first v2 rebalance takes 108 MUSD out of sMUSD and supplies 32.40 MUSD of it to the market on Mezo's testnet Morpho Blue: [0x5fe4…c5b2](https://explorer.test.mezo.org/tx/0x5fe4a449d6793cba4e511c7a1cd579e9220851c61be8f15a08d685afddbfc5b2).
 - A borrower posts 0.001 BTC there and borrows 25 MUSD: [0xf9eb…589c](https://explorer.test.mezo.org/tx/0xf9eb091db4014a1cfb9f525e54ae5d2a9dec853cc27b33d72b1281ef4021589c), [0xcbb9…470c](https://explorer.test.mezo.org/tx/0xcbb985778ed1d8e71c4d7893dc172650048b30c31bbc755d852c35d69f4d470c).
 
-Pending — real MUSD through the mainnet vault, before 2026-11-15: a deposit, the rebalance that supplies Mezo's Morpho market and funds the veBTC line, and a veBTC loan whose escrow votes on Mezo. These use the team's own MUSD and veBTC, in small amounts under the 2,000 MUSD caps, signed through the app.
+Real MUSD through the mainnet vault, 2026-11-10 to 2026-11-12, from the team's own wallet [`0xF3B0…bC37`](https://explorer.mezo.org/address/0xF3B025ed707A50704f93658CA10797230AaFbC37) and the keeper [`0x37D5…C282`](https://explorer.mezo.org/address/0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282). Small amounts, well under the 2,000 MUSD caps; no outside user is involved. Every transaction is in [docs/PROOF.md](docs/PROOF.md#live-on-mainnet-v2).
+
+| Step | Transaction |
+| --- | --- |
+| Swap 0.0000334 BTC for 2.5076 MUSD on Tigris; lock 0.00003 BTC as veBTC #6178 | [0x6eb1…9a2a](https://explorer.mezo.org/tx/0x6eb10d6e0f2e4dbc09769d170d52a620bae30923af597c47477dddd6cf539a2a), [0xa528…a24e](https://explorer.mezo.org/tx/0xa528bd9a5fefa037d54be1c66a2a3c782a2f0a136de9739a3659e18021f8a24e) |
+| Deposit 2.5 MUSD into the vault; it parks in Mezo's sMUSD | [0x7d97…213d](https://explorer.mezo.org/tx/0x7d975656b297ad55730cf9f77ca3cf5a8e7d16711051d162bc78c5ee0eea213d) |
+| veBTC #6178 votes 50/50 for the Morpho line and the veBTC line | [0xba08…8554](https://explorer.mezo.org/tx/0xba084ecd540992f9b9c75422643ea4ea1de1ad1eeaeae26fdf2819fddf6d8554) |
+| Keeper: savings harvest, 0.00086 MUSD of real sMUSD yield deposited back; sync of the basic MUSD/mUSDT pool for the peg | [0x9219…488c](https://explorer.mezo.org/tx/0x9219e7e7a4affd1c13e1c7d2be6f5ba0e366face879e7e85d4e0b49b4190488c), [0x1c64…2f3f](https://explorer.mezo.org/tx/0x1c6400adb016dbb8dcde59ca45350dbda8667d90c4299889c5aaddbdcd282f3f) |
+| Rebalance by the votes: 1.1254 MUSD supplied to Surety's market on Mezo's Morpho Blue, 1.1254 MUSD to the veBTC line, the 0.25 MUSD buffer left in sMUSD | [0x4bc7…65d4](https://explorer.mezo.org/tx/0x4bc72f1a50a1e6999e83a3a18616438f177fdafd10bf4870587be4df77bd65d4) |
+| veBTC loan #1: 1 MUSD against #6178 at 45.94% LTV, 0.0025 MUSD origination fee to the treasury; auto-repay on | [0x26ba…f719](https://explorer.mezo.org/tx/0x26ba1c58ca6735a33d9b65f77f01758ef88bd9833e67373d30ca9422419ef719), [0x7374…89cf](https://explorer.mezo.org/tx/0x7374c42dd721688d57472b285659d6823b3ea6817267372e87a1d250e28e89cf) |
+| The loan's escrow votes #6178 on Mezo's PoolsVoter, 100% on CL mUSDC/MUSD | [0x2706…1574](https://explorer.mezo.org/tx/0x2706f059e6e99d9c2fc19c1b7ebf6972ba067f581e9f9fff486d9e333bfc1574) |
+| 0.00003 BTC posted on Surety's market on Mezo's Morpho Blue, 1 MUSD borrowed (LTV 45.98%) | [0xa65f…840a](https://explorer.mezo.org/tx/0xa65f886e80bfc5dc42798029250cb719d077da6853f8a87fe96124d09b78840a), [0xfeb5…b999](https://explorer.mezo.org/tx/0xfeb519ffd962f04f8d3a710595917f2f2d57d01cf0b1c6dc0f7f2b60827cb999) |
+
+Read on chain at block 13,178,340 (2026-11-12 13:41:56 UTC): the market on Mezo's Morpho Blue has 1.1254 MUSD supplied by the vault and 1.0000 borrowed, 88.86% utilisation; the veBTC line holds 1.1254 MUSD, 1.0000 of it lent and 0.1254 in cash; 0.2501 MUSD sits in sMUSD; Mezo's PoolsVoter shows `usedWeights(6178)` above zero and `poolVote(6178, 0)` = CL mUSDC/MUSD; the line's `loan(1)` shows the founder wallet as borrower with auto-repay on.
 
 **Check it yourself**
 
 - The mainnet market on Mezo's Morpho Blue: `cast call 0x565834cE7E40b8987BC20EbF83E2159467bDA311 "idToMarketParams(bytes32)(address,address,address,address,uint256)" 0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8 --rpc-url https://mezo.drpc.org` returns MUSD, BTC, Surety's MorphoPriceOracle `0xE3C7…bb51`, Mezo's AdaptiveCurveIrm `0x3760…C1e7` and an LLTV of 0.86e18.
 - The testnet market: `marketParams` of line 0 in [`contracts/deployments/31611.json`](contracts/deployments/31611.json) name Mezo's testnet Morpho Blue and IRM.
-- The v2 mainnet vault: `cast call 0xFB1226A2C58168044d457b226528236a1F847bE1 "totalAssets()(uint256)" --rpc-url https://mezo.drpc.org` returns 0 until the first deposit, then shows it.
+- The v2 mainnet vault: `cast call 0xFB1226A2C58168044d457b226528236a1F847bE1 "totalAssets()(uint256)" --rpc-url https://mezo.drpc.org` returns about 2.5e18 (2.5009 MUSD at block 13,178,340).
+- What the vault supplied to the market and what is borrowed there: `cast call 0x565834cE7E40b8987BC20EbF83E2159467bDA311 "market(bytes32)(uint128,uint128,uint128,uint128,uint128,uint128)" 0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8 --rpc-url https://mezo.drpc.org`, the first and third values (1.1254e18 and 1e18 at block 13,178,340).
+- The veBTC loan: `cast call 0x690C2F3Db0FAC14281c2a000CA3214C36516d87D "loan(uint256)((address,address,uint256,uint256,uint8,uint64,address,bool))" 1 --rpc-url https://mezo.drpc.org` names the borrower, the escrow, veBTC #6178 and auto-repay `true`.
+- In the app, on mainnet: `/app` shows what each line holds and the idle MUSD, `/app/proof` lists every transaction above, and `/app/review` shows the key ones.
 
 ## 3. Outside users borrowing against veBTC
 
@@ -102,7 +128,7 @@ Pending — real MUSD through the mainnet vault, before 2026-11-15: a deposit, t
 - The Sponsor, verified on Sourcify: [`0x085c…9BA8`](https://repo.sourcify.dev/31611/0x085c6e2a022363c8F8811C4242F32373055d9BA8).
 - Starter kit #1, through the relayer, to a team test wallet and labelled as the team's: [0x823f…1477](https://explorer.test.mezo.org/tx/0x823f99fc7d1e6efb55facc06676708f48fc994ee111de45259847107e5321477).
 
-Pending — outside users. No outside wallet has borrowed yet: every wallet on the ledger is the team's. Kits open to visitors with the v2 app's production deploy (before 2026-11-15); outside wallets then appear on `/app/ledger` and in the Sponsor's `StarterKit` events as they arrive, and this section will list the ones that borrowed.
+Pending — outside users. No outside wallet has borrowed yet: every wallet on the ledger is the team's, the founder's mainnet wallet of section 2 included, and each is labelled. Kits are open to visitors since the v2 app went live on 2026-11-09; outside wallets appear on `/app/ledger` and in the Sponsor's `StarterKit` events as they arrive, and this section will list the ones that borrowed.
 
 **Check it yourself**
 
