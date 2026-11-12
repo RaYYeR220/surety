@@ -59,7 +59,7 @@ Each line below can be run against the mainnet RPC (`--rpc-url https://mezo.drpc
 | Premium cap and Skip price age | `maxPremiumBps()(uint16)` on the BtcMusdPriceSource; `maxAge()` on the SkipPriceSource | `300`, `60` |
 | The market is on Mezo's Morpho Blue at LLTV 86% | `cast call 0x565834cE7E40b8987BC20EbF83E2159467bDA311 "idToMarketParams(bytes32)(address,address,address,address,uint256)" 0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8` | MUSD, BTC, the MorphoPriceOracle `0xE3C7…bb51`, AdaptiveCurveIrm `0x3760…C1e7`, `8.6e17` |
 | ShareMarket fee | `feeBps()(uint16)`, `treasury()(address)` on the ShareMarket | `10`, `0x37D5…C282` |
-| No MUSD in the vault yet | `totalAssets()(uint256)` on the vault | `0` |
+| No MUSD in the vault at deployment (since then: [Live on mainnet, v2](#live-on-mainnet-v2)) | `totalAssets()(uint256)` on the vault | `0` |
 
 The cap ids are encoded as in [`LineIds.sol`](../contracts/src/libraries/LineIds.sol). For the veBTC line's adapter id, for example:
 
@@ -229,6 +229,77 @@ Deployed 2026-10-25 from `contracts/deployments/v1/31612.json` (block 12755630);
 
 Check it yourself: `cast call 0x7B6673dEbB5E2480798ff3e11680182F37aF2f4f "LINE_TIMELOCK()(uint256)" --rpc-url https://mezo.drpc.org` returns 86400, `bootstrapEnded()` returns true, and the vault's `receiveSharesGate()` is the DepositGate.
 
+## Live on mainnet, v2
+
+Real MUSD through the v2 mainnet deployment ([`contracts/deployments/31612.json`](../contracts/deployments/31612.json)) from 2026-11-10 to 2026-11-12. Both accounts belong to the team; no outside user is in this table.
+
+| Role | Account |
+| --- | --- |
+| Founder wallet: swap, veBTC lock, deposit, vote, veBTC loan, escrow vote, Morpho borrow | [`0xF3B025ed707A50704f93658CA10797230AaFbC37`](https://explorer.mezo.org/address/0xF3B025ed707A50704f93658CA10797230AaFbC37) |
+| Deployer and keeper: checkpoint, pool sync, savings harvest, rebalance | [`0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282`](https://explorer.mezo.org/address/0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282) |
+
+Key steps:
+
+<!-- proof:key-steps-31612:start -->
+- Real MUSD deposited into the mainnet vault, parked in Mezo's sMUSD: [0x7d97…213d](https://explorer.mezo.org/tx/0x7d975656b297ad55730cf9f77ca3cf5a8e7d16711051d162bc78c5ee0eea213d)
+- sMUSD yield harvested and re-deposited: [0x9219…488c](https://explorer.mezo.org/tx/0x9219e7e7a4affd1c13e1c7d2be6f5ba0e366face879e7e85d4e0b49b4190488c)
+- Rebalance by the votes: MUSD supplied to Surety's market on Mezo's Morpho Blue and lent to the veBTC line: [0x4bc7…65d4](https://explorer.mezo.org/tx/0x4bc72f1a50a1e6999e83a3a18616438f177fdafd10bf4870587be4df77bd65d4)
+- veBTC loan against a mainnet lock, origination fee to the treasury: [0x26ba…f719](https://explorer.mezo.org/tx/0x26ba1c58ca6735a33d9b65f77f01758ef88bd9833e67373d30ca9422419ef719)
+- The loan's escrow votes the NFT on Mezo's PoolsVoter: [0x2706…1574](https://explorer.mezo.org/tx/0x2706f059e6e99d9c2fc19c1b7ebf6972ba067f581e9f9fff486d9e333bfc1574)
+- MUSD borrowed from Surety's market on Mezo's Morpho Blue: [0xfeb5…b999](https://explorer.mezo.org/tx/0xfeb519ffd962f04f8d3a710595917f2f2d57d01cf0b1c6dc0f7f2b60827cb999)
+- Auto-repay: the escrow's fees and bribes harvested into repayment after the Mezo flip: PENDING (not recorded yet)
+
+<!-- proof:key-steps-31612:end -->
+
+<!-- proof:live-31612:start -->
+Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31612.json`: 18 transactions recorded, 1 step PENDING.
+
+| # | Phase | Step | Transaction | Block |
+| --- | --- | --- | --- | --- |
+| 1 | setup | team wallet: approve 0.0000334 BTC to the Tigris router | [0x1c20…e52b](https://explorer.mezo.org/tx/0x1c2024c25f34f9f007772e2ab8b587d95efcc47242f2d06cf6b7b4b0372ae52b) | 13127319 |
+| 2 | setup | team wallet: swap 0.0000334 BTC for 2.5076 MUSD on Tigris | [0x6eb1…9a2a](https://explorer.mezo.org/tx/0x6eb10d6e0f2e4dbc09769d170d52a620bae30923af597c47477dddd6cf539a2a) | 13127322 |
+| 3 | setup | team wallet: approve 0.00003 BTC to veBTC | [0x7125…54f2](https://explorer.mezo.org/tx/0x71250935f48fc71264c4ad4837ba1141e4ebfc0045cbffd655d4a8bc528d54f2) | 13127409 |
+| 4 | setup | team wallet: veBTC lock #6178 created (0.00003 BTC, unlocks 2026-11-26) | [0xa528…a24e](https://explorer.mezo.org/tx/0xa528bd9a5fefa037d54be1c66a2a3c782a2f0a136de9739a3659e18021f8a24e) | 13127412 |
+| 5 | lend | team wallet: approve 2.5 MUSD to vault | [0xb5fb…e934](https://explorer.mezo.org/tx/0xb5fbb87ab4bf7a510c77873d12dc88369b86c4823bbc4efc9c7aa9dca77be934) | 13127463 |
+| 6 | lend | **team wallet: deposit 2.5 MUSD, parked in sMUSD** | [0x7d97…213d](https://explorer.mezo.org/tx/0x7d975656b297ad55730cf9f77ca3cf5a8e7d16711051d162bc78c5ee0eea213d) | 13127465 |
+| 7 | vote | team wallet: vote #6178 50/50 (line 0 Morpho / line 1 veBTC) | [0xba08…8554](https://explorer.mezo.org/tx/0xba084ecd540992f9b9c75422643ea4ea1de1ad1eeaeae26fdf2819fddf6d8554) | 13178034 |
+| 8 | keeper | Surety keeper: checkpoint line 0 (Morpho) before the rebalance | [0xcdb4…ef2c](https://explorer.mezo.org/tx/0xcdb4bde7ab1ba977862453dc81368db5817774c743cc4f9a8e7a87929e96ef2c) | 13178118 |
+| 9 | keeper | Surety keeper: sync the basic MUSD/mUSDT pool for the peg | [0x1c64…2f3f](https://explorer.mezo.org/tx/0x1c6400adb016dbb8dcde59ca45350dbda8667d90c4299889c5aaddbdcd282f3f) | 13178120 |
+| 10 | keeper | **Surety keeper: savings harvest, 0.00086 MUSD of sMUSD yield re-deposited** | [0x9219…488c](https://explorer.mezo.org/tx/0x9219e7e7a4affd1c13e1c7d2be6f5ba0e366face879e7e85d4e0b49b4190488c) | 13178122 |
+| 11 | keeper | **Surety keeper: rebalance (epoch 2026-11-12): 1.1254 MUSD to the Morpho market, 1.1254 MUSD to the veBTC line, 0.25 MUSD left in sMUSD** | [0x4bc7…65d4](https://explorer.mezo.org/tx/0x4bc72f1a50a1e6999e83a3a18616438f177fdafd10bf4870587be4df77bd65d4) | 13178142 |
+| 12 | loan | team wallet: approve veBTC #6178 to credit line | [0x087f…f90a](https://explorer.mezo.org/tx/0x087f79b26fd4018abfdec7cc2c9b017d40341f2a0d42d128086342a0871ef90a) | 13178252 |
+| 13 | loan | **team wallet: veBTC loan #1 opened on #6178 (1 MUSD, LTV 45.94%; 0.0025 MUSD origination fee to the treasury)** | [0x26ba…f719](https://explorer.mezo.org/tx/0x26ba1c58ca6735a33d9b65f77f01758ef88bd9833e67373d30ca9422419ef719) | 13178255 |
+| 14 | loan | team wallet: auto-repay on for loan #1 (anyone may harvest its rewards into repayment) | [0x7374…89cf](https://explorer.mezo.org/tx/0x7374c42dd721688d57472b285659d6823b3ea6817267372e87a1d250e28e89cf) | 13178264 |
+| 15 | escrow | **team wallet: escrow vote loan #1 (veBTC #6178) 100% on CL mUSDC/MUSD** | [0x2706…1574](https://explorer.mezo.org/tx/0x2706f059e6e99d9c2fc19c1b7ebf6972ba067f581e9f9fff486d9e333bfc1574) | 13178306 |
+| 16 | morpho | team wallet: approve 0.00003 BTC to Morpho | [0xa682…e7ff](https://explorer.mezo.org/tx/0xa682df8bf7f565b6a3fca8d382b26d39d2964eddc0aafab7e40d757fe2a7e7ff) | 13178328 |
+| 17 | morpho | team wallet: Morpho supplyCollateral 0.00003 BTC | [0xa65f…840a](https://explorer.mezo.org/tx/0xa65f886e80bfc5dc42798029250cb719d077da6853f8a87fe96124d09b78840a) | 13178331 |
+| 18 | morpho | **team wallet: Morpho borrow 1 MUSD (LTV 45.98%, LLTV 86.00%; market utilisation 88.86%)** | [0xfeb5…b999](https://explorer.mezo.org/tx/0xfeb519ffd962f04f8d3a710595917f2f2d57d01cf0b1c6dc0f7f2b60827cb999) | 13178338 |
+| 19 | harvest | **auto-repay harvest of loan #1 after the Mezo flip (Thu 2026-11-19 00:00 UTC) (not recorded yet)** | PENDING | — |
+
+<!-- proof:live-31612:end -->
+
+What it shows, from the transfers and events:
+
+- **setup.** The founder wallet swaps 0.0000334 BTC for 2.5076 MUSD on Tigris and locks 0.00003 BTC as veBTC #6178, unlocking on 2026-11-26.
+- **lend.** The 2.5 MUSD deposit mints 2.5 srMUSD. VaultV2 hands the MUSD to the SavingsAdapter, its liquidity adapter, which deposits it in Mezo's sMUSD; the vault keeps no idle MUSD.
+- **vote.** #6178 votes 50% for line 0 (BTC / MUSD on Mezo's Morpho Blue) and 50% for line 1 (the veBTC line). No line had votes in the previous epoch, so the epoch's first rebalance follows this tally (the bootstrap rule in `VoteAllocator._tallyEpoch`).
+- **keeper.** Before the rebalance the keeper checkpoints line 0, syncs the basic MUSD/mUSDT pool so the peg has a fresh observation, and harvests the savings adapter: 0.00086 MUSD of sMUSD yield, claimed and deposited back. The rebalance (2.03M gas) then splits 90% of the vault's 2.5009 MUSD by the votes: 1.1254 MUSD supplied to Surety's BTC/MUSD market on Mezo's Morpho Blue and 1.1254 MUSD to the veBTC line. The 10% buffer, 0.25 MUSD, stays in sMUSD. The same call accrues the vault's fees: 0.000086 srMUSD of performance fee to the SuretyPool (10% of the sMUSD yield) and 0.000031 srMUSD of management fee to the treasury.
+- **loan.** 1 MUSD against veBTC #6178 (0.00003 BTC, 2.1765 MUSD at 72,550 MUSD/BTC), LTV 45.94%. `OriginationFeePaid` shows 0.0025 MUSD (25 bps) going to the treasury: the borrower receives 0.9975 and owes 1. The NFT moves into the loan's own escrow, [`0xe991…Dc6c`](https://explorer.mezo.org/address/0xe9911556cF6AdFF73EeFD949530eFc6bC0B3Dc6c). Auto-repay is then switched on.
+- **escrow.** The escrow votes #6178 100% on Mezo's CL mUSDC/MUSD pool (`0xCC37…aC1a`) through Mezo's PoolsVoter. Mezo pays that epoch's fees and bribes from the flip on 2026-11-19 00:00 UTC (the PENDING harvest row); with auto-repay on, anyone may then harvest them into repayment.
+- **morpho.** 0.00003 BTC posted on Surety's market on Mezo's Morpho Blue and 1 MUSD borrowed at 45.98% LTV (LLTV 86%), the MUSD the rebalance supplied.
+
+The state after the last transaction, read at block 13,178,340 (2026-11-12 13:41:56 UTC); without `--block`, the calls return today's values:
+
+| What | Call (`--rpc-url https://mezo.drpc.org --block 13178340`) | Value |
+| --- | --- | --- |
+| Surety's market on Mezo's Morpho Blue: supplied and borrowed | `cast call 0x565834cE7E40b8987BC20EbF83E2159467bDA311 "market(bytes32)(uint128,uint128,uint128,uint128,uint128,uint128)" 0x4bff245ddc101cd43e365aa1faff97351ab36a225e43d9a76aab82ff763030b8` (first and third values) | 1.1254 MUSD supplied, 1.0000 MUSD borrowed: 88.86% utilisation |
+| The veBTC line: allocated, lent, cash | `realAssets()(uint256)` and `totalDebt()(uint256)` on the line `0x690C…D87D`; MUSD `balanceOf` the line | 1.1254, 1.0000 and 0.1254 MUSD |
+| The buffer in sMUSD | `realAssets()(uint256)` on the SavingsAdapter `0x9FA1…A514` | 0.2501 MUSD |
+| The vault | `totalAssets()(uint256)` on the vault `0xFB12…7bE1`; MUSD `balanceOf` the vault | 2.5009 MUSD; 0 idle |
+| Loan #1 | `loan(uint256)((address,address,uint256,uint256,uint8,uint64,address,bool))` on the line, for 1 | borrower `0xF3B0…bC37`, escrow `0xe991…Dc6c`, veBTC #6178, open, auto-repay `true` |
+| The escrow's vote on Mezo | `usedWeights(uint256)(uint256)` and `poolVote(uint256,uint256)(address)` on Mezo's PoolsVoter `0x4823…1f03`, for 6178 (and 0) | `14390066209095`; `0xCC372B7E15535aB225fe17c1075831D38ef7aC1a` (CL mUSDC/MUSD) |
+| The peg | `pegHealthy()(bool)`, `musdUsdWad()(uint256)` on the MusdPeg `0x0777…9a5F` | `true`, 0.992896 |
+
 ## Live lifecycle on testnet, v2
 
 `keeper/scripts/testnet-cycle-v2.ts` ran Surety v2 end to end on the current testnet deployment ([`contracts/deployments/31611.json`](../contracts/deployments/31611.json)) on 2026-11-09, from 06:42 to 07:00 UTC. Each role sends from its own account and the deployer only funds them. Every account below belongs to the team:
@@ -317,7 +388,7 @@ Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`:
 | 50 | epoch | Surety keeper: poke #1711 (epoch 07:00 UTC) | [0xc69a…fea1](https://explorer.test.mezo.org/tx/0xc69a97efa5e8874c166b0c1011a82f6e563266bf99e21922ba5514c2d78cfea1) | 16667830 |
 | 51 | epoch | Surety keeper: rebalance (epoch 07:00 UTC) on the 06:00 tally: 0.84 MUSD of line interest, the lenders' part of the liquidation fee included, attributed to cohort 06:00 | [0x98e8…9301](https://explorer.test.mezo.org/tx/0x98e8c8207a98d16212b75c61013721707cd47b0847cdd5741797b296e3519301) | 16667832 |
 | 52 | harvest | **Surety keeper: harvest loan #1 (auto-repay): 0.167637 MUSD claimed, 0.167637 repaid, rebase not booked yet** | [0x04be…09e6](https://explorer.test.mezo.org/tx/0x04bef77906dbad8690ea3a6a2a9d2dfa1b8ce5ff782236280976dcc4b36509e6) | 16723410 |
-| 53 | escrow | keeper wallet: harvest loan #1 (auto-repay): 0.000000 MUSD of fees and bribes repay the loan, rebase compounds into the lock | [0xdf63…9e50](https://explorer.test.mezo.org/tx/0xdf63560a2158cd0f91d02344bee158bb9f8bda56457d915007def9b3cbfc9e50) | 16734960 |
+| 53 | harvest | keeper wallet: harvest loan #1 (auto-repay) again: nothing left to claim, no MUSD and no rebase | [0xdf63…9e50](https://explorer.test.mezo.org/tx/0xdf63560a2158cd0f91d02344bee158bb9f8bda56457d915007def9b3cbfc9e50) | 16734960 |
 
 <!-- proof:lifecycle-v2:end -->
 
@@ -326,7 +397,7 @@ What the run shows, from its events:
 - **lend.** The 100 MUSD deposit goes straight to sMUSD: VaultV2 allocates it to the SavingsAdapter, the vault's liquidity adapter, and leaves no idle MUSD.
 - **vote.** #1711 (voting power 0.001045) votes 30% for line 0 (BTC / MUSD on Morpho) and 70% for line 1 (veBTC line); the sponsor posts 10 MUSD of incentives on each. The rebalance takes 108 MUSD (90% of 120) out of sMUSD: 32.40 to the Morpho market and 75.60 to the veBTC line. The 12.00 MUSD buffer stays parked in sMUSD.
 - **loan.** 25 MUSD against a 0.003 BTC lock (221.86 MUSD at 73,953 MUSD/BTC), LTV 11.26%. `OriginationFeePaid` shows 0.0625 MUSD (25 bps) going to the treasury: the borrower receives 24.9375 and owes 25. Auto-repay is then switched on.
-- **escrow.** The loan's escrow votes veBTC #1732 100% on the MUSD/mUSDC stable pool of Mezo's PoolsVoter, and the sponsor posts a 20 MUSD bribe on that gauge for the Mezo epoch of 2026-11-05. The escrow holds 0.41% of the gauge's votes, about 0.17 MUSD of the epoch's 40 MUSD of bribes at today's shares, claimable from the flip on 2026-11-12 00:00 UTC (the PENDING harvest row).
+- **escrow.** The loan's escrow votes veBTC #1732 100% on the MUSD/mUSDC stable pool of Mezo's PoolsVoter, and the sponsor posts a 20 MUSD bribe on that gauge for the Mezo epoch of 2026-11-05. The escrow holds 0.41% of the gauge's votes, about 0.17 MUSD of the epoch's 40 MUSD of bribes at today's shares, claimable from the flip on 2026-11-12 00:00 UTC (the harvest rows).
 - **morpho.** 0.001 BTC posted on Mezo's own testnet Morpho (market `0xf0bb…e3ff`, LLTV 77%) and 25 MUSD borrowed at 33.7% LTV.
 - **peg.** The stressed peg source reads $0.94: `pegHealthy()` turns false and the allocator's gate shuts, while BTC stays priced at BTC/USD (an unhealthy peg prices MUSD at exactly $1). A `borrowMore` sent anyway, with an explicit 500,000 gas limit, reverts on chain with `PegUnhealthy`. The override is then cleared and the peg reads healthy again.
 - **liquidate.** A second loan of 35 MUSD at 47.2% LTV on a 0.001 BTC lock. The keeper wallet shocks BTC/USD by 32.59% (74,167 to 50,032), which puts this loan at 69.95% (the line auctions from 65%) while loan #1 only goes to 16.7% and the Morpho position to 50.0%, and starts the auction. After 300 s of decay the bidder pays 46.13 MUSD, about 92% of the 50.08 MUSD collateral, for a debt of 35.00: no shortfall, 10.08 MUSD of surplus to the borrower, and the 1.05 MUSD fee (3% of the debt) split by `LiquidationFeePaid` into 0.84 for lenders, 0.105 for the treasury and 0.105 for the keeper wallet that started the auction. The floor, 42.57 MUSD, would still have covered debt and fee (36.05): at the trigger the 85% floor keeps a fresh loan whole. Bad debt stays at zero, so deposits never paused.
@@ -334,7 +405,7 @@ What the run shows, from its events:
 - **savings.** No harvest was sent: testnet sMUSD paid no yield during the run (its yield index did not move), so the adapter had nothing to claim.
 - **kit.** The Sponsor's relayer hands a team test wallet its starter kit: veBTC #1734 (0.001 BTC), 0.00005 BTC for gas and 50 MUSD. It is labelled as a team wallet, not an outside user.
 - **epoch.** At the 07:00 UTC flip the keeper pokes #1711's ballot and rebalances on the closed 06:00 tally. The 0.84 MUSD the veBTC line earned, almost all of it the lenders' part of the liquidation fee, is attributed to cohort 06:00 (`InterestAttributed`, `FeesDistributed`).
-- **harvest** (after 2026-11-12 00:00 UTC). With auto-repay on, anyone may `harvest` loan #1: the bribe MUSD repays the loan and the veBTC rebase compounds into the lock. The keeper harvests auto-repay loans as soon as their rewards are claimable; `--phase harvest` records that transaction, or sends the harvest itself.
+- **harvest** (after 2026-11-12 00:00 UTC). With auto-repay on, anyone may `harvest` loan #1. The keeper did, in the first minute after the flip: 0.16722 MUSD of bribe and 0.00042 MUSD of fees, 0.16764 MUSD in all, claimed from Mezo and used to repay the loan (`Harvested`: claimed 0.167637, repaid 0.167637). Mezo had not booked the week's rebase yet, so none was claimed. A second harvest from the keeper wallet at 13:31 UTC found nothing left to claim. `--phase harvest` records the keeper's transaction, or sends the harvest itself.
 
 Reproduce, from the repository root (the two `.env` files hold the keys; keep them outside the repository):
 

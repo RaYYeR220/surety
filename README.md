@@ -32,7 +32,20 @@ Each point of the Wave 1 review, with the commits, the transactions and what is 
 1. **Use the app.** Open [surety-credit.vercel.app](https://surety-credit.vercel.app) and choose **Open the credit board** (`/app`). `/app/review` lists ten checks, each with where to see it. `/app/try` takes a new visitor from a testnet starter kit to a veBTC loan with no wallet installed. `/app/peg` shows the MUSD peg's sources and, on testnet, lets anyone push MUSD off its peg for a few minutes. The **Stress test** panel on the board (testnet only) applies a temporary BTC haircut of up to 90% for up to 2 hours. `/app?demo=1` shows every page on example data without a wallet, and `/app/proof` lists the contracts and the recorded transactions of both versions.
 
 2. **Check the contracts.** All 19 Surety contracts in [`contracts/deployments/31612.json`](contracts/deployments/31612.json) (v2 mainnet), the 18 in [`contracts/deployments/31611.json`](contracts/deployments/31611.json) (v2 testnet), the 14 in [`contracts/deployments/v1/31611.json`](contracts/deployments/v1/31611.json) and the 11 in [`contracts/deployments/v1/31612.json`](contracts/deployments/v1/31612.json) are an exact match on Sourcify. Links for each are in [docs/PROOF.md](docs/PROOF.md#verified-contracts) and under [Deployments](#deployments).
-3. **Follow v2 on chain.** `keeper/scripts/testnet-cycle-v2.ts` ran v2 end to end on testnet, each role from its own account. The key steps; every transaction is in [docs/PROOF.md](docs/PROOF.md#live-lifecycle-on-testnet-v2):
+3. **Follow real MUSD on mainnet.** The team's own wallet put real MUSD through the v2 mainnet deployment on 2026-11-10 and 2026-11-12: a deposit, a vote, the rebalance into Surety's market on Mezo's Morpho Blue and the veBTC line, a veBTC loan whose escrow votes on Mezo, and a Morpho borrow. The key steps; every transaction and the state it left are in [docs/PROOF.md](docs/PROOF.md#live-on-mainnet-v2):
+
+   <!-- proof:key-steps-31612:start -->
+   - Real MUSD deposited into the mainnet vault, parked in Mezo's sMUSD: [0x7d97…213d](https://explorer.mezo.org/tx/0x7d975656b297ad55730cf9f77ca3cf5a8e7d16711051d162bc78c5ee0eea213d)
+   - sMUSD yield harvested and re-deposited: [0x9219…488c](https://explorer.mezo.org/tx/0x9219e7e7a4affd1c13e1c7d2be6f5ba0e366face879e7e85d4e0b49b4190488c)
+   - Rebalance by the votes: MUSD supplied to Surety's market on Mezo's Morpho Blue and lent to the veBTC line: [0x4bc7…65d4](https://explorer.mezo.org/tx/0x4bc72f1a50a1e6999e83a3a18616438f177fdafd10bf4870587be4df77bd65d4)
+   - veBTC loan against a mainnet lock, origination fee to the treasury: [0x26ba…f719](https://explorer.mezo.org/tx/0x26ba1c58ca6735a33d9b65f77f01758ef88bd9833e67373d30ca9422419ef719)
+   - The loan's escrow votes the NFT on Mezo's PoolsVoter: [0x2706…1574](https://explorer.mezo.org/tx/0x2706f059e6e99d9c2fc19c1b7ebf6972ba067f581e9f9fff486d9e333bfc1574)
+   - MUSD borrowed from Surety's market on Mezo's Morpho Blue: [0xfeb5…b999](https://explorer.mezo.org/tx/0xfeb519ffd962f04f8d3a710595917f2f2d57d01cf0b1c6dc0f7f2b60827cb999)
+   - Auto-repay: the escrow's fees and bribes harvested into repayment after the Mezo flip: PENDING (not recorded yet)
+
+   <!-- proof:key-steps-31612:end -->
+
+4. **Follow v2 on chain.** `keeper/scripts/testnet-cycle-v2.ts` ran v2 end to end on testnet, each role from its own account. The key steps; every transaction is in [docs/PROOF.md](docs/PROOF.md#live-lifecycle-on-testnet-v2):
 
    <!-- proof:key-steps-v2:start -->
    - Lender deposit parks in sMUSD through the liquidity adapter: [0xe25a…51f8](https://explorer.test.mezo.org/tx/0xe25a1e53b909718a19de0b74823a81c6ad68a66b596f950c1f4006f49c8d51f8)
@@ -47,7 +60,7 @@ Each point of the Wave 1 review, with the commits, the transactions and what is 
 
    <!-- proof:key-steps-v2:end -->
 
-4. **Follow a loss on chain (v1).** The v1 lifecycle ran a deposit, two votes, a rebalance, incentives, a veBTC loan and a Morpho borrow, then a −60% price shock. These are the transactions where the loss happens and is paid for. In each cover, the `CohortSlashed` events show the shares taken from voters and `Covered` shows the MUSD moved. Every transaction is in [docs/PROOF.md](docs/PROOF.md#live-lifecycle-on-testnet).
+5. **Follow a loss on chain (v1).** The v1 lifecycle ran a deposit, two votes, a rebalance, incentives, a veBTC loan and a Morpho borrow, then a −60% price shock. These are the transactions where the loss happens and is paid for. In each cover, the `CohortSlashed` events show the shares taken from voters and `Covered` shows the MUSD moved. Every transaction is in [docs/PROOF.md](docs/PROOF.md#live-lifecycle-on-testnet).
 
    <!-- proof:key-steps:start -->
    - Morpho liquidation leaves bad debt: [0x9fd3…0723](https://explorer.test.mezo.org/tx/0x9fd30e57406f16ef8c279011ec20f47b6783164579ad0f3668c06c5e1bec0723)
@@ -60,7 +73,7 @@ Each point of the Wave 1 review, with the commits, the transactions and what is 
 
    <!-- proof:key-steps:end -->
 
-5. **Run the tests.**
+6. **Run the tests.**
 
    ```sh
    cd contracts && forge test      # 379 passed, 4 skipped (the opt-in mainnet fork suites)

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // Renders the proof blocks of the docs from the deployment files as Markdown: the live lifecycles from a testnet
 // file's `proof.txs`, the v1 run (written by keeper/scripts/testnet-cycle.ts) and the v2 run
-// (keeper/scripts/testnet-cycle-v2.ts), and the contracts of the v2 mainnet deployment with their Sourcify links.
+// (keeper/scripts/testnet-cycle-v2.ts), and for the v2 mainnet deployment its contracts with their Sourcify links
+// and the transactions that put real MUSD through it.
 //
 //   node docs/proof-table.mjs                     print the v1 and v2 lifecycle blocks for
 //                                                 contracts/deployments/v1/31611.json and
-//                                                 contracts/deployments/31611.json, and the v2 mainnet contracts of
-//                                                 contracts/deployments/31612.json
+//                                                 contracts/deployments/31611.json, and the v2 mainnet contracts and
+//                                                 transactions of contracts/deployments/31612.json
 //   node docs/proof-table.mjs <deployment.json>   print the blocks for one deployment file (v1 or v2 by its schema;
-//                                                 a v2 mainnet file renders its contracts)
+//                                                 a v2 mainnet file renders its contracts and transactions)
 //   node docs/proof-table.mjs --write             also replace the rendered blocks in README.md and docs/PROOF.md
 //
 // Every expected step that is not in a file yet is rendered as a PENDING row, so the tables show what is still
@@ -67,8 +68,9 @@ const EPOCH_KEY = "Next epoch: rebalance attributes interest to the cohorts";
 /* v2: phases of testnet-cycle-v2.ts */
 
 // A transaction's phase is the first rule its label matches; an approval takes the phase of the next transaction
-// that is not one.
+// that is not one. A loan harvest's label names the bribes it claims, so it is matched before the escrow phase.
 const V2_PHASES = [
+  ["harvest", /harvest loan/],
   ["fund", /^fund /],
   ["liquidate", /auction|shock|^bidder:/],
   ["lend", /^lender: deposit/],
@@ -81,7 +83,6 @@ const V2_PHASES = [
   ["market", /ShareMarket|^lender: (list|cancel)|^share buyer: fill/],
   ["savings", /savings harvest/],
   ["kit", /starter kit/],
-  ["harvest", /harvest loan/],
 ];
 const isApproval = (label) => /: approve /.test(label);
 // Steps that must be recorded: [phase, label pattern, how a missing one is shown, key-step text].
@@ -110,12 +111,41 @@ const V2_REQUIRED = [
   ["harvest", /harvest loan/, "harvest after the Mezo flip (Thu 2026-11-12 00:00 UTC)", "Auto-repay: the escrow's bribes and fees harvested into repayment after the Mezo flip"],
 ];
 
+/* v2 mainnet: the transactions that put real MUSD through the deployment, from the team's own wallets */
+
+// Same rules as V2_PHASES: the first match wins, an approval takes the phase of the next transaction.
+const MAINNET_PHASES = [
+  ["harvest", /harvest loan/],
+  ["setup", /swap|veBTC lock #\d+ created/],
+  ["lend", /: deposit/],
+  ["vote", /: vote #/],
+  ["keeper", /^Surety keeper:/],
+  ["escrow", /escrow vote/],
+  ["loan", /veBTC loan|auto-repay on/],
+  ["morpho", /Morpho/],
+];
+// Mezo pays an epoch's fees and bribes after it ends, so the first harvest of a mainnet loan follows its escrow vote
+// by one Mezo epoch.
+const MAINNET_REQUIRED = [
+  ["lend", /: deposit/, "deposit", "Real MUSD deposited into the mainnet vault, parked in Mezo's sMUSD"],
+  ["vote", /: vote #/, "veBTC vote on the two lines"],
+  ["keeper", /: rebalance/, "rebalance", "Rebalance by the votes: MUSD supplied to Surety's market on Mezo's Morpho Blue and lent to the veBTC line"],
+  ["keeper", /savings harvest/, "savings harvest", "sMUSD yield harvested and re-deposited"],
+  ["loan", /veBTC loan #\d+ opened/, "veBTC loan", "veBTC loan against a mainnet lock, origination fee to the treasury"],
+  ["loan", /auto-repay on/, "auto-repay on"],
+  ["escrow", /escrow vote/, "escrow vote on Mezo's PoolsVoter", "The loan's escrow votes the NFT on Mezo's PoolsVoter"],
+  ["morpho", /Morpho borrow/, "Morpho borrow", "MUSD borrowed from Surety's market on Mezo's Morpho Blue"],
+  ["harvest", /harvest loan/, "auto-repay harvest of loan #1 after the Mezo flip (Thu 2026-11-19 00:00 UTC)", "Auto-repay: the escrow's fees and bribes harvested into repayment after the Mezo flip"],
+];
+
 const MARKERS = {
   keys: ["<!-- proof:key-steps:start -->", "<!-- proof:key-steps:end -->"],
   table: ["<!-- proof:lifecycle:start -->", "<!-- proof:lifecycle:end -->"],
   keysV2: ["<!-- proof:key-steps-v2:start -->", "<!-- proof:key-steps-v2:end -->"],
   tableV2: ["<!-- proof:lifecycle-v2:start -->", "<!-- proof:lifecycle-v2:end -->"],
   contractsMainnet: ["<!-- proof:contracts-31612:start -->", "<!-- proof:contracts-31612:end -->"],
+  keysMainnet: ["<!-- proof:key-steps-31612:start -->", "<!-- proof:key-steps-31612:end -->"],
+  tableMainnet: ["<!-- proof:live-31612:start -->", "<!-- proof:live-31612:end -->"],
 };
 
 /* v2 mainnet: the contracts of the deployment file */
@@ -196,16 +226,19 @@ function planV1({ txs }) {
   return rows;
 }
 
-/** v2: recorded txs in the order they were sent, by phase, then PENDING rows for required steps not recorded. */
-function planV2({ txs }) {
-  const phaseOf = (label) => V2_PHASES.find(([, re]) => re.test(label))?.[0] ?? "other";
+/**
+ * v2, testnet run or mainnet: recorded txs in the order they were sent, by phase, then PENDING rows for required
+ * steps not recorded.
+ */
+function planV2({ txs }, rules = V2_PHASES, required = V2_REQUIRED) {
+  const phaseOf = (label) => rules.find(([, re]) => re.test(label))?.[0] ?? "other";
   const phases = txs.map((t) => (isApproval(t.label) ? null : phaseOf(t.label)));
   for (let i = phases.length - 1, next = "other"; i >= 0; i--) {
     if (phases[i] === null) phases[i] = next;
     else next = phases[i];
   }
   const rows = txs.map((t, i) => ({ phase: phases[i], tx: t }));
-  for (const [phase, re, missing, key] of V2_REQUIRED) {
+  for (const [phase, re, missing, key] of required) {
     const row = rows.find((r) => r.tx && r.phase === phase && re.test(r.tx.label));
     if (row) {
       if (key && !row.key) row.key = key;
@@ -225,7 +258,7 @@ function renderTable(src, rows, file) {
   const done = rows.filter((r) => r.tx).length;
   const pending = rows.length - done;
   const out = [
-    `Rendered by \`node docs/proof-table.mjs\` from \`${file}\`: ${done} transactions recorded, ${pending} steps PENDING.`,
+    `Rendered by \`node docs/proof-table.mjs\` from \`${file}\`: ${done} transactions recorded, ${pending} step${pending === 1 ? "" : "s"} PENDING.`,
     "",
     "| # | Phase | Step | Transaction | Block |",
     "| --- | --- | --- | --- | --- |",
@@ -322,12 +355,16 @@ function render(file) {
   // A file from another checkout is named by the path it has inside the repository.
   const outside = shown.startsWith("..") || isAbsolute(shown);
   const name = outside ? `contracts/deployments/${src.version >= 2 ? "" : "v1/"}${src.d.chainId}.json` : shown;
-  // The v2 mainnet deployment has no scripted lifecycle: its block is the contracts table.
+  // The v2 mainnet deployment has no scripted lifecycle: its blocks are the contracts table and the transactions
+  // the team sent through it with real MUSD.
   if (src.version >= 2 && src.d.chainId === MAINNET) {
+    const rows = planV2(src, MAINNET_PHASES, MAINNET_REQUIRED);
     return {
       contracts: true,
       proof: renderContracts(src, name),
       readme: renderContracts(src, name, { readme: true }),
+      keys: renderKeys(src, rows),
+      table: renderTable(src, rows, name),
     };
   }
   const rows = src.version >= 2 ? planV2(src) : planV1(src);
@@ -349,6 +386,11 @@ if (write) {
       if (splice(join(ROOT, "README.md"), MARKERS.contractsMainnet, b.readme, { required: false })) {
         updated.add("README.md");
       }
+      // The mainnet key steps go wherever their markers are; the full table lives in PROOF.md.
+      for (const doc of ["README.md", "docs/PROOF.md"]) {
+        if (splice(join(ROOT, doc), MARKERS.keysMainnet, b.keys, { required: false })) updated.add(doc);
+      }
+      splice(join(ROOT, "docs/PROOF.md"), MARKERS.tableMainnet, b.table);
       continue;
     }
     const [keys, table] = b.version >= 2 ? [MARKERS.keysV2, MARKERS.tableV2] : [MARKERS.keys, MARKERS.table];
@@ -361,5 +403,6 @@ if (write) {
   }
   process.stdout.write(`Updated ${[...updated].join(" and ")}\n`);
 } else {
-  process.stdout.write(`${blocks.map((b) => (b.contracts ? b.proof : `${b.keys}\n\n${b.table}`)).join("\n\n")}\n`);
+  const print = (b) => (b.contracts ? `${b.proof}\n\n${b.keys}\n\n${b.table}` : `${b.keys}\n\n${b.table}`);
+  process.stdout.write(`${blocks.map(print).join("\n\n")}\n`);
 }
