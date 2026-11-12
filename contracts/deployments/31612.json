@@ -122,6 +122,97 @@
     }
   ],
   "proof": {
-    "txs": []
+    "txs": [
+      {
+        "label": "team wallet: approve 0.0000334 BTC to the Tigris router",
+        "hash": "0x1c2024c25f34f9f007772e2ab8b587d95efcc47242f2d06cf6b7b4b0372ae52b",
+        "block": 13127319
+      },
+      {
+        "label": "team wallet: swap 0.0000334 BTC for 2.5076 MUSD on Tigris",
+        "hash": "0x6eb10d6e0f2e4dbc09769d170d52a620bae30923af597c47477dddd6cf539a2a",
+        "block": 13127322
+      },
+      {
+        "label": "team wallet: approve 0.00003 BTC to veBTC",
+        "hash": "0x71250935f48fc71264c4ad4837ba1141e4ebfc0045cbffd655d4a8bc528d54f2",
+        "block": 13127409
+      },
+      {
+        "label": "team wallet: veBTC lock #6178 created (0.00003 BTC, unlocks 2026-11-26)",
+        "hash": "0xa528bd9a5fefa037d54be1c66a2a3c782a2f0a136de9739a3659e18021f8a24e",
+        "block": 13127412
+      },
+      {
+        "label": "team wallet: approve 2.5 MUSD to vault",
+        "hash": "0xb5fbb87ab4bf7a510c77873d12dc88369b86c4823bbc4efc9c7aa9dca77be934",
+        "block": 13127463
+      },
+      {
+        "label": "team wallet: deposit 2.5 MUSD, parked in sMUSD",
+        "hash": "0x7d975656b297ad55730cf9f77ca3cf5a8e7d16711051d162bc78c5ee0eea213d",
+        "block": 13127465
+      },
+      {
+        "label": "team wallet: vote #6178 50/50 (line 0 Morpho / line 1 veBTC)",
+        "hash": "0xba084ecd540992f9b9c75422643ea4ea1de1ad1eeaeae26fdf2819fddf6d8554",
+        "block": 13178034
+      },
+      {
+        "label": "Surety keeper: checkpoint line 0 (Morpho) before the rebalance",
+        "hash": "0xcdb4bde7ab1ba977862453dc81368db5817774c743cc4f9a8e7a87929e96ef2c",
+        "block": 13178118
+      },
+      {
+        "label": "Surety keeper: sync the basic MUSD/mUSDT pool for the peg",
+        "hash": "0x1c6400adb016dbb8dcde59ca45350dbda8667d90c4299889c5aaddbdcd282f3f",
+        "block": 13178120
+      },
+      {
+        "label": "Surety keeper: savings harvest, 0.00086 MUSD of sMUSD yield re-deposited",
+        "hash": "0x9219e7e7a4affd1c13e1c7d2be6f5ba0e366face879e7e85d4e0b49b4190488c",
+        "block": 13178122
+      },
+      {
+        "label": "Surety keeper: rebalance (epoch 2026-11-12): 1.1254 MUSD to the Morpho market, 1.1254 MUSD to the veBTC line, 0.25 MUSD left in sMUSD",
+        "hash": "0x4bc72f1a50a1e6999e83a3a18616438f177fdafd10bf4870587be4df77bd65d4",
+        "block": 13178142
+      },
+      {
+        "label": "team wallet: approve veBTC #6178 to credit line",
+        "hash": "0x087f79b26fd4018abfdec7cc2c9b017d40341f2a0d42d128086342a0871ef90a",
+        "block": 13178252
+      },
+      {
+        "label": "team wallet: veBTC loan #1 opened on #6178 (1 MUSD, LTV 45.94%; 0.0025 MUSD origination fee to the treasury)",
+        "hash": "0x26ba1c58ca6735a33d9b65f77f01758ef88bd9833e67373d30ca9422419ef719",
+        "block": 13178255
+      },
+      {
+        "label": "team wallet: auto-repay on for loan #1 (anyone may harvest its rewards into repayment)",
+        "hash": "0x7374c42dd721688d57472b285659d6823b3ea6817267372e87a1d250e28e89cf",
+        "block": 13178264
+      },
+      {
+        "label": "team wallet: escrow vote loan #1 (veBTC #6178) 100% on CL mUSDC/MUSD",
+        "hash": "0x2706f059e6e99d9c2fc19c1b7ebf6972ba067f581e9f9fff486d9e333bfc1574",
+        "block": 13178306
+      },
+      {
+        "label": "team wallet: approve 0.00003 BTC to Morpho",
+        "hash": "0xa682df8bf7f565b6a3fca8d382b26d39d2964eddc0aafab7e40d757fe2a7e7ff",
+        "block": 13178328
+      },
+      {
+        "label": "team wallet: Morpho supplyCollateral 0.00003 BTC",
+        "hash": "0xa65f886e80bfc5dc42798029250cb719d077da6853f8a87fe96124d09b78840a",
+        "block": 13178331
+      },
+      {
+        "label": "team wallet: Morpho borrow 1 MUSD (LTV 45.98%, LLTV 86.00%; market utilisation 88.86%)",
+        "hash": "0xfeb519ffd962f04f8d3a710595917f2f2d57d01cf0b1c6dc0f7f2b60827cb999",
+        "block": 13178338
+      }
+    ]
   }
 }
