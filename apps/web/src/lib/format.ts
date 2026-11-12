@@ -16,9 +16,14 @@ export function formatAmount(value: bigint, options: { decimals?: number; max?: 
   return grouped(n, min, max);
 }
 
+/**
+ * MUSD with up to `max` decimals. A whole-MUSD figure (`max` 0) under 100 MUSD keeps up to two decimals, so a small
+ * balance reads 2.5 or 0.25 instead of rounding to 3 or showing <1.
+ */
 export function formatMusd(value: bigint | null | undefined, max = 2): string {
   if (value === null || value === undefined) return "—";
-  return formatAmount(value, { max });
+  const small = max === 0 && value < 100n * WAD && value > -100n * WAD;
+  return small ? formatAmount(value, { max: 2, min: 0 }) : formatAmount(value, { max });
 }
 
 /** Compact MUSD, e.g. 12.3K, for tight spots; exact value belongs in a title. */
