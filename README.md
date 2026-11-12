@@ -43,7 +43,7 @@ Each point of the Wave 1 review, with the commits, the transactions and what is 
    - Auction bid above debt + fee: no shortfall, fee split to lenders, treasury and keeper (`LiquidationFeePaid`): [0x69ba…aae1](https://explorer.test.mezo.org/tx/0x69ba998d4a6071942e0c77873dd5f554ec04f2415ad806ff0ce720cc9652aae1)
    - ShareMarket fill: a lender sells srMUSD at a discount, 10 bps to the treasury: [0x741e…de8a](https://explorer.test.mezo.org/tx/0x741e1b596a09c35b382c5ef245c16a168ea6eb725f86e09b2ceb2088ecbfde8a)
    - Starter kit through the Sponsor's relayer (team test wallet): [0x823f…1477](https://explorer.test.mezo.org/tx/0x823f99fc7d1e6efb55facc06676708f48fc994ee111de45259847107e5321477)
-   - Auto-repay: the escrow's bribes and fees harvested into repayment after the Mezo flip: PENDING (not recorded yet)
+   - Auto-repay: the escrow's bribes and fees harvested into repayment after the Mezo flip: [0x04be…09e6](https://explorer.test.mezo.org/tx/0x04bef77906dbad8690ea3a6a2a9d2dfa1b8ce5ff782236280976dcc4b36509e6)
 
    <!-- proof:key-steps-v2:end -->
 

@@ -256,12 +256,12 @@ Key steps:
 - Auction bid above debt + fee: no shortfall, fee split to lenders, treasury and keeper (`LiquidationFeePaid`): [0x69ba…aae1](https://explorer.test.mezo.org/tx/0x69ba998d4a6071942e0c77873dd5f554ec04f2415ad806ff0ce720cc9652aae1)
 - ShareMarket fill: a lender sells srMUSD at a discount, 10 bps to the treasury: [0x741e…de8a](https://explorer.test.mezo.org/tx/0x741e1b596a09c35b382c5ef245c16a168ea6eb725f86e09b2ceb2088ecbfde8a)
 - Starter kit through the Sponsor's relayer (team test wallet): [0x823f…1477](https://explorer.test.mezo.org/tx/0x823f99fc7d1e6efb55facc06676708f48fc994ee111de45259847107e5321477)
-- Auto-repay: the escrow's bribes and fees harvested into repayment after the Mezo flip: PENDING (not recorded yet)
+- Auto-repay: the escrow's bribes and fees harvested into repayment after the Mezo flip: [0x04be…09e6](https://explorer.test.mezo.org/tx/0x04bef77906dbad8690ea3a6a2a9d2dfa1b8ce5ff782236280976dcc4b36509e6)
 
 <!-- proof:key-steps-v2:end -->
 
 <!-- proof:lifecycle-v2:start -->
-Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`: 51 transactions recorded, 1 steps PENDING.
+Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`: 53 transactions recorded, 0 steps PENDING.
 
 | # | Phase | Step | Transaction | Block |
 | --- | --- | --- | --- | --- |
@@ -316,7 +316,8 @@ Rendered by `node docs/proof-table.mjs` from `contracts/deployments/31611.json`:
 | 49 | kit | **starter-kit relayer: starter kit #1 for team test wallet 0x7e87…759a (not an outside user)** | [0x823f…1477](https://explorer.test.mezo.org/tx/0x823f99fc7d1e6efb55facc06676708f48fc994ee111de45259847107e5321477) | 16667811 |
 | 50 | epoch | Surety keeper: poke #1711 (epoch 07:00 UTC) | [0xc69a…fea1](https://explorer.test.mezo.org/tx/0xc69a97efa5e8874c166b0c1011a82f6e563266bf99e21922ba5514c2d78cfea1) | 16667830 |
 | 51 | epoch | Surety keeper: rebalance (epoch 07:00 UTC) on the 06:00 tally: 0.84 MUSD of line interest, the lenders' part of the liquidation fee included, attributed to cohort 06:00 | [0x98e8…9301](https://explorer.test.mezo.org/tx/0x98e8c8207a98d16212b75c61013721707cd47b0847cdd5741797b296e3519301) | 16667832 |
-| 52 | harvest | **harvest after the Mezo flip (Thu 2026-11-12 00:00 UTC) (not recorded yet)** | PENDING | — |
+| 52 | harvest | **Surety keeper: harvest loan #1 (auto-repay): 0.167637 MUSD claimed, 0.167637 repaid, rebase not booked yet** | [0x04be…09e6](https://explorer.test.mezo.org/tx/0x04bef77906dbad8690ea3a6a2a9d2dfa1b8ce5ff782236280976dcc4b36509e6) | 16723410 |
+| 53 | escrow | keeper wallet: harvest loan #1 (auto-repay): 0.000000 MUSD of fees and bribes repay the loan, rebase compounds into the lock | [0xdf63…9e50](https://explorer.test.mezo.org/tx/0xdf63560a2158cd0f91d02344bee158bb9f8bda56457d915007def9b3cbfc9e50) | 16734960 |
 
 <!-- proof:lifecycle-v2:end -->
 
@@ -348,7 +349,7 @@ node keeper/dist/scripts/testnet-cycle-v2.js --phase harvest --env-file <.env> -
 `keeper/scripts/testnet-cycle.ts` ran Surety's whole lifecycle on the v1 testnet deployment ([`contracts/deployments/v1/31611.json`](../contracts/deployments/v1/31611.json)) from the deployer account [`0x37D5…C282`](https://explorer.test.mezo.org/address/0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282), with its veBTC NFTs #1711 and #1712. Every mined transaction is appended to `proof.txs` in the deployment file as `{ label, hash, block }`, and the table below is rendered from that file by [`docs/proof-table.mjs`](proof-table.mjs). Rows marked PENDING are steps the run has not recorded yet; re-render with `node docs/proof-table.mjs --write` once it has.
 
 <!-- proof:lifecycle:start -->
-Rendered by `node docs/proof-table.mjs` from `contracts/deployments/v1/31611.json`: 35 transactions recorded, 0 steps PENDING.
+Rendered by `node docs/proof-table.mjs` from `contracts/deployments/v1/31611.json`: 37 transactions recorded, 0 steps PENDING.
 
 | # | Phase | Step | Transaction | Block |
 | --- | --- | --- | --- | --- |
@@ -387,6 +388,8 @@ Rendered by `node docs/proof-table.mjs` from `contracts/deployments/v1/31611.jso
 | 33 | other | escrow vote loan #2 (veBTC #1731) 100% on MUSD/mUSDC stable pool | [0x1b78…9612](https://explorer.test.mezo.org/tx/0x1b78236ede57063dedf03347ee23c1c4ccc3920f081495332b5d997f17c99612) | 16664795 |
 | 34 | other | approve 20 MUSD to MUSD/mUSDC bribe | [0x7d89…f97a](https://explorer.test.mezo.org/tx/0x7d89d72590cd317b968d1191849b6bb83c14521de704355b3c7c0ddba0e9f97a) | 16664798 |
 | 35 | other | bribe 20 MUSD on MUSD/mUSDC gauge (Mezo epoch 2026-11-05) | [0xef7a…919b](https://explorer.test.mezo.org/tx/0xef7ab6f4f99ef53b81d568de533ddd140711f8d86685113e787bb0a220a7919b) | 16664799 |
+| 36 | other | escrow claim loan #2: MUSD/mUSDC fees and bribes | [0x4c69…057a](https://explorer.test.mezo.org/tx/0x4c69cd096ea6a5123de7357268541bb0bfd7ffaa9ac1565db00cf899cc3d057a) | 16734948 |
+| 37 | other | escrow rebase claim loan #2 (veBTC #1731) | [0x5fd3…76d0](https://explorer.test.mezo.org/tx/0x5fd3f2f9e1d7ef3a6ad70b6151bc94b98dcdf9f0fef89c3a0c639172c29e76d0) | 16734951 |
 
 <!-- proof:lifecycle:end -->
 

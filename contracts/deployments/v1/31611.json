@@ -224,6 +224,16 @@
         "label": "bribe 20 MUSD on MUSD/mUSDC gauge (Mezo epoch 2026-11-05)",
         "hash": "0xef7ab6f4f99ef53b81d568de533ddd140711f8d86685113e787bb0a220a7919b",
         "block": 16664799
+      },
+      {
+        "label": "escrow claim loan #2: MUSD/mUSDC fees and bribes",
+        "hash": "0x4c69cd096ea6a5123de7357268541bb0bfd7ffaa9ac1565db00cf899cc3d057a",
+        "block": 16734948
+      },
+      {
+        "label": "escrow rebase claim loan #2 (veBTC #1731)",
+        "hash": "0x5fd3f2f9e1d7ef3a6ad70b6151bc94b98dcdf9f0fef89c3a0c639172c29e76d0",
+        "block": 16734951
       }
     ]
   }
