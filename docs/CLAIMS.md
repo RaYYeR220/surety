@@ -147,7 +147,7 @@ A claim can carry two tiers when both kinds of evidence exist. Claims 1 to 39 da
 | N13 | That APYs shown in the app or SDK are realised returns | They are estimates from the current rate curves and utilisation. |
 | N14 | MEZO incentives or more collateral lines | Roadmap items, not built. |
 | N15 | Outside users | Every wallet that has used Surety so far is the team's, the mainnet MUSD of claim 67 included, and the ledger labels them. Pending — outside wallets: the v2 app and its starter kits are live since 2026-11-09, and none has come yet. |
-| N17 | A meaningful yield from sMUSD | sMUSD's yield has been about 0.05% a year lately, and testnet sMUSD paid none during the v2 run. |
+| N17 | A meaningful yield from sMUSD | sMUSD's yield comes in lumps: close to zero from 23 Oct to 9 Nov apart from one payment, then 0.00086 MUSD on the vault's 2.5 MUSD over 10–12 Nov (about 5.6% a year); testnet sMUSD paid none during the v2 run. No steady rate is claimed. |
 | N18 | That the testnet peg reads a market | Testnet has no usable MUSD pool; its peg is one StressedPegSource that reads $1 unless someone overrides it. |
 | N20 | Contracts verified on Mezo's Blockscout explorer | Its verifier currently lists no Solidity compiler versions; the contracts are verified on Sourcify ([PROOF.md](PROOF.md#mezo-testnet-31611-v2)). |
 | N21 | A Slither run on v2 | The Slither triage covers v1's contracts at `09f1a49`. |

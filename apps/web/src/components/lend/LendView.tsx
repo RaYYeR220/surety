@@ -23,7 +23,7 @@ import { previewDeposit, previewWithdraw, readAllowance, type WalletState } from
 import styles from "./Lend.module.css";
 
 /** sMUSD's recent yield, for the honest label next to the parked cash (Mezo's MUSD Savings Rate, Nov 2026). */
-const SMUSD_YIELD_NOTE = "about 0.05% a year lately";
+const SMUSD_YIELD_NOTE = "comes in lumps: about 5.6% a year over 10–12 Nov, near zero before";
 
 /**
  * What a withdrawal can take right now: the position, up to the MUSD that is not lent out. VaultV2 answers zero to

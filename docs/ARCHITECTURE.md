@@ -178,7 +178,7 @@ Borrow APR of the veBTC line as a function of utilisation: 2% at 0%, rising line
 
 **Invariants.** `realAssets` never reverts, as VaultV2 requires: if sMUSD's views revert, it reports the MUSD held plus the sMUSD balance at the last deposit or withdrawal, without yield. A deposit or withdrawal that does not move sMUSD 1:1 reverts, and so does a deallocation sMUSD cannot pay, so VaultV2 never books a move that did not happen.
 
-**Trust.** sMUSD is an upgradeable proxy administered by Mezo; its owner can upgrade it or switch its strategy, and either can make withdrawals revert. The VoteAllocator's owner can then stop parking. Its yield has been about 0.05% a year lately ([docs/BUSINESS.md](BUSINESS.md)).
+**Trust.** sMUSD is an upgradeable proxy administered by Mezo; its owner can upgrade it or switch its strategy, and either can make withdrawals revert. The VoteAllocator's owner can then stop parking. Its yield comes in lumps ([docs/BUSINESS.md](BUSINESS.md)).
 
 ### ShareMarket
 

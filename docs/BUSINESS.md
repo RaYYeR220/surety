@@ -22,7 +22,7 @@ How each one is taken:
 - **Liquidation.** On a winning bid the line keeps the debt plus up to `liqFeeBps` of it. Of that fee `protocolShareBps` (20%) leaves the line: `keeperShareBps` (50%) of it to the address that called `startAuction`, the rest to the treasury. Lenders keep the other 80%. Anything above the debt and the fee goes back to the borrower. The trigger (65% LTV) and the floor (85% of the collateral value) leave an 18-point cushion, so an auction started at the trigger repays the debt plus the fee even if it clears at the floor.
 - **Management.** Morpho VaultV2's own management fee, 0.20% a year of total assets, minted as srMUSD to the treasury for the time elapsed. The deposit gate lets the treasury receive it even while new shares are held back after a loss; over a cover recognised in a week it dilutes that cover by about 0.0038%.
 - **Share market.** `ShareMarket.fill` sends `feeBps` of the price to the treasury from the seller's side: the buyer pays exactly the quoted price.
-- **Savings.** Idle MUSD is parked in Mezo's sMUSD. Its yield has been about 0.05% a year lately. The voters' fee on it goes to the pool reserve, not to any line's voters, and the rest raises the share price. It is not protocol income.
+- **Savings.** Idle MUSD is parked in Mezo's sMUSD. Its yield comes in lumps: close to zero from 23 Oct to 9 Nov apart from one payment, then 0.00086 MUSD on the vault's 2.5 MUSD over 10–12 Nov (about 5.6% a year). The voters' fee on it goes to the pool reserve, not to any line's voters, and the rest raises the share price. It is not protocol income.
 
 ## The treasury
 
