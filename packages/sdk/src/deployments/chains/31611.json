@@ -367,6 +367,16 @@
         "label": "Surety keeper: rebalance (epoch 07:00 UTC) on the 06:00 tally: 0.84 MUSD of line interest, the lenders' part of the liquidation fee included, attributed to cohort 06:00",
         "hash": "0x98e8c8207a98d16212b75c61013721707cd47b0847cdd5741797b296e3519301",
         "block": 16667832
+      },
+      {
+        "label": "Surety keeper: harvest loan #1 (auto-repay): 0.167637 MUSD claimed, 0.167637 repaid, rebase not booked yet",
+        "hash": "0x04bef77906dbad8690ea3a6a2a9d2dfa1b8ce5ff782236280976dcc4b36509e6",
+        "block": 16723410
+      },
+      {
+        "label": "keeper wallet: harvest loan #1 (auto-repay) again: nothing left to claim, no MUSD and no rebase",
+        "hash": "0xdf63560a2158cd0f91d02344bee158bb9f8bda56457d915007def9b3cbfc9e50",
+        "block": 16734960
       }
     ]
   }
