@@ -374,7 +374,7 @@
         "block": 16723410
       },
       {
-        "label": "keeper wallet: harvest loan #1 (auto-repay): 0.000000 MUSD of fees and bribes repay the loan, rebase compounds into the lock",
+        "label": "keeper wallet: harvest loan #1 (auto-repay) again: nothing left to claim, no MUSD and no rebase",
         "hash": "0xdf63560a2158cd0f91d02344bee158bb9f8bda56457d915007def9b3cbfc9e50",
         "block": 16734960
       }
