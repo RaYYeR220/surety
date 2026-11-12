@@ -117,7 +117,7 @@ Read on chain at block 13,178,340 (2026-11-12 13:41:56 UTC): the market on Mezo'
 
 **What changed**
 
-- `Sponsor` ([`contracts/src/testnet/Sponsor.sol`](contracts/src/testnet/Sponsor.sol), `48dbf5d`, `d038239`), testnet only: one starter kit per wallet, ever. A kit is 0.00005 BTC for gas, a 0.001 BTC veBTC lock created for the wallet (28 days) and 50 test MUSD; at most 100 kits a UTC day. Its constructor refuses Mezo mainnet.
+- `Sponsor` ([`contracts/src/testnet/Sponsor.sol`](contracts/src/testnet/Sponsor.sol), `48dbf5d`, `d038239`), testnet only: one starter kit per wallet, ever. A kit is 0.00005 BTC for gas, a 0.001 BTC veBTC lock created for the wallet (28 days) and 30 test MUSD (50 for the first two kits, before the Sponsor was refilled with 30 kits on 2026-11-09: [0x2c14…c3d9](https://explorer.test.mezo.org/tx/0x2c14404a75df34f412cbde09989a249c40afe7a928c885924d6932ad8691c3d9)); at most 100 kits a UTC day. Its constructor refuses Mezo mainnet.
 - The relayer that hands kits out: `POST /api/starter` ([`apps/web/api/starter.ts`](apps/web/api/starter.ts), `92bfa24`), which checks the address and the Sponsor's limits before sending and allows three requests per IP per ten minutes.
 - Try it (`/app/try`, `508edad`, `dbbc885`): creates a testnet key in the browser, claims the kit, borrows against the kit's veBTC, shows the loan and its escrow, turns on auto-repay, votes the escrowed veBTC on Mezo and repays. No extension, faucet or bridge.
 - The users ledger (`/app/ledger`, `b7411f6`, `02a2fcf`): every wallet that sent a successful transaction to a Surety contract or received a starter kit, on both networks and every deployment. Team wallets are listed in [`apps/web/src/lib/ledger.ts`](apps/web/src/lib/ledger.ts) and labelled, not hidden.
@@ -133,7 +133,7 @@ Pending — outside users. No outside wallet has borrowed yet: every wallet on t
 **Check it yourself**
 
 - `/app/ledger`, or the Sponsor's events on the explorer: [`0x085c…9BA8`](https://explorer.test.mezo.org/address/0x085c6e2a022363c8F8811C4242F32373055d9BA8).
-- `cast call 0x085c6e2a022363c8F8811C4242F32373055d9BA8 "kitsLeft()(uint256)" --rpc-url https://rpc.test.mezo.org` (4 on 2026-11-09).
+- `cast call 0x085c6e2a022363c8F8811C4242F32373055d9BA8 "kitsLeft()(uint256)" --rpc-url https://rpc.test.mezo.org` (30 after the refill on 2026-11-09; 2 kits issued, both to team wallets).
 - Test: `SponsorSuretyTest.test_newWalletBorrowsAndRepaysWithAStarterKit`.
 
 ## 4. A MUSD/USD price instead of $1

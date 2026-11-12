@@ -217,7 +217,7 @@ function TryView({ t }: { t: Testnet }) {
     <Stack gap={6}>
       <PageHead
         title="Try Surety on testnet"
-        lead="No wallet and nothing to install. A key kept in this browser signs for you, and a starter kit pays for everything: a little BTC for gas, a small veBTC lock to borrow against, and 50 test MUSD."
+        lead="No wallet and nothing to install. A key kept in this browser signs for you, and a starter kit pays for everything: a little BTC for gas, a small veBTC lock to borrow against, and some test MUSD."
       />
 
       {!onTestnet ? (

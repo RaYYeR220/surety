@@ -192,7 +192,7 @@ Borrow APR of the veBTC line as a function of utilisation: 2% at 0%, rising line
 
 ### Sponsor and the starter-kit relayer (testnet)
 
-**Purpose.** Lets a brand-new wallet try Surety on testnet with no setup. `starterKit(user)`, called by a relayer the owner names, sends the wallet 0.00005 BTC for gas (as native BTC), creates a 0.001 BTC veBTC lock for it (28 days, long enough to borrow) and sends 50 test MUSD. One kit per wallet ever, at most `dailyLimit` (100) a UTC day. The `StarterKit` events are the public ledger of who has tried it.
+**Purpose.** Lets a brand-new wallet try Surety on testnet with no setup. `starterKit(user)`, called by a relayer the owner names, sends the wallet 0.00005 BTC for gas (as native BTC), creates a 0.001 BTC veBTC lock for it (28 days, long enough to borrow) and sends 30 test MUSD (50 before the owner's `setKit` of 2026-11-09). One kit per wallet ever, at most `dailyLimit` (100) a UTC day. The `StarterKit` events are the public ledger of who has tried it.
 
 **Relayer.** `POST /api/starter` in the web app (`apps/web/api/starter.ts`), a serverless function holding the testnet relayer key. It checks the address, the Sponsor's limits and its own per-IP limit (three requests per ten minutes) before it simulates and sends.
 
