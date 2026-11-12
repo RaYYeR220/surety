@@ -23,14 +23,13 @@ export interface TeamWallet {
 }
 
 /**
- * Wallets run by the team. Their transactions are listed like any other, labelled as the team's.
- * The founder's own mainnet wallet goes in FOUNDER_MAINNET_WALLET once it has touched the contracts; more can be
- * added without a code change through NEXT_PUBLIC_TEAM_WALLETS ("0xabc…:Label,0xdef…:Label").
+ * Wallets run by the team. Their transactions are listed like any other, labelled as the team's. More can be added
+ * without a code change through NEXT_PUBLIC_TEAM_WALLETS ("0xabc…:Label,0xdef…:Label").
  */
-const FOUNDER_MAINNET_WALLET: Address | null = null;
-
 export const TEAM_WALLETS: TeamWallet[] = [
   { address: "0x37D5EDC6D74c9f6BfA98A2fed0A811B3B73AC282", label: "Deployer and keeper" },
+  // The founder's own wallet: the first real MUSD through the v2 mainnet vault (2026-11-10 to 2026-11-12).
+  { address: "0xF3B025ed707A50704f93658CA10797230AaFbC37", label: "Founder (mainnet)" },
   { address: "0x030E00FE424e98327332BC4f946975C4927c7DdC", label: "Starter-kit relayer" },
   // Role wallets of the v2 lifecycle run on testnet.
   { address: "0x38c4F040E1A6b76AB5F6d56A45612a79C565604c", label: "Lifecycle lender" },
@@ -41,7 +40,6 @@ export const TEAM_WALLETS: TeamWallet[] = [
   { address: "0xDB3cDA1EE42010fA2eb230fbD6d97E4409A56f4d", label: "Lifecycle share buyer" },
   { address: "0xc69cb7b6d6238DDdF47323B0BC57E99BF040A87E", label: "Lifecycle keeper" },
   { address: "0x7e87dc50afA869D03444cD3304A2FE28cCf5759a", label: "Lifecycle starter-kit wallet" },
-  ...(FOUNDER_MAINNET_WALLET ? [{ address: FOUNDER_MAINNET_WALLET, label: "Founder (mainnet)" }] : []),
   ...parseTeamEnv(process.env.NEXT_PUBLIC_TEAM_WALLETS),
 ];
 
