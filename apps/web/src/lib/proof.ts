@@ -83,9 +83,17 @@ export function deployedContracts(d: SuretyDeployment): { key: keyof SuretyContr
   });
 }
 
-/** Proof steps that exercise the loan escrow on Mezo: its vote, the bribe it earns, claims, rebase, harvest. */
+/**
+ * Proof steps that exercise the loan escrow on Mezo: its vote, the bribe it earns, claims, rebase, a loan harvest.
+ * (A savings harvest is not an escrow step.)
+ */
 export function isEscrowProof(label: string): boolean {
-  return /escrow|bribe|harvest|rebase|auto-repay/i.test(label);
+  return /escrow|bribe|harvest loan|rebase|auto-repay/i.test(label);
+}
+
+/** The steps of a mainnet proof worth showing first: money in, the split by votes, both loans, the escrow on Mezo. */
+export function isKeyMainnetStep(label: string): boolean {
+  return !/: approve /.test(label) && /: deposit|: rebalance|loan #\d+ opened|escrow vote|Morpho borrow|harvest loan/.test(label);
 }
 
 /** Anchor of a proof row on the proof page, e.g. "proof-v1-33" for step 33 of the v1 deployment. */

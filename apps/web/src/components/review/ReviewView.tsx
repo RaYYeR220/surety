@@ -8,6 +8,7 @@ import {
   isV2Deployment,
   MEZO_MAINNET_ID,
   MEZO_TESTNET_ID,
+  type ProofTx,
   type SuretyContracts,
   type SuretyDeployment,
 } from "@surety/sdk";
@@ -21,7 +22,7 @@ import { Muted, PageHead, Pill } from "@/components/ui/Bits";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import type { ReadyEnv } from "@/lib/env";
 import { formatBps, shortAddress, shortHash } from "@/lib/format";
-import { isEscrowProof, proofAnchor, repoFile, REPO_DOCS, REPO_URL, sourcifyUrl } from "@/lib/proof";
+import { isEscrowProof, isKeyMainnetStep, proofAnchor, repoFile, REPO_DOCS, REPO_URL, sourcifyUrl } from "@/lib/proof";
 import { useLineParams } from "@/lib/queries";
 
 import styles from "./Review.module.css";
@@ -43,10 +44,20 @@ const KEY_CONTRACTS: [keyof SuretyContracts, string][] = [
   ["shareMarket", "ShareMarket"],
 ];
 
+/** A recorded proof transaction with its deployment and its 1-based step number there. */
+interface Step {
+  d: SuretyDeployment;
+  t: ProofTx;
+  n: number;
+}
+
 function ReviewView({ env }: { env: ReadyEnv }) {
   const mainnet = getDeployment(MEZO_MAINNET_ID) ?? null;
   const testnetV1 = getDeployment(MEZO_TESTNET_ID, { version: 1 }) ?? null;
-  const escrowSteps = getDeployments(MEZO_TESTNET_ID).flatMap((d) =>
+  const mainnetSteps: Step[] = mainnet
+    ? mainnet.proof.txs.flatMap((t, i) => (isKeyMainnetStep(t.label) ? [{ d: mainnet, t, n: i + 1 }] : []))
+    : [];
+  const escrowSteps: Step[] = [...getDeployments(MEZO_MAINNET_ID), ...getDeployments(MEZO_TESTNET_ID)].flatMap((d) =>
     d.proof.txs.flatMap((t, i) => (isEscrowProof(t.label) ? [{ d, t, n: i + 1 }] : [])),
   );
   const params = useLineParams().data;
@@ -62,7 +73,7 @@ function ReviewView({ env }: { env: ReadyEnv }) {
           n={1}
           minutes="1 min"
           title="The live mainnet deployment"
-          what="Surety runs on Mezo mainnet with small caps. Open a contract on the explorer, then its verified source."
+          what="Surety runs on Mezo mainnet with small caps and real MUSD in it. Open a contract on the explorer, then its verified source, then the transactions that put the MUSD to work."
         >
           {mainnet ? (
             <Stack gap={3}>
@@ -71,6 +82,12 @@ function ReviewView({ env }: { env: ReadyEnv }) {
                 <span className="num">{mainnet.deployedAt.toString()}</span>
               </p>
               <ContractList d={mainnet} />
+              {mainnetSteps.length ? (
+                <>
+                  <p className={styles.meta}>Real MUSD through it, from the team&apos;s own wallet and keeper:</p>
+                  <StepList env={env} steps={mainnetSteps} />
+                </>
+              ) : null}
               <div className={styles.links}>
                 {env.mode === "live" ? (
                   <Button size="sm" variant="secondary" onClick={() => env.selectChain(MEZO_MAINNET_ID)} disabled={env.chainId === MEZO_MAINNET_ID}>
@@ -124,21 +141,7 @@ function ReviewView({ env }: { env: ReadyEnv }) {
           what="An escrowed veBTC voted on a Mezo gauge, earned a bribe, and its fees, bribes and rebase are claimed or harvested into repayment."
         >
           {escrowSteps.length ? (
-            <ul className={styles.steps}>
-              {escrowSteps.map(({ d, t, n }) => (
-                <li key={t.hash}>
-                  <span className={styles.stepLabel}>{t.label}</span>
-                  <span className={styles.stepLinks}>
-                    <ExtLink href={explorerUrl(d.chainId, "tx", t.hash)} label={shortHash(t.hash)} />
-                    {env.chainId === MEZO_TESTNET_ID && env.mode === "live" ? (
-                      <AppLink href={`/app/proof#${proofAnchor(d.version, n)}`} className={styles.small}>
-                        step {n}
-                      </AppLink>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <StepList env={env} steps={escrowSteps} network />
           ) : (
             <Muted small>The escrow steps appear here once they are recorded.</Muted>
           )}
@@ -270,6 +273,37 @@ function ExtLink({ href, label }: { href: string | null; label: ReactNode }) {
       <span aria-hidden="true"> ↗</span>
       <span className="sr-only"> (opens in a new tab)</span>
     </a>
+  );
+}
+
+/**
+ * Proof transactions with their explorer links, and a link to the step on the proof page when the app reads that
+ * network (the proof page lists the deployments of the network it reads). `network` tags each with its network.
+ */
+function StepList({ env, steps, network = false }: { env: ReadyEnv; steps: Step[]; network?: boolean }) {
+  return (
+    <ul className={styles.steps}>
+      {steps.map(({ d, t, n }) => (
+        <li key={t.hash}>
+          <span className={styles.stepLabel}>
+            {network ? (
+              <>
+                <Pill tone="outline">{d.chainId === MEZO_MAINNET_ID ? "Mainnet" : "Testnet"}</Pill>{" "}
+              </>
+            ) : null}
+            {t.label}
+          </span>
+          <span className={styles.stepLinks}>
+            <ExtLink href={explorerUrl(d.chainId, "tx", t.hash)} label={shortHash(t.hash)} />
+            {env.chainId === d.chainId && env.mode === "live" ? (
+              <AppLink href={`/app/proof#${proofAnchor(d.version, n)}`} className={styles.small}>
+                step {n}
+              </AppLink>
+            ) : null}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

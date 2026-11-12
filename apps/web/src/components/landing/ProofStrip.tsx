@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 
 import { CHAIN_NAMES } from "@/lib/networks";
-import { deployedContracts, SECURITY_REVIEW, sourcifyUrl, TEST_COUNTS } from "@/lib/proof";
+import { deployedContracts, isKeyMainnetStep, SECURITY_REVIEW, sourcifyUrl, TEST_COUNTS } from "@/lib/proof";
 
 import s from "./Landing.module.css";
 import styles from "./ProofStrip.module.css";
@@ -35,6 +35,9 @@ export function ProofStrip() {
   const shownChain = mainnet ? MEZO_MAINNET_ID : MEZO_TESTNET_ID;
   const contracts = shown ? deployedContracts(shown) : [];
   const txs = testnet?.proof.txs ?? [];
+  // The mainnet steps that move real MUSD, numbered as in the deployment file.
+  const mainnetTxs = mainnet?.proof.txs ?? [];
+  const mainnetSteps = mainnetTxs.flatMap((t, i) => (isKeyMainnetStep(t.label) ? [{ t, n: i + 1 }] : []));
   const review = SECURITY_REVIEW.counts;
 
   return (
@@ -80,6 +83,11 @@ export function ProofStrip() {
           <div>
             <span className={styles.k}>Mainnet</span>
             <span className={styles.v}>{mainnet ? "Live on Mezo mainnet" : "Deployed on Mezo mainnet"}</span>
+            {mainnetTxs.length ? (
+              <span className={styles.sub}>
+                Real MUSD in it: {mainnetTxs.length} transactions from the team&apos;s own wallet
+              </span>
+            ) : null}
             <span className={`${s.tag} ${mainnet ? s.tagLive : ""} ${styles.tag}`}>{mainnet ? "Deployed" : "Pending"}</span>
           </div>
           <div>
@@ -125,6 +133,26 @@ export function ProofStrip() {
               </p>
             )}
           </div>
+          {mainnetSteps.length ? (
+            <div className={styles.block}>
+              <h3>Mainnet, real MUSD · the team&apos;s own wallet and keeper</h3>
+              <ol className={styles.txs}>
+                {mainnetSteps.map(({ t, n }) => (
+                  <li key={t.hash}>
+                    <span className={styles.cn}>
+                      <span className={styles.tn}>{n}</span>
+                      {t.label}
+                    </span>
+                    <span className={styles.links}>
+                      <Ext href={explorerUrl(MEZO_MAINNET_ID, "tx", t.hash)} label={`${t.label}: transaction ${t.hash}`}>
+                        {short(t.hash)}
+                      </Ext>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
           <div className={styles.block}>
             <h3>
               Testnet proof transactions{txs.length ? ` · ${txs.length} so far, in the order they ran` : ""}
