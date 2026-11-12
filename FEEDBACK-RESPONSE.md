@@ -14,7 +14,7 @@ The v2 app is live at [surety-credit.vercel.app](https://surety-credit.vercel.ap
 
 | Wave 1 review point | Status on 2026-11-12 |
 | --- | --- |
-| [Escrow vote, fee/bribe and rebase claims on chain](#1-escrow-vote-feebribe-and-rebase-claims) | Done on testnet: escrow votes, bribes, the fee/bribe claim, the rebase claim and an auto-repay harvest that repaid a loan. On mainnet a loan's escrow votes on Mezo; its first harvest follows the Mezo flip on 2026-11-19 |
+| [Escrow vote, fee/bribe and rebase claims on chain](#1-escrow-vote-feebribe-and-rebase-claims) | Done on testnet: escrow votes, bribes, the fee/bribe claim, the rebase claim and an auto-repay harvest that paid down a loan. On mainnet a loan's escrow votes on Mezo; its first harvest follows the Mezo flip on 2026-11-19 |
 | [Real MUSD through the mainnet vault on Mezo's Morpho Blue](#2-real-musd-through-the-mainnet-vault-on-mezos-morpho-blue) | Done: 2.5 MUSD in the v2 mainnet vault, 1.125 MUSD of it supplied to Surety's market on Mezo's Morpho Blue (1 MUSD borrowed there) and 1 MUSD lent against veBTC; every contract verified |
 | [Outside users borrowing against veBTC](#3-outside-users-borrowing-against-vebtc) | Starter kits, Try it and the users ledger built and run on chain; no outside users yet |
 | [MUSD/USD price or depeg check](#4-a-musdusd-price-instead-of-1) | Done: MusdPeg, BtcMusdPriceSource, borrow breaker; a `PegUnhealthy` revert on testnet; the mainnet MusdPeg live on Mezo's pools and healthy |
